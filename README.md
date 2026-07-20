@@ -335,8 +335,8 @@ npx wrangler whoami
 Se a trava acusar conta errada, troque a sessao antes de publicar:
 
 ```bash
-firebase logout
-firebase login
+npm exec firebase -- logout
+npm exec firebase -- login
 
 npx wrangler logout
 npx wrangler login

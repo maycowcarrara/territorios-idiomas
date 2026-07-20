@@ -70,8 +70,16 @@ function run(command, args, cwd = projectRoot) {
   });
 }
 
+function getFirebaseCommand() {
+  const localBin = process.platform === 'win32'
+    ? path.join(projectRoot, 'node_modules', '.bin', 'firebase.cmd')
+    : path.join(projectRoot, 'node_modules', '.bin', 'firebase');
+
+  return fs.existsSync(localBin) ? localBin : 'firebase';
+}
+
 function runFirebase(args) {
-  return run('npx', ['firebase-tools', ...args]);
+  return run(getFirebaseCommand(), args);
 }
 
 function readJson(filePath) {
@@ -136,8 +144,8 @@ function checkFirebase(selectedInstance) {
       result.error?.message,
       output,
       'Entre na conta correta e tente novamente:',
-      '  npx firebase-tools logout',
-      '  npx firebase-tools login'
+      '  npm exec firebase -- logout',
+      '  npm exec firebase -- login'
     ]);
   }
 
@@ -159,8 +167,8 @@ function checkFirebase(selectedInstance) {
       loginSummary ? `Login atual:\n${loginSummary}` : null,
       'Provavelmente voce esta logado na conta errada.',
       'Troque a conta e rode o deploy de novo:',
-      '  npx firebase-tools logout',
-      '  npx firebase-tools login'
+      '  npm exec firebase -- logout',
+      '  npm exec firebase -- login'
     ]);
   }
 

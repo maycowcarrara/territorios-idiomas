@@ -1,7 +1,7 @@
 {
   "name": "territorios-idiomas",
   "private": true,
-  "version": "2.6.338",
+  "version": "3.0.340",
   "type": "module",
   "scripts": {
     "dev": "vite --mode idiomas",
@@ -54,13 +54,13 @@
     "guard:firebase:idiomas": "npm run guard:firebase",
     "guard:wrangler": "node scripts/check-deploy-auth.cjs wrangler idiomas --config wrangler.idiomas.toml --cwd workers/notifications-relay",
     "guard:wrangler:idiomas": "npm run guard:wrangler",
-    "deploy:rules": "npm run guard:firebase && npx firebase-tools deploy --project idiomas --only firestore:rules",
+    "deploy:rules": "npm run guard:firebase && firebase deploy --project idiomas --only firestore:rules",
     "deploy:rules:idiomas": "npm run deploy:rules",
-    "deploy:all": "npm run guard:firebase && npm run build && npm run android:version && npm run android:firebase && npm run android:sync && npm run live-update:bundle && npx firebase-tools deploy --project idiomas",
+    "deploy:all": "npm run guard:firebase && npm run build && npm run android:version && npm run android:firebase && npm run android:sync && npm run live-update:bundle && firebase deploy --project idiomas",
     "deploy:all:idiomas": "npm run deploy:all",
     "deploy": "npm run web:deploy",
     "deploy:idiomas": "npm run web:deploy",
-    "web:deploy": "npm run guard:firebase && npm run build && npm run live-update:bundle && npx firebase-tools deploy --project idiomas --only hosting:app",
+    "web:deploy": "npm run guard:firebase && npm run build && npm run live-update:bundle && firebase deploy --project idiomas --only hosting:app",
     "web:deploy:idiomas": "npm run web:deploy"
   },
   "dependencies": {
@@ -93,6 +93,7 @@
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "firebase-tools": "^15.24.0",
     "globals": "^17.7.0",
     "postcss": "^8.5.20",
     "tailwindcss": "^3.4.19",
