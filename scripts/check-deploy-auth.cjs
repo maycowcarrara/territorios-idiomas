@@ -70,6 +70,10 @@ function run(command, args, cwd = projectRoot) {
   });
 }
 
+function runFirebase(args) {
+  return run('npx', ['firebase-tools', ...args]);
+}
+
 function readJson(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -114,7 +118,7 @@ function collectProjectIds(value, ids = new Set()) {
 }
 
 function getFirebaseLoginSummary() {
-  const result = run('firebase', ['login:list']);
+  const result = runFirebase(['login:list']);
   const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
   return output ? output.split(/\r?\n/).slice(0, 8).join('\n') : '';
 }
@@ -124,7 +128,7 @@ function checkFirebase(selectedInstance) {
 
   info(`Verificando Firebase para "${selectedInstance}" (${expectedProjectId})...`);
 
-  const result = run('firebase', ['projects:list', '--json']);
+  const result = runFirebase(['projects:list', '--json']);
   const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
 
   if (result.error || result.status !== 0) {
@@ -132,8 +136,8 @@ function checkFirebase(selectedInstance) {
       result.error?.message,
       output,
       'Entre na conta correta e tente novamente:',
-      '  firebase logout',
-      '  firebase login'
+      '  npx firebase-tools logout',
+      '  npx firebase-tools login'
     ]);
   }
 
@@ -155,8 +159,8 @@ function checkFirebase(selectedInstance) {
       loginSummary ? `Login atual:\n${loginSummary}` : null,
       'Provavelmente voce esta logado na conta errada.',
       'Troque a conta e rode o deploy de novo:',
-      '  firebase logout',
-      '  firebase login'
+      '  npx firebase-tools logout',
+      '  npx firebase-tools login'
     ]);
   }
 

@@ -18,7 +18,13 @@ import {
   rememberPendingMagicLinkUrl,
   sendMagicLink
 } from './emailLinkAuth';
-import { ativarPushNotifications, desativarPushNotifications, describePushActivationError } from './pushNotifications';
+import {
+  ativarPushNotifications,
+  confirmarVerificacaoOneSignal,
+  desativarPushNotifications,
+  describePushActivationError,
+  ONESIGNAL_VERIFICATION_EVENT
+} from './pushNotifications';
 import { useUsuario } from './useUsuario';
 import appInfo from './version.json';
 import AutoUpdate from './AutoUpdate';
@@ -2082,6 +2088,7 @@ function Dashboard() {
   const [confirmarLogoutAberto, setConfirmarLogoutAberto] = useState(false);
   const [pushStatus, setPushStatus] = useState('oculto');
   const [ativandoPush, setAtivandoPush] = useState(false);
+  const [verificacaoOneSignal, setVerificacaoOneSignal] = useState(null);
   const [statusSyncAberto, setStatusSyncAberto] = useState(false);
   const [meusTerritoriosPrecarregados, setMeusTerritoriosPrecarregados] = useState(null);
   const { notify } = useUiFeedback();
@@ -2129,6 +2136,17 @@ function Dashboard() {
   }, [mapaOfflineFreshness.isExpired, notify]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handleOneSignalReady = (event) => {
+      setVerificacaoOneSignal(event.detail || {});
+    };
+
+    window.addEventListener(ONESIGNAL_VERIFICATION_EVENT, handleOneSignalReady);
+    return () => window.removeEventListener(ONESIGNAL_VERIFICATION_EVENT, handleOneSignalReady);
+  }, []);
+
+  useEffect(() => {
     if (!user || !autorizado || !Capacitor.isNativePlatform()) return;
 
     ativarPushNotifications(user).catch((error) => {
@@ -2166,7 +2184,38 @@ function Dashboard() {
     setAtivandoPush(true);
 
     try {
-      await ativarPushNotifications(user);
+      const resultado = await ativarPushNotifications(user);
+      if (resultado?.aguardandoConfirmacao) {
+        return;
+      }
+
+      setPushStatus(typeof Notification !== 'undefined' && Notification.permission === 'denied' ? 'bloqueado' : 'ativo');
+      notify({
+        title: 'Push ativado',
+        message: 'Este dispositivo receberá notificações.',
+        variant: 'success'
+      });
+    } catch (error) {
+      console.warn('Push notifications nao puderam ser ativadas:', error);
+      setPushStatus(typeof Notification !== 'undefined' && Notification.permission === 'denied' ? 'bloqueado' : 'desativado');
+      notify({
+        title: 'Push indisponível',
+        message: describePushActivationError(error),
+        variant: 'warning'
+      });
+    } finally {
+      setAtivandoPush(false);
+    }
+  };
+
+  const handleConfirmarVerificacaoOneSignal = async () => {
+    if (ativandoPush) return;
+
+    setAtivandoPush(true);
+
+    try {
+      await confirmarVerificacaoOneSignal();
+      setVerificacaoOneSignal(null);
       setPushStatus(typeof Notification !== 'undefined' && Notification.permission === 'denied' ? 'bloqueado' : 'ativo');
       notify({
         title: 'Push ativado',
@@ -2365,6 +2414,33 @@ function Dashboard() {
         onConfirmar={confirmarLogout}
         onCancelar={() => setConfirmarLogoutAberto(false)}
       />
+
+      {verificacaoOneSignal ? (
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="bg-blue-600 px-5 py-4 text-white">
+              <h3 className="text-lg font-black leading-tight">
+                {verificacaoOneSignal.title || 'Your OneSignal SDK integration is complete!'}
+              </h3>
+            </div>
+            <div className="p-5">
+              <p className="text-sm font-medium leading-6 text-slate-600">
+                {verificacaoOneSignal.message || 'You can now send Push Notifications & In-App Messages through OneSignal. Tap below to enable push notifications.'}
+              </p>
+            </div>
+            <div className="border-t border-slate-100 bg-slate-50 p-4">
+              <button
+                type="button"
+                onClick={handleConfirmarVerificacaoOneSignal}
+                disabled={ativandoPush}
+                className={buttonClass('primary', 'w-full')}
+              >
+                {ativandoPush ? 'Ativando...' : (verificacaoOneSignal.buttonLabel || 'Got it')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* CABEÇALHO */}
       <div className="relative z-20 flex-shrink-0">

@@ -2,15 +2,12 @@
   "name": "notifications-relay",
   "private": true,
   "scripts": {
-    "deploy": "npm run deploy:idiomas",
-    "deploy:idiomas": "node ../../scripts/check-deploy-auth.cjs wrangler idiomas --config wrangler.idiomas.toml --cwd . && wrangler deploy --config wrangler.idiomas.toml",
-    "deploy:general": "node ../../scripts/check-deploy-auth.cjs wrangler general --config wrangler.general.toml --cwd . && wrangler deploy --config wrangler.general.toml",
-    "dev": "npm run dev:idiomas",
-    "dev:idiomas": "wrangler dev --config wrangler.idiomas.toml",
-    "dev:general": "wrangler dev --config wrangler.general.toml",
-    "tail": "npm run tail:idiomas",
-    "tail:idiomas": "wrangler tail --config wrangler.idiomas.toml",
-    "tail:general": "wrangler tail --config wrangler.general.toml"
+    "deploy": "node ../../scripts/check-deploy-auth.cjs wrangler idiomas --config wrangler.idiomas.toml --cwd . && wrangler deploy --config wrangler.idiomas.toml",
+    "deploy:idiomas": "npm run deploy",
+    "dev": "wrangler dev --config wrangler.idiomas.toml",
+    "dev:idiomas": "npm run dev",
+    "tail": "wrangler tail --config wrangler.idiomas.toml",
+    "tail:idiomas": "npm run tail"
   },
   "devDependencies": {
     "wrangler": "^4.11.1"

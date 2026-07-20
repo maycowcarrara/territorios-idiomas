@@ -1,11 +1,12 @@
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { arrayRemove, arrayUnion, deleteField, doc, setDoc } from 'firebase/firestore';
-import NativeOneSignal from 'onesignal-cordova-plugin';
+import NativeOneSignal from '@onesignal/capacitor-plugin';
 import { db } from './firebase';
 
 const CANAL_PADRAO_ID = 'territorios-alertas';
 const ONESIGNAL_APP_ID = import.meta.env.VITE_ONESIGNAL_APP_ID || '';
+const ONESIGNAL_SAFARI_WEB_ID = import.meta.env.VITE_ONESIGNAL_SAFARI_WEB_ID || '';
 const APP_INSTANCE = import.meta.env.MODE || 'local';
 const FIREBASE_PROJECT_ID = import.meta.env.VITE_FIREBASE_PROJECT_ID || '';
 const APP_SHORT_NAME = import.meta.env.VITE_APP_SHORT_NAME || 'Territórios';
@@ -22,12 +23,22 @@ const ONESIGNAL_WELCOME_NOTIFICATION = {
     message: 'Notificações ativadas. Voce receberá comunicados e avisos por aqui.',
     url: '/'
 };
+export const ONESIGNAL_VERIFICATION_EVENT = 'onesignal:verification-ready';
+export const ONESIGNAL_VERIFICATION_DIALOG = {
+    title: 'Your OneSignal SDK integration is complete!',
+    message: 'You can now send Push Notifications & In-App Messages through OneSignal. Tap below to enable push notifications.',
+    buttonLabel: 'Got it'
+};
 let listenersRegistrados = false;
 let oneSignalNativoInicializado = false;
 let oneSignalWebInicializado = false;
 let oneSignalWebSdkPromise = null;
+let oneSignalWebSdkInstance = null;
 let emailUsuarioAtual = null;
 let ultimoTokenRegistrado = null;
+let oneSignalNativoSubscriptionObserver = null;
+let oneSignalWebSubscriptionObserver = null;
+let oneSignalVerificacaoPendente = null;
 
 const isLikelyContentBlockerError = (error) => {
     const message = String(error?.message || error || '').toLowerCase();
@@ -93,6 +104,59 @@ const getOneSignalTags = (email, plataforma) => ({
     app: APP_SHORT_NAME
 });
 
+const isSubscriptionIdReal = (subscriptionId) => {
+    const id = String(subscriptionId || '').trim();
+    return Boolean(id) && !id.startsWith('local-');
+};
+
+const getVerificationStorageKey = (plataforma, subscriptionId) =>
+    `onesignal-verification-shown:${ONESIGNAL_APP_ID}:${plataforma}:${subscriptionId || 'pending'}`;
+
+const getStoredVerificationShown = (plataforma, subscriptionId) => {
+    if (typeof window === 'undefined') return false;
+
+    try {
+        return window.localStorage.getItem(getVerificationStorageKey(plataforma, subscriptionId)) === '1';
+    } catch {
+        return false;
+    }
+};
+
+const setStoredVerificationShown = (plataforma, subscriptionId) => {
+    if (typeof window === 'undefined') return;
+
+    try {
+        window.localStorage.setItem(getVerificationStorageKey(plataforma, subscriptionId), '1');
+    } catch {
+        // Storage can be unavailable in restricted browser modes; the in-memory guard still prevents repeats.
+    }
+};
+
+const abrirDialogoVerificacaoOneSignal = ({ plataforma, subscriptionId = null } = {}) => {
+    if (typeof window === 'undefined' || !ONESIGNAL_APP_ID || oneSignalVerificacaoPendente) {
+        return false;
+    }
+
+    if (getStoredVerificationShown(plataforma, subscriptionId)) {
+        return false;
+    }
+
+    oneSignalVerificacaoPendente = {
+        plataforma,
+        subscriptionId
+    };
+
+    window.dispatchEvent(new CustomEvent(ONESIGNAL_VERIFICATION_EVENT, {
+        detail: {
+            ...ONESIGNAL_VERIFICATION_DIALOG,
+            plataforma,
+            subscriptionId
+        }
+    }));
+
+    return true;
+};
+
 const getRefUsuario = (email) => doc(db, 'usuarios', email.toLowerCase());
 
 const persistirTokenUsuario = async (email, token) => {
@@ -147,14 +211,6 @@ const registrarFcmNativo = async (user) => {
     await PushNotifications.register();
 };
 
-const registrarFcmFallbackNativo = async (user) => {
-    try {
-        await registrarFcmNativo(user);
-    } catch (error) {
-        console.warn('Nao foi possivel registrar o fallback FCM no Android:', error);
-    }
-};
-
 const desregistrarFcmNativo = async (email) => {
     if (!ehAndroidNativo()) return;
 
@@ -205,16 +261,54 @@ const garantirListenersPush = async () => {
     listenersRegistrados = true;
 };
 
-const garantirOneSignal = async () => {
-    if (oneSignalNativoInicializado || !oneSignalNativoDisponivel()) return;
+const avaliarOneSignalSubscriptionNativa = async (event) => {
+    const subscriptionId = event?.current?.id || await NativeOneSignal.User?.pushSubscription?.getIdAsync?.();
 
-    NativeOneSignal.initialize(ONESIGNAL_APP_ID);
+    if (!isSubscriptionIdReal(subscriptionId)) {
+        return false;
+    }
+
+    console.info('OneSignal Android subscription registrada:', { subscriptionId });
+    return abrirDialogoVerificacaoOneSignal({
+        plataforma: 'android',
+        subscriptionId
+    });
+};
+
+const avaliarOneSignalSubscriptionWeb = async (OneSignal, event) => {
+    const subscriptionId = event?.current?.id || await OneSignal.User?.pushSubscription?.getIdAsync?.();
+
+    if (!isSubscriptionIdReal(subscriptionId)) {
+        return false;
+    }
+
+    console.info('OneSignal Web subscription registrada:', { subscriptionId });
+    return abrirDialogoVerificacaoOneSignal({
+        plataforma: 'web',
+        subscriptionId
+    });
+};
+
+const garantirOneSignal = async () => {
+    if (!oneSignalNativoDisponivel()) return;
+
+    if (oneSignalNativoInicializado) {
+        await avaliarOneSignalSubscriptionNativa();
+        return;
+    }
+
+    await NativeOneSignal.initialize(ONESIGNAL_APP_ID);
     console.info('OneSignal Android inicializado:', ONESIGNAL_APP_ID);
 
-    if (NativeOneSignal.User?.pushSubscription?.addEventListener) {
-        NativeOneSignal.User.pushSubscription.addEventListener('change', (event) => {
+    if (NativeOneSignal.User?.pushSubscription?.addEventListener && !oneSignalNativoSubscriptionObserver) {
+        oneSignalNativoSubscriptionObserver = (event) => {
             console.info('OneSignal Android subscription alterada:', event);
-        });
+            avaliarOneSignalSubscriptionNativa(event).catch((error) => {
+                console.warn('Nao foi possível avaliar a subscription OneSignal Android:', error);
+            });
+        };
+
+        NativeOneSignal.User.pushSubscription.addEventListener('change', oneSignalNativoSubscriptionObserver);
     }
 
     if (NativeOneSignal.Notifications?.addEventListener) {
@@ -229,6 +323,7 @@ const garantirOneSignal = async () => {
     }
 
     oneSignalNativoInicializado = true;
+    await avaliarOneSignalSubscriptionNativa();
 };
 
 const carregarOneSignalWebSdk = () => {
@@ -257,10 +352,11 @@ const carregarOneSignalWebSdk = () => {
 };
 
 const garantirOneSignalWeb = async () => {
-    if (oneSignalWebInicializado || !oneSignalWebDisponivel()) return null;
+    if (!oneSignalWebDisponivel()) return null;
+    if (oneSignalWebInicializado && oneSignalWebSdkInstance) return oneSignalWebSdkInstance;
 
     const OneSignal = await carregarOneSignalWebSdk();
-    await OneSignal.init({
+    const initOptions = {
         appId: ONESIGNAL_APP_ID,
         serviceWorkerPath: ONESIGNAL_WEB_WORKER_PATH,
         serviceWorkerParam: {
@@ -275,10 +371,32 @@ const garantirOneSignalWeb = async () => {
                 }]
             }
         },
-        welcomeNotification: ONESIGNAL_WELCOME_NOTIFICATION
-    });
+        welcomeNotification: ONESIGNAL_WELCOME_NOTIFICATION,
+        notifyButton: {
+            enable: true
+        }
+    };
+
+    if (ONESIGNAL_SAFARI_WEB_ID) {
+        initOptions.safari_web_id = ONESIGNAL_SAFARI_WEB_ID;
+    }
+
+    await OneSignal.init(initOptions);
+
+    if (OneSignal.User?.pushSubscription?.addEventListener && !oneSignalWebSubscriptionObserver) {
+        oneSignalWebSubscriptionObserver = (event) => {
+            console.info('OneSignal Web subscription alterada:', event);
+            avaliarOneSignalSubscriptionWeb(OneSignal, event).catch((error) => {
+                console.warn('Nao foi possível avaliar a subscription OneSignal Web:', error);
+            });
+        };
+
+        OneSignal.User.pushSubscription.addEventListener('change', oneSignalWebSubscriptionObserver);
+    }
 
     oneSignalWebInicializado = true;
+    oneSignalWebSdkInstance = OneSignal;
+    await avaliarOneSignalSubscriptionWeb(OneSignal);
     return OneSignal;
 };
 
@@ -303,6 +421,52 @@ const solicitarPermissaoOneSignalWeb = async (OneSignal) => {
     }
 };
 
+const solicitarPermissaoOneSignalNativa = async () => {
+    if (!oneSignalNativoDisponivel()) return;
+
+    await garantirOneSignal();
+
+    if (NativeOneSignal.Notifications?.requestPermission) {
+        const aceitou = await NativeOneSignal.Notifications.requestPermission(false);
+        console.info('Permissão OneSignal Android:', aceitou);
+        if (!aceitou) {
+            throw new Error('Permissão de notificações não concedida no Android.');
+        }
+    }
+
+    if (NativeOneSignal.User?.pushSubscription?.optIn) {
+        await NativeOneSignal.User.pushSubscription.optIn();
+    }
+
+    await avaliarOneSignalSubscriptionNativa();
+};
+
+export const confirmarVerificacaoOneSignal = async () => {
+    const verificacao = oneSignalVerificacaoPendente;
+    if (!verificacao) return false;
+
+    setStoredVerificationShown(verificacao.plataforma, verificacao.subscriptionId);
+    oneSignalVerificacaoPendente = null;
+
+    if (verificacao.plataforma === 'android') {
+        await solicitarPermissaoOneSignalNativa();
+        return true;
+    }
+
+    if (verificacao.plataforma === 'web') {
+        const OneSignal = await garantirOneSignalWeb();
+        if (!OneSignal) return false;
+        await solicitarPermissaoOneSignalWeb(OneSignal);
+        const subscriptionId = await OneSignal.User?.pushSubscription?.getIdAsync?.();
+        if (isSubscriptionIdReal(subscriptionId)) {
+            setStoredVerificationShown(verificacao.plataforma, subscriptionId);
+        }
+        return true;
+    }
+
+    return false;
+};
+
 const ativarOneSignalNativo = async (user) => {
     emailUsuarioAtual = user.email.toLowerCase();
 
@@ -315,18 +479,6 @@ const ativarOneSignalNativo = async (user) => {
 
     if (NativeOneSignal.User?.addTags) {
         await NativeOneSignal.User.addTags(getOneSignalTags(emailUsuarioAtual, 'android'));
-    }
-
-    if (NativeOneSignal.Notifications?.requestPermission) {
-        const aceitou = await NativeOneSignal.Notifications.requestPermission(false);
-        console.info('Permissão OneSignal Android:', aceitou);
-        if (!aceitou) {
-            throw new Error('Permissão de notificações não concedida no Android.');
-        }
-    }
-
-    if (NativeOneSignal.User?.pushSubscription?.optIn) {
-        NativeOneSignal.User.pushSubscription.optIn();
     }
 
     try {
@@ -364,7 +516,18 @@ const ativarOneSignalWeb = async (user) => {
         await OneSignal.User.addTags(getOneSignalTags(emailUsuarioAtual, 'web'));
     }
 
+    const subscriptionId = await OneSignal.User?.pushSubscription?.getIdAsync?.();
+    const abriuDialogo = abrirDialogoVerificacaoOneSignal({
+        plataforma: 'web',
+        subscriptionId: isSubscriptionIdReal(subscriptionId) ? subscriptionId : null
+    });
+
+    if (abriuDialogo) {
+        return { aguardandoConfirmacao: true };
+    }
+
     await solicitarPermissaoOneSignalWeb(OneSignal);
+    return { aguardandoConfirmacao: false };
 };
 
 export const ativarPushNotifications = async (user) => {
@@ -372,18 +535,17 @@ export const ativarPushNotifications = async (user) => {
 
     if (oneSignalNativoDisponivel()) {
         await ativarOneSignalNativo(user);
-        await registrarFcmFallbackNativo(user);
-        return;
+        return { aguardandoConfirmacao: Boolean(oneSignalVerificacaoPendente) };
     }
 
     if (oneSignalWebDisponivel()) {
-        await ativarOneSignalWeb(user);
-        return;
+        return ativarOneSignalWeb(user);
     }
 
     if (!ehAndroidNativo()) return;
 
     await registrarFcmNativo(user);
+    return { aguardandoConfirmacao: false };
 };
 
 export const desativarPushNotifications = async (email) => {

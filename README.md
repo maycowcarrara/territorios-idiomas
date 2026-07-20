@@ -1,4 +1,4 @@
-# Territórios Palmas
+# Territórios Idiomas
 
 Sistema web para gestão de territórios de pregação, feito em React + Firebase e usado como PWA em celular e desktop. O app substitui cartões físicos, centraliza designações, marcação de quadras, observações por território e relatórios administrativos.
 
@@ -218,53 +218,32 @@ Crie o arquivo `src/firebase.js` com a inicialização do projeto e exporte `db`
 
 ### Configurar Firebase no Android
 
-Baixe o arquivo `google-services.json` do projeto Firebase Android com o pacote `br.com.territoriospalmas.app` e salve-o em `android/app/google-services.json`.
+Baixe o arquivo `google-services.json` do projeto Firebase Android de Idiomas e salve-o em `android/app/google-services.idiomas.json` ou `android/app/google-services-idiomas.json`.
 
-Esse arquivo fica apenas no ambiente local e não deve ser versionado no Git.
-
-Para mais de uma congregação, guarde um arquivo por instância:
-
-```text
-android/app/google-services.palmas.json
-android/app/google-services.general.json
-```
-
-O script também aceita nomes com hífen, como `android/app/google-services-general.json`.
-
-O arquivo ativo continua sendo `android/app/google-services.json`, mas ele é gerado localmente a partir da instância escolhida:
+Esse arquivo fica apenas no ambiente local e não deve ser versionado no Git. O arquivo ativo `android/app/google-services.json` é gerado localmente pelo script:
 
 ```bash
-npm run android:firebase:palmas
-npm run android:firebase:general
+npm run android:firebase
 ```
 
-Os scripts de build Android por congregação já fazem essa troca antes de sincronizar o Capacitor.
+Os scripts de build Android já fazem essa troca antes de sincronizar o Capacitor.
 
-O `applicationId` do APK/AAB é lido automaticamente do `package_name` do `google-services` selecionado. Assim, se uma congregação usar `br.com.territoriospalmas.app` e outra usar `br.com.territoriosgeneral.app`, os dois apps podem coexistir no mesmo aparelho.
+O `applicationId` do APK/AAB é lido automaticamente do `package_name` do `google-services` selecionado.
 
 ## Scripts
 
 ```bash
 npm run dev
-npm run dev:palmas
-npm run dev:general
 npm run lint
 npm run build
-npm run build:palmas
-npm run build:general
-npm run deploy
-npm run deploy:palmas
-npm run deploy:general
-npm run android:debug:palmas
-npm run android:debug:general
-npm run android:release:palmas
-npm run android:release:general
+npm run web:deploy
+npm run deploy:rules
+npm run worker:deploy
+npm run android:debug
+npm run android:release
 ```
 
-Os artefatos Android sao salvos com o nome da instancia ativa. Exemplos:
-`territorios-palmas-debug.apk`, `territorios-general-debug.apk`,
-`android-release/territorios-palmas-release.apk` e
-`android-release/territorios-general-release.aab`.
+Os artefatos Android sao salvos com o nome da instancia ativa, definida por `npm run android:firebase`.
 
 O `npm run android:sync` tambem sincroniza a config nativa do Capacitor,
 icones e splash com a instancia ativa selecionada pelo `android:firebase:*`.
@@ -281,31 +260,13 @@ npm exec --yes --package firebase-tools -- firebase emulators:exec --project ter
 
 Esse smoke cria usuarios temporarios no emulador e valida cadastro de enderecos, criacao/designacao/finalizacao de grupo e bloqueios de permissao.
 
-`npm run dev` e `npm run deploy` perguntam qual instância usar antes de continuar. Para automações ou quando já souber a congregação, use o script explícito, como `npm run dev:palmas`, `npm run dev:general`, `npm run deploy:palmas` ou `npm run deploy:general`.
+## Configuração de Idiomas
 
-Por padrão, `npm run build` ainda usa a instância `palmas`.
+O projeto está configurado para a instância Idiomas. O arquivo local esperado é `.env`, que não deve ser enviado ao Git.
 
-## Instâncias por Congregação
+O Firebase Hosting usa o target `app` em [firebase.json](./firebase.json), apontando para o site `territ-es-sbs` no projeto `territ-es-sul-sbs`.
 
-O projeto usa o mesmo código para mais de uma congregação, mas cada instância deve ter seu próprio projeto Firebase e seu próprio arquivo de ambiente local.
-
-Arquivos locais esperados:
-
-```text
-.env.palmas
-.env.general
-```
-
-Esses arquivos não devem ser enviados ao Git. O Vite usa o arquivo correto conforme o modo:
-
-```bash
-npm run build:palmas
-npm run build:general
-```
-
-O Firebase Hosting usa o target `app` em [firebase.json](./firebase.json), e o target aponta para um site diferente em cada projeto dentro de [.firebaserc](./.firebaserc).
-
-Cada arquivo de ambiente também deve definir `VITE_PUBLIC_APP_URL` e `VITE_LIVE_UPDATE_MANIFEST_URL` apontando para o Hosting da própria congregação. O app usa `VITE_PUBLIC_APP_URL` ao gerar links compartilháveis no WhatsApp e em PDFs; se ela ficar vazia, o fallback tenta inferir a URL a partir de `VITE_LIVE_UPDATE_MANIFEST_URL`.
+O `.env` também deve definir `VITE_PUBLIC_APP_URL` e `VITE_LIVE_UPDATE_MANIFEST_URL` apontando para o Hosting de Idiomas. O app usa `VITE_PUBLIC_APP_URL` ao gerar links compartilháveis no WhatsApp e em PDFs; se ela ficar vazia, o fallback tenta inferir a URL a partir de `VITE_LIVE_UPDATE_MANIFEST_URL`.
 
 Para login por link mágico no Android, a instância ativa também precisa manter coerentes:
 
@@ -317,16 +278,16 @@ O APK registra os dois hosts (`web.app` e `firebaseapp.com`, quando forem difere
 O link mágico é enviado diretamente pelo Firebase Authentication usando `sendSignInLinkToEmail`.
 Não configure EmailJS, Brevo ou outro provedor externo para esse fluxo; basta habilitar o provedor de link por e-mail no Firebase Auth e manter o domínio do Hosting autorizado.
 
-Cada instância também pode apontar para um mapa próprio com `VITE_MAPA_URL`. Em Idiomas, deixe `VITE_MAPA_URL` vazio para abrir apenas os endereços/grupos cadastrados no Firestore. Para o General, use `./mapa.general.json`; enquanto o mapa real não estiver pronto, esse arquivo pode ser uma `FeatureCollection` vazia.
+Em Idiomas, deixe `VITE_MAPA_URL` vazio para abrir apenas os endereços/grupos cadastrados no Firestore.
 
 ### Notificações
 
 As notificações internas usam a coleção `notificacoes` dentro do Firebase da instância ativa. O sininho mostra essas mensagens e também exibe um aviso in-app quando uma nova notificação chega com o app aberto.
 
-O push pelo OneSignal também é separado por instância:
+O push pelo OneSignal está configurado para a instância Idiomas:
 
-- `VITE_ONESIGNAL_APP_ID` fica em `.env.palmas` ou `.env.general` para inicializar o SDK no app correto.
-- O Worker de cada instância precisa dos secrets `ONESIGNAL_APP_ID` e `ONESIGNAL_REST_API_KEY`.
+- `VITE_ONESIGNAL_APP_ID` e `VITE_ONESIGNAL_SAFARI_WEB_ID` ficam em `.env` para inicializar o SDK no app Idiomas.
+- O Worker de Idiomas precisa dos secrets `ONESIGNAL_APP_ID` e `ONESIGNAL_REST_API_KEY`.
 - O app registra tags no OneSignal com `instancia` e `firebaseProjectId`, facilitando conferir no painel se o dispositivo está no ambiente correto.
 
 Para conferir os secrets do Worker de Idiomas:
@@ -336,43 +297,35 @@ cd workers/notifications-relay
 wrangler secret list --config wrangler.idiomas.toml
 ```
 
-Para inicializar o Firestore de uma instância nova:
-
-```bash
-npm run firestore:bootstrap:general
-```
-
-Para definir o primeiro admin:
-
-```bash
-npm run firestore:bootstrap:general -- --admin-email email@gmail.com --admin-name "Nome"
-```
-
-Quando o mapa real da instância estiver pronto, é possível criar os documentos base dos territórios:
-
-```bash
-npm run firestore:bootstrap:general -- --map ./public/mapa.general.json --seed-territories
-```
-
 ## Deploy
 
-Publicar aplicação:
+Publicar apenas o Hosting da aplicação:
 
 ```bash
-npm run deploy:palmas
-npm run deploy:general
+npm run web:deploy
 ```
 
 Publicar apenas as rules do Firestore:
 
 ```bash
-npm run deploy:rules:palmas
-npm run deploy:rules:general
+npm run deploy:rules
 ```
 
 Antes de qualquer deploy Firebase, os scripts rodam uma trava com `firebase projects:list --json` e bloqueiam se a conta ativa nao tiver acesso ao projeto esperado em `.firebaserc`.
 
-Antes de qualquer deploy do Worker, os scripts rodam uma trava com `npx wrangler whoami` e bloqueiam se o `account_id` esperado nao aparecer na conta Cloudflare ativa. Idiomas usa `workers/notifications-relay/wrangler.idiomas.toml`; General usa `workers/notifications-relay/wrangler.general.toml`. Se alguma instância mudar de conta Cloudflare, entre na conta correta e atualize o `account_id` do arquivo da instância:
+Publicar tudo que está em `firebase.json`:
+
+```bash
+npm run deploy:all
+```
+
+Publicar o Worker de notificações:
+
+```bash
+npm run worker:deploy
+```
+
+Antes de qualquer deploy do Worker, os scripts rodam uma trava com `npx wrangler whoami` e bloqueiam se o `account_id` esperado nao aparecer na conta Cloudflare ativa. Idiomas usa `workers/notifications-relay/wrangler.idiomas.toml`. Se a instância mudar de conta Cloudflare, entre na conta correta e atualize o `account_id` do arquivo da instância:
 
 ```bash
 cd workers/notifications-relay
@@ -418,31 +371,11 @@ npm run dev -- --host
 
 Em Idiomas, o app não usa mais `public/mapa.json` como base inicial. Com `VITE_MAPA_URL` vazio, o mapa abre sem polígonos importados e mostra somente os endereços/grupos cadastrados.
 
-O arquivo `public/mapa.json` permanece apenas como legado. Instâncias que ainda usam territórios/quadras por GeoJSON devem apontar explicitamente `VITE_MAPA_URL` para o arquivo desejado.
+O arquivo `public/mapa.json` permanece apenas como legado. Se a instância voltar a usar territórios/quadras por GeoJSON, aponte explicitamente `VITE_MAPA_URL` para o arquivo desejado.
 
 Também existe um fluxo auxiliar em `kmz/` para conversão de arquivos de origem para o formato usado pelo sistema.
 
-Para Palmas, o conversor antigo fica em `kmz/conversor.py`.
-
-Para General Carneiro, coloque os KMZs em `kmz/general/` e rode:
-
-```bash
-python kmz/conversor_general.py kmz/general
-```
-
-O conversor de General gera `public/mapa.general.json`. Ele usa `Shapely`, entao o ambiente Python precisa ter a dependencia instalada:
-
-```bash
-python -m pip install shapely
-```
-
 Veja o passo a passo completo em [kmz/README.md](./kmz/README.md).
-
-Importante: `npm run deploy:general` nao roda o bootstrap do Firestore. Se for necessario criar os documentos base da colecao `territorios` a partir do mapa, rode separadamente:
-
-```bash
-npm run firestore:bootstrap:general -- --map ./public/mapa.general.json --seed-territories
-```
 
 ## Observações de Produto
 
@@ -453,4 +386,4 @@ npm run firestore:bootstrap:general -- --map ./public/mapa.general.json --seed-t
 
 ## Licença
 
-Projeto desenvolvido para uso local em Palmas-PR.
+Projeto desenvolvido para uso local da congregação de Idiomas.

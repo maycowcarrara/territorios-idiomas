@@ -8,7 +8,7 @@ Worker Cloudflare para:
 - enviar push pelo OneSignal usando o e-mail do usuário como `external_id`
 - usar FCM como fallback se OneSignal não estiver configurado
 
-## Segredos por instância
+## Segredos de Idiomas
 
 Defina no Worker:
 
@@ -17,24 +17,13 @@ Defina no Worker:
 - `ONESIGNAL_APP_ID`
 - `ONESIGNAL_REST_API_KEY`
 
-Cada congregação tem um Worker separado. Use sempre o arquivo de config da instância para evitar gravar secret no Worker errado.
-
-Idiomas:
+Use sempre o arquivo de config de Idiomas para evitar gravar secret no Worker errado.
 
 ```bash
 wrangler secret put GOOGLE_SERVICE_ACCOUNT_EMAIL --config wrangler.idiomas.toml
 wrangler secret put GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY --config wrangler.idiomas.toml
 wrangler secret put ONESIGNAL_APP_ID --config wrangler.idiomas.toml
 wrangler secret put ONESIGNAL_REST_API_KEY --config wrangler.idiomas.toml
-```
-
-General:
-
-```bash
-wrangler secret put GOOGLE_SERVICE_ACCOUNT_EMAIL --config wrangler.general.toml
-wrangler secret put GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY --config wrangler.general.toml
-wrangler secret put ONESIGNAL_APP_ID --config wrangler.general.toml
-wrangler secret put ONESIGNAL_REST_API_KEY --config wrangler.general.toml
 ```
 
 Para conferir apenas quais secrets existem, sem exibir os valores:
@@ -49,7 +38,7 @@ O login por link mágico não usa este Worker. O app envia o e-mail diretamente 
 
 ## Variaveis
 
-Ja previstas nos arquivos `wrangler.idiomas.toml` e `wrangler.general.toml`:
+Ja previstas no arquivo `wrangler.idiomas.toml`:
 
 - `FIREBASE_PROJECT_ID`
 - `PUBLIC_APP_URL`
