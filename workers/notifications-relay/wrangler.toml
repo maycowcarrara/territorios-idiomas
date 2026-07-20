@@ -3,5 +3,5 @@ main = "src/index.js"
 compatibility_date = "2026-04-04"
 
 [vars]
-FIREBASE_PROJECT_ID = "territorios-idiomas"
-PUBLIC_APP_URL = "https://territorios-idiomas.web.app"
+FIREBASE_PROJECT_ID = "territ-es-sul-sbs"
+PUBLIC_APP_URL = "https://territ-es-sbs.web.app"

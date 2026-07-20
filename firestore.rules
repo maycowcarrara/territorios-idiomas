@@ -92,6 +92,211 @@ service cloud.firestore {
       ];
     }
 
+    function camposEndereco() {
+      return [
+        'codigo',
+        'status',
+        'grupoId',
+        'grupoCodigo',
+        'lat',
+        'lng',
+        'geohash',
+        'endereco',
+        'quantidadeEstrangeiros',
+        'observacao',
+        'origem',
+        'importacaoId',
+        'criadoEm',
+        'criadoPor',
+        'atualizadoEm',
+        'atualizadoPor',
+        'arquivadoEm',
+        'arquivadoPor'
+      ];
+    }
+
+    function camposGrupoEndereco() {
+      return [
+        'codigo',
+        'nome',
+        'status',
+        'enderecoIds',
+        'totalEnderecos',
+        'totalEstrangeiros',
+        'centro',
+        'bounds',
+        'designadoPara',
+        'designadoNome',
+        'dataDesignacao',
+        'designacaoId',
+        'cicloAtual',
+        'enderecos_visitados',
+        'historico',
+        'ultimaConclusao',
+        'ultimaAlteracao',
+        'criadoEm',
+        'criadoPor',
+        'atualizadoEm',
+        'atualizadoPor',
+        'arquivadoEm',
+        'arquivadoPor'
+      ];
+    }
+
+    function textoOpcionalValido(valor, limite) {
+      return valor == null || (valor is string && valor.size() <= limite);
+    }
+
+    function pontoMapaValido(valor) {
+      return valor == null ||
+             (
+               valor is map &&
+               valor.keys().hasOnly(['lat', 'lng']) &&
+               valor.lat is number &&
+               valor.lat >= -90 &&
+               valor.lat <= 90 &&
+               valor.lng is number &&
+               valor.lng >= -180 &&
+               valor.lng <= 180
+             );
+    }
+
+    function boundsMapaValido(valor) {
+      return valor == null ||
+             (
+               valor is map &&
+               valor.keys().hasOnly(['minLat', 'minLng', 'maxLat', 'maxLng']) &&
+               valor.minLat is number &&
+               valor.minLat >= -90 &&
+               valor.minLat <= 90 &&
+               valor.maxLat is number &&
+               valor.maxLat >= -90 &&
+               valor.maxLat <= 90 &&
+               valor.minLng is number &&
+               valor.minLng >= -180 &&
+               valor.minLng <= 180 &&
+               valor.maxLng is number &&
+               valor.maxLng >= -180 &&
+               valor.maxLng <= 180
+             );
+    }
+
+    function enderecoDocumentoValido() {
+      return request.resource.data.keys().hasOnly(camposEndereco()) &&
+             request.resource.data.codigo is string &&
+             request.resource.data.codigo.matches('^E-[0-9]{4,}$') &&
+             request.resource.data.status in ['ativo', 'arquivado'] &&
+             (request.resource.data.grupoId == null || request.resource.data.grupoId is string) &&
+             (request.resource.data.grupoCodigo == null || request.resource.data.grupoCodigo is string) &&
+             request.resource.data.lat is number &&
+             request.resource.data.lat >= -90 &&
+             request.resource.data.lat <= 90 &&
+             request.resource.data.lng is number &&
+             request.resource.data.lng >= -180 &&
+             request.resource.data.lng <= 180 &&
+             textoOpcionalValido(request.resource.data.geohash, 24) &&
+             request.resource.data.endereco is string &&
+             request.resource.data.endereco.size() > 0 &&
+             request.resource.data.endereco.size() <= 220 &&
+             request.resource.data.quantidadeEstrangeiros is int &&
+             request.resource.data.quantidadeEstrangeiros >= 0 &&
+             request.resource.data.quantidadeEstrangeiros <= 99 &&
+             textoOpcionalValido(request.resource.data.observacao, 2000) &&
+             request.resource.data.origem in ['manual', 'json', 'importacao'] &&
+             textoOpcionalValido(request.resource.data.importacaoId, 120) &&
+             request.resource.data.criadoEm is timestamp &&
+             request.resource.data.criadoPor is string &&
+             request.resource.data.atualizadoEm is timestamp &&
+             request.resource.data.atualizadoPor is string &&
+             (request.resource.data.arquivadoEm == null || request.resource.data.arquivadoEm is timestamp) &&
+             (request.resource.data.arquivadoPor == null || request.resource.data.arquivadoPor is string);
+    }
+
+    function podeCriarEndereco() {
+      return isAdmin() &&
+             enderecoDocumentoValido() &&
+             request.resource.data.status == 'ativo' &&
+             request.resource.data.origem == 'manual' &&
+             request.resource.data.criadoPor == meuEmail() &&
+             request.resource.data.atualizadoPor == meuEmail() &&
+             request.resource.data.arquivadoEm == null &&
+             request.resource.data.arquivadoPor == null;
+    }
+
+    function podeAtualizarEndereco() {
+      return isAdmin() &&
+             enderecoDocumentoValido() &&
+             request.resource.data.codigo == resource.data.codigo &&
+             request.resource.data.lat == resource.data.lat &&
+             request.resource.data.lng == resource.data.lng &&
+             request.resource.data.origem == resource.data.origem &&
+             request.resource.data.importacaoId == resource.data.importacaoId &&
+             request.resource.data.criadoEm == resource.data.criadoEm &&
+             request.resource.data.criadoPor == resource.data.criadoPor &&
+             request.resource.data.atualizadoPor == meuEmail();
+    }
+
+    function grupoEnderecoDocumentoValido() {
+      return request.resource.data.keys().hasOnly(camposGrupoEndereco()) &&
+             request.resource.data.codigo is string &&
+             request.resource.data.codigo.matches('^T-[0-9]{3,}$') &&
+             request.resource.data.nome is string &&
+             request.resource.data.nome.size() > 0 &&
+             request.resource.data.nome.size() <= 120 &&
+             request.resource.data.status in ['ativo', 'arquivado', 'finalizado'] &&
+             request.resource.data.enderecoIds is list &&
+             request.resource.data.enderecoIds.size() <= 200 &&
+             request.resource.data.totalEnderecos is int &&
+             request.resource.data.totalEnderecos >= 0 &&
+             request.resource.data.totalEnderecos <= 200 &&
+             request.resource.data.totalEstrangeiros is int &&
+             request.resource.data.totalEstrangeiros >= 0 &&
+             request.resource.data.totalEstrangeiros <= 2000 &&
+             pontoMapaValido(request.resource.data.centro) &&
+             boundsMapaValido(request.resource.data.bounds) &&
+             textoOpcionalValido(request.resource.data.designadoPara, 180) &&
+             textoOpcionalValido(request.resource.data.designadoNome, 180) &&
+             (request.resource.data.dataDesignacao == null || request.resource.data.dataDesignacao is timestamp) &&
+             textoOpcionalValido(request.resource.data.designacaoId, 120) &&
+             (request.resource.data.cicloAtual == null || request.resource.data.cicloAtual is map) &&
+             request.resource.data.enderecos_visitados is list &&
+             request.resource.data.historico is list &&
+             (request.resource.data.ultimaConclusao == null || request.resource.data.ultimaConclusao is timestamp) &&
+             (request.resource.data.ultimaAlteracao == null || request.resource.data.ultimaAlteracao is timestamp) &&
+             request.resource.data.criadoEm is timestamp &&
+             request.resource.data.criadoPor is string &&
+             request.resource.data.atualizadoEm is timestamp &&
+             request.resource.data.atualizadoPor is string &&
+             (request.resource.data.arquivadoEm == null || request.resource.data.arquivadoEm is timestamp) &&
+             (request.resource.data.arquivadoPor == null || request.resource.data.arquivadoPor is string);
+    }
+
+    function podeCriarGrupoEndereco() {
+      return isAdmin() &&
+             grupoEnderecoDocumentoValido() &&
+             request.resource.data.status == 'ativo' &&
+             request.resource.data.designadoPara == null &&
+             request.resource.data.designadoNome == null &&
+             request.resource.data.dataDesignacao == null &&
+             request.resource.data.designacaoId == null &&
+             request.resource.data.cicloAtual == null &&
+             request.resource.data.enderecos_visitados.size() == 0 &&
+             request.resource.data.historico.size() == 0 &&
+             request.resource.data.criadoPor == meuEmail() &&
+             request.resource.data.atualizadoPor == meuEmail() &&
+             request.resource.data.arquivadoEm == null &&
+             request.resource.data.arquivadoPor == null;
+    }
+
+    function podeAtualizarGrupoEndereco() {
+      return isAdmin() &&
+             grupoEnderecoDocumentoValido() &&
+             request.resource.data.codigo == resource.data.codigo &&
+             request.resource.data.criadoEm == resource.data.criadoEm &&
+             request.resource.data.criadoPor == resource.data.criadoPor &&
+             request.resource.data.atualizadoPor == meuEmail();
+    }
+
     function docIdTerritorioContexto(contextoId, territorioBaseId) {
       return contextoId + '__' + territorioBaseId;
     }
@@ -287,6 +492,39 @@ service cloud.firestore {
       allow create: if isAdmin();
       allow update: if isAdmin() || podeAtualizarContextoDesignado();
       allow delete: if isAdmin();
+    }
+
+    match /enderecos/{enderecoId} {
+      allow read: if isAprovado();
+      allow create: if podeCriarEndereco();
+      allow update: if podeAtualizarEndereco();
+      allow delete: if false;
+    }
+
+    match /grupos_enderecos/{grupoId} {
+      allow read: if isAprovado();
+      allow create: if podeCriarGrupoEndereco();
+      allow update: if podeAtualizarGrupoEndereco();
+      allow delete: if false;
+    }
+
+    match /contadores/{contadorId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() &&
+                            contadorId == 'codigos' &&
+                            request.resource.data.keys().hasOnly([
+                              'proximoEndereco',
+                              'proximoGrupoEndereco',
+                              'atualizadoEm'
+                            ]) &&
+                            (!('proximoEndereco' in request.resource.data) ||
+                              (request.resource.data.proximoEndereco is int &&
+                               request.resource.data.proximoEndereco > 0)) &&
+                            (!('proximoGrupoEndereco' in request.resource.data) ||
+                              (request.resource.data.proximoGrupoEndereco is int &&
+                               request.resource.data.proximoGrupoEndereco > 0)) &&
+                            request.resource.data.atualizadoEm is timestamp;
+      allow delete: if false;
     }
 
     match /configuracoes/{docId} {

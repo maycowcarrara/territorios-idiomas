@@ -113,6 +113,10 @@ Quando o usuário está online, o app mostra uma barra discreta de salvamento ab
 
 ## Estrutura de Dados
 
+### Planejamento para Territorios Idiomas
+
+O plano tecnico para evoluir esta instancia para cadastro de enderecos, agrupamento em territorios de idioma e designacao desses grupos esta em [docs/planejamento-territorios-idiomas-enderecos.md](./docs/planejamento-territorios-idiomas-enderecos.md).
+
 ### Coleções principais
 
 - `usuarios`

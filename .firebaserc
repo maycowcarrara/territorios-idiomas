@@ -1,14 +1,14 @@
 {
   "projects": {
-    "default": "territorios-idiomas",
-    "idiomas": "territorios-idiomas",
+    "default": "territ-es-sul-sbs",
+    "idiomas": "territ-es-sul-sbs",
     "general": "territ-gc"
   },
   "targets": {
-    "territorios-idiomas": {
+    "territ-es-sul-sbs": {
       "hosting": {
         "app": [
-          "territorios-idiomas"
+          "territ-es-sbs"
         ]
       }
     },

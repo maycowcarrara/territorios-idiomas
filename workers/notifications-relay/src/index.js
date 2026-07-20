@@ -301,7 +301,7 @@ const firestoreDocumentName = (env, path) =>
 const firestoreCommitUrl = (env) =>
     `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`;
 
-const getPublicAppUrl = (env) => String(env.PUBLIC_APP_URL || 'https://territorios-idiomas.web.app').replace(/\/$/, '');
+const getPublicAppUrl = (env) => String(env.PUBLIC_APP_URL || 'https://territ-es-sbs.web.app').replace(/\/$/, '');
 const getAppDisplayName = (env) => String(env.APP_DISPLAY_NAME || 'Territórios').trim() || 'Territórios';
 const getAppSubtitle = (env) => String(env.APP_SUBTITLE || '').trim();
 const getAppIconPath = (env) => String(env.APP_ICON_PATH || '/icon-192.png').trim() || '/icon-192.png';

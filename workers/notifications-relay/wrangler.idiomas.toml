@@ -6,8 +6,8 @@ compatibility_date = "2026-04-04"
 account_id = "bc54e1bbe352496f81da54a08dea8e01"
 
 [vars]
-FIREBASE_PROJECT_ID = "territorios-idiomas"
-PUBLIC_APP_URL = "https://territorios-idiomas.web.app"
+FIREBASE_PROJECT_ID = "territ-es-sul-sbs"
+PUBLIC_APP_URL = "https://territ-es-sbs.web.app"
 APP_DISPLAY_NAME = "Territórios Idiomas"
 APP_SUBTITLE = "Congregação de Idiomas"
 APP_ICON_PATH = "/icon-192.png"
