@@ -627,7 +627,6 @@ const MarcadorUsuario = ({ posicao, direcao }) => {
                 frameAnimacaoRef.current = null;
             }
             posicaoAnimadaRef.current = null;
-            // eslint-disable-next-line react-hooks/set-state-in-effect
             setPosicaoAnimada(null);
             return undefined;
         }
