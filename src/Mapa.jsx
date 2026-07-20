@@ -54,6 +54,8 @@ import L from 'leaflet';
 import { useUiFeedback } from './uiFeedback';
 import { enviarEventoNotificacao } from './notificationRelay';
 
+const normalizeEmailValue = (value) => String(value || '').trim().toLowerCase();
+
 // --- CSS ---
 const cssTooltip = `
   @keyframes gps-pulse {
@@ -77,7 +79,7 @@ const cssTooltip = `
   .map-address-marker.archived { background: #64748b; opacity: 0.82; }
   .map-address-marker.focus-pending { background: #0f766e; transform: scale(1.08); }
   .map-address-marker.focus-done { background: #16a34a; transform: scale(1.08); }
-  .map-group-marker { min-width: 38px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: #4338ca; color: white; border: 3px solid white; box-shadow: 0 4px 14px rgba(15,23,42,0.38); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 6px; white-space: nowrap; }
+  .map-group-marker { min-width: 44px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: #4338ca; color: white; border: 3px solid white; box-shadow: 0 4px 14px rgba(15,23,42,0.38); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 7px; white-space: nowrap; }
   .map-group-marker.archived { background: #475569; opacity: 0.86; }
   .map-click-marker { width: 28px; height: 28px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: #2563eb; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(37,99,235,0.35); font-size: 16px; line-height: 1; font-weight: 900; }
   .control-hint { position: absolute; z-index: 20; top: 50%; transform: translateY(-50%); white-space: nowrap; border-radius: 999px; background: rgba(15,23,42,0.72); color: white; font-size: 11px; font-weight: 700; line-height: 1; padding: 7px 10px; box-shadow: 0 6px 16px rgba(15,23,42,0.18); pointer-events: none; animation: control-hint-fade 4s ease-in-out forwards; }
@@ -269,23 +271,6 @@ const SeletorCamadas = ({
             <div className="relative">
                 <button onClick={alternarCamada} className={`map-layer-btn ${classeBotao}`} title={tituloBotao} />
                 {mostrarDicas && <span className="control-hint left-side">Mudar mapa</span>}
-            </div>
-        </div>
-    );
-};
-
-const ControleVisibilidade = ({ ocultarCores, setOcultarCores, mostrarDicas }) => {
-    return (
-        <div className="absolute top-4 right-4 z-[400] flex flex-col gap-2">
-            <div className="relative">
-                <button onClick={() => setOcultarCores(!ocultarCores)} className={`w-12 h-12 flex items-center justify-center rounded-full shadow-xl border transition-all duration-200 active:scale-95 ${ocultarCores ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-slate-500 border-slate-300'}`} title={ocultarCores ? "Mostrar Cores" : "Ocultar Cores (Ver Mapa)"}>
-                    {ocultarCores ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
-                    )}
-                </button>
-                {mostrarDicas && <span className="control-hint right-side">Ocultar cores</span>}
             </div>
         </div>
     );
@@ -1339,7 +1324,7 @@ const EnderecoMarker = ({
                                 disabled={!canMarkVisited}
                                 className={`rounded-lg px-3 py-2 text-xs font-extrabold transition disabled:opacity-50 ${isVisited ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
                             >
-                                {isVisited ? 'Desmarcar' : 'Pregado'}
+                                {isVisited ? 'Desmarcar' : 'Marcar pregado'}
                             </button>
                         </div>
                     ) : (
@@ -1372,6 +1357,25 @@ const buildGrupoBoundsPositions = (bounds) => {
         [maxLat, maxLng],
         [maxLat, minLng]
     ];
+};
+
+const resolveGrupoEnderecoCentro = (grupo, enderecosGrupo = []) => {
+    const latGrupo = Number(grupo?.centro?.lat);
+    const lngGrupo = Number(grupo?.centro?.lng);
+    if (Number.isFinite(latGrupo) && Number.isFinite(lngGrupo)) {
+        return { lat: latGrupo, lng: lngGrupo };
+    }
+
+    const enderecoCentro = enderecosGrupo.find((endereco) => (
+        Number.isFinite(Number(endereco.lat)) && Number.isFinite(Number(endereco.lng))
+    ));
+
+    if (!enderecoCentro) return null;
+
+    return {
+        lat: Number(enderecoCentro.lat),
+        lng: Number(enderecoCentro.lng)
+    };
 };
 
 const FocoGrupoEnderecoMapController = ({ grupoId, enderecos }) => {
@@ -1420,14 +1424,17 @@ const GrupoEnderecoLayer = ({
     const arquivado = grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO;
     const progresso = getGrupoEnderecoProgresso(grupo);
     const visitados = new Set(grupo.enderecos_visitados || []);
-    const userEmail = String(user?.email || '').toLowerCase();
-    const isMeu = grupo.designadoPara === userEmail;
-    const podeExecutar = isMeu && isOnline && !arquivado && !progresso.isFinalizado;
+    const userEmail = normalizeEmailValue(user?.email);
+    const isMeu = normalizeEmailValue(grupo.designadoPara) === userEmail;
+    const podeExecutar = (isAdmin || isMeu) && isOnline && !arquivado && !progresso.isFinalizado;
     const [usuarioSelecionado, setUsuarioSelecionado] = useState('');
     const [loadingAction, setLoadingAction] = useState(false);
     const [menuAberto, setMenuAberto] = useState(false);
     const [enderecosModalAberto, setEnderecosModalAberto] = useState(false);
-    const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id);
+    const codigoPreferencial = formatGrupoEnderecoCodigoExibicao(grupo.codigo);
+    const codigoExibicao = /^T-\d+$/i.test(codigoPreferencial)
+        ? codigoPreferencial
+        : formatGrupoEnderecoCodigoExibicao(grupo.id) || codigoPreferencial || 'T';
     const nomeExibicao = formatGrupoEnderecoNomeExibicao(grupo.nome, grupo.codigo || grupo.id);
     const totalEnderecosResumo = enderecosGrupo.length || Math.max(0, Math.trunc(Number(grupo.totalEnderecos) || 0));
     const totalEstrangeirosEnderecos = enderecosGrupo.reduce((total, endereco) => (
@@ -1436,6 +1443,7 @@ const GrupoEnderecoLayer = ({
     const totalEstrangeirosResumo = enderecosGrupo.length
         ? totalEstrangeirosEnderecos
         : Math.max(0, Math.trunc(Number(grupo.totalEstrangeiros) || 0));
+    const centroGrupo = resolveGrupoEnderecoCentro(grupo, enderecosGrupo);
     const boundsPositions = buildGrupoBoundsPositions(grupo.bounds);
     const hasArea = boundsPositions && (
         Math.abs(Number(grupo.bounds.maxLat) - Number(grupo.bounds.minLat)) > 0.00001 ||
@@ -1444,8 +1452,8 @@ const GrupoEnderecoLayer = ({
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
         html: `<div class="map-group-marker ${arquivado ? 'archived' : ''}">${codigoExibicao}</div>`,
-        iconSize: [48, 30],
-        iconAnchor: [24, 15]
+        iconSize: [56, 30],
+        iconAnchor: [28, 15]
     }), [arquivado, codigoExibicao]);
 
     useEffect(() => {
@@ -1454,7 +1462,7 @@ const GrupoEnderecoLayer = ({
         setEnderecosModalAberto(false);
     }, [grupo.id, grupo.designadoPara, grupo.status]);
 
-    if (!grupo.centro) return null;
+    if (!centroGrupo) return null;
 
     const executarAcaoGrupo = async (acao) => {
         setLoadingAction(true);
@@ -1495,7 +1503,7 @@ const GrupoEnderecoLayer = ({
             )}
             {!isMapFocused && (
                 <Marker
-                    position={[grupo.centro.lat, grupo.centro.lng]}
+                    position={[centroGrupo.lat, centroGrupo.lng]}
                     icon={icon}
                     eventHandlers={{ click: (event) => event.originalEvent && L.DomEvent.stopPropagation(event.originalEvent) }}
                 >
@@ -1631,7 +1639,7 @@ const GrupoEnderecoLayer = ({
                                 </button>
                             )}
                             <button
-                                onClick={() => onShare(grupo)}
+                                onClick={() => onShare({ ...grupo, centro: centroGrupo })}
                                 className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-400 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-600"
                             >
                                 Compartilhar localização
@@ -1651,7 +1659,7 @@ const GrupoEnderecoLayer = ({
                 onClose={() => {
                     if (!loadingAction) setEnderecosModalAberto(false);
                 }}
-                onToggleVisitado={(endereco) => executarAcaoGrupo(() => onToggleVisitado(grupo, endereco))}
+                onToggleVisitado={(endereco) => executarAcaoGrupo(() => onToggleVisitado(grupo, endereco, { sugerirFinalizacao: true }))}
             />
         </>
     );
@@ -1739,7 +1747,7 @@ const QuadraMarker = ({ quadra, isFeita, podeMarcar, podeAnotar, nota, onAbrirNo
 };
 
 // --- TERRITÓRIO DETALHADO ATUALIZADO ---
-const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, isOnline, outboxActions, listaUsuarios, ocultarCores, showRefs, showCondos, contextoSistema }) => {
+const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, isOnline, outboxActions, listaUsuarios, showRefs, showCondos, contextoSistema }) => {
     const nome = normalizeTerritorioNome(dados.properties.nome, `T-${idTerritorio}`);
     const contextoId = contextoSistema?.contextoAtivoId || 'normal';
     const contextoNormal = isNormalContext(contextoId);
@@ -2107,7 +2115,6 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
     }
 
     if (!isAdmin && !isMeu) { opacidade = 0.2; opacidadeBorda = 0.4; }
-    if (ocultarCores) { corPreenchimento = 'transparent'; opacidade = 0; pesoBorda = 5; opacidadeBorda = 0.8; }
 
     const renderLabelTerritorio = () => (
         <>
@@ -2441,14 +2448,14 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
                     </div>
                 </Popup>
                 {/* TOOLTIP INTELIGENTE */}
-                {zoomLevel >= 14 && !ocultarCores && !posicaoLabel && (
+                {zoomLevel >= 14 && !posicaoLabel && (
                     <Tooltip permanent direction="center" className="label-territorio">
                         {renderLabelTerritorio()}
                     </Tooltip>
                 )}
             </Polygon>
 
-            {zoomLevel >= 14 && !ocultarCores && posicaoLabel && (
+            {zoomLevel >= 14 && posicaoLabel && (
                 <CircleMarker
                     center={posicaoLabel}
                     radius={0}
@@ -2559,7 +2566,6 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
     const [direcaoUsuario, setDirecaoUsuario] = useState(null);
     const [rastreandoLocalizacao, setRastreandoLocalizacao] = useState(false);
     const [tipoMapa, setTipoMapa] = useState('google');
-    const [ocultarCores, setOcultarCores] = useState(false);
     const [showRefs, setShowRefs] = useState(false);
     const [showCondos, setShowCondos] = useState(true);
     const [mostrarDicasControles, setMostrarDicasControles] = useState(true);
@@ -2696,12 +2702,6 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         return null;
     };
 
-    const meusGrupoEnderecoIds = useMemo(() => new Set(
-        gruposEndereco
-            .filter((grupo) => grupo.designadoPara === String(user?.email || '').toLowerCase())
-            .map((grupo) => grupo.id)
-    ), [gruposEndereco, user?.email]);
-
     const enderecosPorGrupo = useMemo(() => {
         const map = new Map();
         enderecos.forEach((endereco) => {
@@ -2731,8 +2731,8 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         if (grupoEnderecoFocado.status === GRUPO_ENDERECO_STATUS.ARQUIVADO) return false;
         if (getGrupoEnderecoProgresso(grupoEnderecoFocado).isFinalizado) return false;
 
-        return grupoEnderecoFocado.designadoPara === String(user?.email || '').toLowerCase();
-    }, [grupoEnderecoFocado, isOnline, user?.email]);
+        return isAdmin || normalizeEmailValue(grupoEnderecoFocado.designadoPara) === normalizeEmailValue(user?.email);
+    }, [grupoEnderecoFocado, isAdmin, isOnline, user?.email]);
 
     const enderecosVisiveis = useMemo(() => enderecos.filter((endereco) => {
         if (grupoEnderecoFocadoId) {
@@ -2740,12 +2740,15 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         }
 
         if (isAdmin) {
-            return endereco.status === ENDERECO_STATUS.ATIVO ||
-                (mostrarEnderecosArquivados && endereco.status === ENDERECO_STATUS.ARQUIVADO);
+            if (endereco.status === ENDERECO_STATUS.ARQUIVADO) {
+                return mostrarEnderecosArquivados;
+            }
+
+            return endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId;
         }
 
-        return endereco.status === ENDERECO_STATUS.ATIVO && meusGrupoEnderecoIds.has(endereco.grupoId);
-    }), [enderecos, grupoEnderecoFocadoId, isAdmin, meusGrupoEnderecoIds, mostrarEnderecosArquivados]);
+        return false;
+    }), [enderecos, grupoEnderecoFocadoId, isAdmin, mostrarEnderecosArquivados]);
 
     const totalEnderecosArquivados = useMemo(() => enderecos.filter((endereco) => endereco.status === ENDERECO_STATUS.ARQUIVADO).length, [enderecos]);
     const gruposEnderecoVisiveis = useMemo(() => gruposEndereco.filter((grupo) => {
@@ -2758,7 +2761,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                 (mostrarGruposArquivados && grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO);
         }
 
-        return grupo.status === GRUPO_ENDERECO_STATUS.ATIVO && grupo.designadoPara === String(user?.email || '').toLowerCase();
+        return grupo.status === GRUPO_ENDERECO_STATUS.ATIVO && normalizeEmailValue(grupo.designadoPara) === normalizeEmailValue(user?.email);
     }), [grupoEnderecoFocadoId, gruposEndereco, isAdmin, mostrarGruposArquivados, user?.email]);
     const totalGruposArquivados = useMemo(() => gruposEndereco.filter((grupo) => grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO).length, [gruposEndereco]);
     const enderecosSelecionadosDados = useMemo(() => {
@@ -3171,13 +3174,55 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         }
     };
 
-    const alternarEnderecoVisitadoGrupo = async (grupo, endereco) => {
+    const alternarEnderecoVisitadoGrupo = async (grupo, endereco, { sugerirFinalizacao = false } = {}) => {
+        const visitadosAntes = new Set(grupo?.enderecos_visitados || []);
+        const estavaVisitado = visitadosAntes.has(endereco.id);
+        const enderecoIdsGrupo = Array.isArray(grupo?.enderecoIds) ? grupo.enderecoIds : [];
+        const totalEnderecosGrupo = enderecoIdsGrupo.length || Number(grupo?.totalEnderecos) || 0;
+        const totalAposToggle = estavaVisitado
+            ? Math.max(0, visitadosAntes.size - 1)
+            : visitadosAntes.size + 1;
+        const completouAgora = sugerirFinalizacao && !estavaVisitado && totalEnderecosGrupo > 0 && totalAposToggle >= totalEnderecosGrupo;
+
         try {
             await toggleEnderecoVisitadoGrupo(db, {
                 grupoId: grupo.id,
                 enderecoId: endereco.id,
-                user
+                user: { ...user, isAdmin }
             });
+
+            if (completouAgora) {
+                const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id);
+                const deveFinalizar = await confirm({
+                    title: 'Finalizar território?',
+                    message: `Todos os endereços do território ${codigoExibicao} foram marcados como pregados. Deseja finalizar o território agora?`,
+                    tone: 'info',
+                    confirmLabel: 'Finalizar agora',
+                    cancelLabel: 'Depois'
+                });
+
+                if (deveFinalizar) {
+                    try {
+                        await finalizarGrupoEnderecoDesignado(db, {
+                            grupoId: grupo.id,
+                            user: { ...user, isAdmin }
+                        });
+                        notify({
+                            title: 'Território finalizado',
+                            message: `${codigoExibicao} foi finalizado com sucesso.`,
+                            variant: 'success'
+                        });
+                    } catch (error) {
+                        console.error('Erro ao finalizar grupo:', error);
+                        notify({
+                            title: 'Finalização indisponível',
+                            message: String(error?.message || 'Não foi possível finalizar o território agora.'),
+                            variant: 'error',
+                            durationMs: 7000
+                        });
+                    }
+                }
+            }
         } catch (error) {
             console.error('Erro ao marcar endereço do grupo:', error);
             notify({
@@ -3203,7 +3248,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         try {
             await finalizarGrupoEnderecoDesignado(db, {
                 grupoId: grupo.id,
-                user
+                user: { ...user, isAdmin }
             });
             notify({
                 title: 'Território finalizado',
@@ -3292,7 +3337,6 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                         hasReferencias={tiposPontosDisponiveis.hasReferencias}
                         hasCondominios={tiposPontosDisponiveis.hasCondominios}
                     />
-                    <ControleVisibilidade ocultarCores={ocultarCores} setOcultarCores={setOcultarCores} mostrarDicas={mostrarDicasControles} />
                     {isAdmin && (
                         <div className="absolute top-20 right-4 z-[400] flex max-w-[150px] flex-col gap-2">
                             {enderecosSelecionadosDados.length > 0 && (
@@ -3398,7 +3442,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                             onRemoveFromGroup={removerEnderecoSelecionadoDoGrupo}
                             onToggleVisited={(enderecoSelecionado) => {
                                 if (!grupoEnderecoFocado) return;
-                                alternarEnderecoVisitadoGrupo(grupoEnderecoFocado, enderecoSelecionado);
+                                return alternarEnderecoVisitadoGrupo(grupoEnderecoFocado, enderecoSelecionado, { sugerirFinalizacao: true });
                             }}
                         />
                     ))}
@@ -3417,7 +3461,6 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                                 isOnline={isOnline}
                                 outboxActions={outboxActions}
                                 listaUsuarios={listaUsuarios}
-                                ocultarCores={ocultarCores}
                                 showRefs={showRefs}
                                 showCondos={showCondos}
                                 contextoSistema={contextoSistema}
@@ -3443,8 +3486,8 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                         onSubmit={criarGrupoEndereco}
                     />
                     {resumoFocoGrupoEndereco && (
-                        <div className="pointer-events-none absolute bottom-6 left-3 right-24 z-[500] flex justify-start">
-                            <div className="pointer-events-auto flex w-full max-w-sm items-center justify-between gap-3 rounded-xl border border-teal-200 bg-white px-3 py-2 shadow-2xl">
+                        <div className="pointer-events-none absolute right-4 top-4 z-[500] flex justify-end">
+                            <div className="pointer-events-auto flex max-w-[260px] items-center justify-between gap-3 rounded-xl border border-teal-200 bg-white px-3 py-2 shadow-2xl">
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                         <span className="shrink-0 text-sm font-extrabold text-teal-800">{resumoFocoGrupoEndereco.codigo}</span>

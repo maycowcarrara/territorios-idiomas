@@ -57,7 +57,7 @@ export function formatGrupoEnderecoCodigo(sequence) {
 
 export function formatGrupoEnderecoCodigoExibicao(value) {
     const codigo = String(value || '').trim();
-    const match = codigo.match(/^T-0*(\d+)$/i);
+    const match = codigo.match(/^(?:T-|g_)?0*(\d+)$/i);
     if (!match) return codigo;
 
     return `T-${Number.parseInt(match[1], 10)}`;
@@ -111,11 +111,15 @@ export function normalizeEnderecoFields(input = {}) {
 }
 
 function buildActorEmail(user) {
-    return String(user?.email || '').toLowerCase();
+    return normalizeEmail(user?.email);
 }
 
 function normalizeEmail(value) {
     return String(value || '').trim().toLowerCase();
+}
+
+function isAdminActor(user) {
+    return user?.isAdmin === true || user?.role === 'admin';
 }
 
 function normalizeGrupoNome(value, fallback) {
@@ -566,7 +570,7 @@ export async function toggleEnderecoVisitadoGrupo(db, { grupoId, enderecoId, use
             throw new Error('Este território não está ativo para execução.');
         }
 
-        if (grupo.designadoPara !== actorEmail) {
+        if (!isAdminActor(user) && normalizeEmail(grupo.designadoPara) !== actorEmail) {
             throw new Error('Este território não está designado para você.');
         }
 
@@ -604,7 +608,7 @@ export async function finalizarGrupoEnderecoDesignado(db, { grupoId, user }) {
         }
 
         const grupo = grupoSnapshot.data();
-        if (grupo.designadoPara !== actorEmail) {
+        if (!isAdminActor(user) && normalizeEmail(grupo.designadoPara) !== actorEmail) {
             throw new Error('Este território não está designado para você.');
         }
 
