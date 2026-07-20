@@ -1,4 +1,29 @@
-const DEFAULT_MAP_DATA_URL = import.meta.env.VITE_MAPA_URL || './mapa.json';
+const DISABLED_MAP_DATA_URL_VALUES = new Set(['', 'none', 'null', 'false', 'off', 'disabled']);
+
+export function createEmptyMapData() {
+    return {
+        type: 'FeatureCollection',
+        features: []
+    };
+}
+
+export function resolveMapDataUrl(
+    value = import.meta.env.VITE_MAPA_URL,
+    mode = import.meta.env.MODE
+) {
+    const rawValue = String(value ?? '').trim();
+    if (DISABLED_MAP_DATA_URL_VALUES.has(rawValue.toLowerCase())) {
+        return null;
+    }
+
+    if (rawValue) {
+        return rawValue;
+    }
+
+    return mode === 'general' ? './mapa.general.json' : null;
+}
+
+const DEFAULT_MAP_DATA_URL = resolveMapDataUrl();
 export const MAP_DATA_CACHE_NAME = 'offline-map-data-v1';
 export const MAP_TILE_CACHE_NAME = 'offline-map-tiles-v1';
 const OFFLINE_MAP_DOWNLOAD_STATE_KEY = 'offline-map-download-state-v1';
@@ -445,6 +470,10 @@ function buildJobKey({ bounds, zooms, layerTypes }) {
 }
 
 export async function loadMapDataWithOfflineCache(url = DEFAULT_MAP_DATA_URL) {
+    if (!url) {
+        return createEmptyMapData();
+    }
+
     try {
         const response = await fetch(url);
         if (!response.ok) {

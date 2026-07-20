@@ -1,8 +1,8 @@
-import { loadMapDataWithOfflineCache } from './mapOfflineCache';
+import { loadMapDataWithOfflineCache, resolveMapDataUrl } from './mapOfflineCache';
 import { normalizeTerritorioNome } from './territorioNome';
 
 let mapaPromise = null;
-const MAPA_URL = import.meta.env.VITE_MAPA_URL || './mapa.json';
+const MAPA_URL = resolveMapDataUrl();
 
 function normalizeGeoData(geoData) {
     if (!geoData || !Array.isArray(geoData.features)) {

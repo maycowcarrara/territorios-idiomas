@@ -4,7 +4,7 @@
 
 Adaptar o app `territorios-idiomas` para atender grupos/congregacoes de idiomas, onde o trabalho de campo e baseado em enderecos especificos de moradores estrangeiros.
 
-Na versao atual, o app usa `public/mapa.json` como base visual dos territorios e controla designacao/progresso por territorio/quadra. Nesta evolucao, o app deve continuar importando mapa/enderecos por JSON, mas tambem permitir cadastro manual de novos enderecos diretamente no mapa.
+Na versao atual, o app ainda suporta mapas legados por GeoJSON em instancias que definem `VITE_MAPA_URL`, mas a instancia Idiomas nao deve carregar `public/mapa.json` nem semear dados por JSON. Para Idiomas, a verdade operacional passa a ser somente o que for cadastrado no Firestore; importacao de enderecos fica para uma etapa futura.
 
 O territorio designavel para o publicador passa a ser um grupo de enderecos proximos, com codigo proprio, progresso, designacao, historico e compartilhamento.
 
@@ -44,7 +44,7 @@ Ainda pendente para fechar o plano completo:
 - mensagem/WhatsApp/notificacao ao designar grupo;
 - listagem administrativa dedicada para enderecos e grupos;
 - relatorios de enderecos/grupos;
-- importador JSON idempotente para semear enderecos/grupos;
+- importador de enderecos idempotente para semear enderecos/grupos futuramente;
 - offline robusto para execucao de grupos, equivalente ao fluxo de territorios/quadras;
 - ajuda/manual do usuario para o novo fluxo.
 
@@ -166,11 +166,13 @@ Criar codigo por transaction:
 - endereco: `E-0001`, `E-0002`, ...
 - grupo/territorio de idioma: `T-001`, `T-002`, ...
 
-## Integracao com JSON
+## Importacao futura de enderecos
 
-O `public/mapa.json` continua sendo a base visual/importavel.
+Para Idiomas, `public/mapa.json` nao e mais base visual nem fonte inicial de dados. Quando `VITE_MAPA_URL` estiver vazio, o app abre com uma `FeatureCollection` vazia e mostra apenas os enderecos/grupos cadastrados no Firestore.
 
-Para enderecos importados, aceitar pontos:
+Instancias legadas que ainda trabalham por territorios/quadras podem definir `VITE_MAPA_URL`, por exemplo `./mapa.general.json`.
+
+Futuramente, o importador de enderecos deve aceitar pontos:
 
 ```json
 {
@@ -185,10 +187,10 @@ Para enderecos importados, aceitar pontos:
 }
 ```
 
-Fluxo recomendado:
+Fluxo futuro recomendado:
 
-- JSON pode semear enderecos e grupos iniciais.
-- Depois de importados, a verdade operacional deve ficar no Firestore.
+- O arquivo de importacao pode semear enderecos e grupos iniciais.
+- Depois de importados, a verdade operacional fica no Firestore.
 - Importador deve ser idempotente por `codigo` quando informado.
 - Se nao houver `codigo`, gerar um novo codigo via contador.
 - Se houver `grupoCodigo`, criar/reusar o grupo e vincular o endereco.

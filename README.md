@@ -317,7 +317,7 @@ O APK registra os dois hosts (`web.app` e `firebaseapp.com`, quando forem difere
 O link mágico é enviado diretamente pelo Firebase Authentication usando `sendSignInLinkToEmail`.
 Não configure EmailJS, Brevo ou outro provedor externo para esse fluxo; basta habilitar o provedor de link por e-mail no Firebase Auth e manter o domínio do Hosting autorizado.
 
-Cada instância também pode apontar para um mapa próprio com `VITE_MAPA_URL`. Para o General, use `./mapa.general.json`; enquanto o mapa real não estiver pronto, esse arquivo pode ser uma `FeatureCollection` vazia.
+Cada instância também pode apontar para um mapa próprio com `VITE_MAPA_URL`. Em Idiomas, deixe `VITE_MAPA_URL` vazio para abrir apenas os endereços/grupos cadastrados no Firestore. Para o General, use `./mapa.general.json`; enquanto o mapa real não estiver pronto, esse arquivo pode ser uma `FeatureCollection` vazia.
 
 ### Notificações
 
@@ -416,7 +416,9 @@ npm run dev -- --host
 
 ## Mapas
 
-O arquivo `public/mapa.json` é a base do mapa consumido pelo app.
+Em Idiomas, o app não usa mais `public/mapa.json` como base inicial. Com `VITE_MAPA_URL` vazio, o mapa abre sem polígonos importados e mostra somente os endereços/grupos cadastrados.
+
+O arquivo `public/mapa.json` permanece apenas como legado. Instâncias que ainda usam territórios/quadras por GeoJSON devem apontar explicitamente `VITE_MAPA_URL` para o arquivo desejado.
 
 Também existe um fluxo auxiliar em `kmz/` para conversão de arquivos de origem para o formato usado pelo sistema.
 

@@ -3,7 +3,7 @@ main = "src/index.js"
 compatibility_date = "2026-04-04"
 # Obrigatorio para a trava de deploy:
 # entre na conta Cloudflare correta, rode `npx wrangler whoami` e preencha o Account ID.
-account_id = "bc54e1bbe352496f81da54a08dea8e01"
+account_id = "36da09115c87cfafc31e545ca5633d53"
 
 [vars]
 FIREBASE_PROJECT_ID = "territ-es-sul-sbs"
