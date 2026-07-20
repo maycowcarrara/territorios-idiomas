@@ -8,6 +8,46 @@ Na versao atual, o app usa `public/mapa.json` como base visual dos territorios e
 
 O territorio designavel para o publicador passa a ser um grupo de enderecos proximos, com codigo proprio, progresso, designacao, historico e compartilhamento.
 
+## Status atual da implementacao
+
+Atualizado em 2026-07-20.
+
+Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, site `territ-es-sbs`, versao publicada `2.6.336`):
+
+- cadastro manual de enderecos no mapa por clique/toque em area vazia;
+- codigo automatico transacional `E-000X`;
+- persistencia em `enderecos`;
+- marcadores de enderecos ativos no mapa;
+- compartilhamento de ponto clicado, endereco e grupo;
+- edicao de campos basicos do endereco;
+- arquivar/reativar endereco sem exclusao fisica;
+- criacao de `grupos_enderecos` com codigo automatico `T-00X`;
+- selecao de enderecos ativos sem grupo para criar grupo;
+- calculo de `totalEnderecos`, `totalEstrangeiros`, `centro` e `bounds`;
+- renderizacao de grupo no mapa com marcador, bounds e progresso;
+- arquivar/reativar grupo;
+- remover endereco de grupo;
+- designar grupo para publicador;
+- mostrar grupos designados em "Meus Territorios";
+- publicador marcar enderecos visitados;
+- finalizar grupo quando todos os enderecos ativos estiverem visitados;
+- regras do Firestore para `enderecos`, `grupos_enderecos` e `contadores/codigos`;
+- smoke local em Auth/Firestore Emulator validando fluxo admin/publicador.
+
+Ja implementado localmente, mas ainda nao publicado depois da versao `2.6.336`:
+
+- divisao de chunks Firebase no `vite.config.js`, removendo o aviso de chunk maior que 500 kB no build local.
+
+Ainda pendente para fechar o plano completo:
+
+- teste manual em producao com uma conta admin e uma conta publicador;
+- mensagem/WhatsApp/notificacao ao designar grupo;
+- listagem administrativa dedicada para enderecos e grupos;
+- relatorios de enderecos/grupos;
+- importador JSON idempotente para semear enderecos/grupos;
+- offline robusto para execucao de grupos, equivalente ao fluxo de territorios/quadras;
+- ajuda/manual do usuario para o novo fluxo.
+
 ## Decisao de modelo
 
 Separar a entidade permanente `enderecos` da entidade operacional `grupos_enderecos`.
@@ -17,7 +57,7 @@ Separar a entidade permanente `enderecos` da entidade operacional `grupos_endere
 
 Nao armazenar a copia principal dos enderecos dentro do grupo. O grupo deve referenciar enderecos e manter apenas contadores/snapshots operacionais necessarios para tela, relatorios e ordenacao.
 
-## Colecoes propostas
+## Colecoes implementadas/propostas
 
 ### `enderecos`
 
@@ -105,7 +145,7 @@ Regras de negocio:
 - O progresso do grupo e `enderecos_visitados.length / totalEnderecos`.
 - Finalizar grupo quando todos os enderecos ativos do grupo forem marcados como visitados.
 - Devolver grupo deve limpar designacao e preservar historico.
-- Reabrir grupo deve remover status finalizado e liberar nova designacao.
+- Reabrir grupo deve remover status finalizado e liberar nova designacao. Ainda pendente como acao explicita; hoje o admin pode designar novamente o grupo pelo fluxo de administracao quando ele estiver ativo.
 - Arquivar grupo nao deve arquivar os enderecos automaticamente; apenas deixa de ser designavel. Os enderecos podem ficar sem grupo ou ser movidos para outro.
 
 ### Sequencias de codigo
@@ -166,9 +206,11 @@ Fluxo recomendado:
    - pedir `endereco`;
    - pedir `quantidadeEstrangeiros`;
    - pedir `observacao`;
-   - opcionalmente escolher grupo existente ou deixar sem grupo;
+   - deixar sem grupo no cadastro inicial;
    - gerar codigo automatico `E-000X`;
    - salvar em `enderecos`.
+
+Status: implementado para admin online. A escolha de grupo durante o cadastro ficou fora do MVP; o agrupamento acontece depois, selecionando enderecos sem grupo no mapa.
 
 ### Agrupamento de enderecos
 
@@ -180,6 +222,8 @@ Fluxos do admin/dirigente:
 - mover endereco entre territorios;
 - arquivar/reactivar endereco;
 - arquivar/reactivar grupo.
+
+Status: implementados selecionar enderecos sem grupo, criar grupo, remover endereco de grupo e arquivar/reativar endereco/grupo. Adicionar a grupo existente e mover entre grupos continuam pendentes.
 
 No mapa:
 
@@ -196,6 +240,8 @@ No mapa:
 4. Publicador passa a ver o grupo em "Meus".
 5. Link compartilhado deve abrir o mapa enquadrando o grupo ou centralizando no primeiro endereco.
 
+Status: implementado o fluxo de designacao e visualizacao em "Meus Territorios". A mensagem pronta/WhatsApp ao designar grupo ainda esta pendente.
+
 ### Execucao pelo publicador
 
 1. Publicador abre o grupo designado.
@@ -203,6 +249,8 @@ No mapa:
 3. Marca cada endereco como visitado.
 4. Pode adicionar observacao de visita se necessario.
 5. Ao completar todos os enderecos ativos, app permite solicitar/confirmar finalizacao seguindo o padrao atual.
+
+Status: implementado online-first. O publicador ve o grupo no mapa, marca enderecos e finaliza quando o progresso esta completo.
 
 ## Offline
 
@@ -232,16 +280,21 @@ Na sincronizacao, validar no servidor:
 
 Cadastro, edicao, arquivamento e movimentacao administrativa devem exigir conexao no MVP, como ja ocorre com a administracao atual.
 
+Status atual: enderecos/grupos estao online-first. O offline robusto continua implementado para territorios/quadras, mas ainda nao foi estendido para `grupos_enderecos`.
+
 ## Regras do Firestore
 
-Adicionar rules para:
+Rules implementadas para:
 
 - leitura de `enderecos` e `grupos_enderecos` por usuarios aprovados;
-- create/update/delete logico de enderecos por admin/dirigente autorizado;
+- create/update/delete logico de enderecos por admin;
 - create/update/archive de grupos por admin;
 - atualizacao operacional do grupo pelo responsavel atual;
-- bloqueio por `designacaoId` nas actions de progresso;
 - validacao de campos e limites de texto.
+
+Ainda pendente nas rules/modelo offline:
+
+- bloqueio por `designacaoId` nas actions offline de progresso, quando a outbox de grupos for implementada.
 
 Campos administrativos sensiveis:
 
@@ -274,16 +327,16 @@ Arquivos principais:
   - progresso deve poder ser por quadras ou por enderecos.
 
 - `src/territorioContext.js`
-  - criar helpers analogos para grupos de enderecos, ou novo modulo `enderecoTerritorioContext.js`.
+  - sem alteracao principal para grupos no MVP; o progresso de grupos ficou em `src/enderecoModel.js`.
 
 - `src/territorioActions.js`
-  - criar actions/sync para progresso de grupos, ou novo modulo `enderecoTerritorioActions.js`.
+  - sem alteracao principal para grupos no MVP; as actions online de grupos ficaram em `src/enderecoModel.js`.
 
 - `src/territorioOfflineModel.js`
-  - reduzir estado local com actions de enderecos visitados.
+  - pendente para fase offline de grupos.
 
 - `src/mapaUtils.js`
-  - utilitarios para bounds/centro de grupos e contagem de enderecos.
+  - nao foi necessario no MVP; os calculos de grupo ficaram em `src/enderecoModel.js`.
 
 - `src/Relatorios.jsx`
   - incluir relatorios de grupos por status, responsavel, estrangeiros e historico.
@@ -292,50 +345,53 @@ Arquivos principais:
   - opcional no MVP; depois pode ganhar aba "Enderecos" ou "Territorios de idioma".
 
 - `firestore.rules`
-  - adicionar colecoes, validacoes e permissao de progresso por responsavel.
+  - colecoes, validacoes e permissao de progresso/finalizacao por responsavel implementadas.
+
+- `scripts/smoke-enderecos-grupos-emulator.mjs`
+  - valida o fluxo admin/publicador com Auth e Firestore Emulator sem tocar no projeto real.
 
 ## Fases recomendadas
 
 ### Fase 1 - Base de enderecos
 
-- Criar modelo/helpers para `enderecos`.
-- Criar contador transacional para codigo `E-000X`.
-- Renderizar enderecos no mapa.
-- Cadastrar endereco por clique em area vazia.
-- Compartilhar localizacao do ponto clicado e do endereco.
-- Editar campos basicos.
-- Arquivar/reativar endereco.
-- Atualizar rules.
-- Validar build/lint.
+- [x] Criar modelo/helpers para `enderecos`.
+- [x] Criar contador transacional para codigo `E-000X`.
+- [x] Renderizar enderecos no mapa.
+- [x] Cadastrar endereco por clique em area vazia.
+- [x] Compartilhar localizacao do ponto clicado e do endereco.
+- [x] Editar campos basicos.
+- [x] Arquivar/reativar endereco.
+- [x] Atualizar rules.
+- [x] Validar build/lint.
 
 ### Fase 2 - Grupos/territorios de idioma
 
-- Criar `grupos_enderecos`.
-- Criar contador transacional `T-00X`.
-- Criar grupo a partir de enderecos selecionados.
-- Vincular/remover/mover endereco entre grupos.
-- Calcular `totalEnderecos`, `totalEstrangeiros`, `centro`, `bounds`.
-- Mostrar grupo no mapa.
-- Arquivar/reativar grupo.
-- Atualizar rules.
+- [x] Criar `grupos_enderecos`.
+- [x] Criar contador transacional `T-00X`.
+- [x] Criar grupo a partir de enderecos selecionados.
+- [ ] Parcial: vincular/remover/mover endereco entre grupos. Remover foi implementado; adicionar a grupo existente e mover continuam pendentes.
+- [x] Calcular `totalEnderecos`, `totalEstrangeiros`, `centro`, `bounds`.
+- [x] Mostrar grupo no mapa.
+- [x] Arquivar/reativar grupo.
+- [x] Atualizar rules.
 
 ### Fase 3 - Designacao e execucao
 
-- Designar grupo para publicador.
-- Mostrar grupos em "Meus".
-- Marcar endereco visitado.
-- Calcular progresso por endereco.
-- Finalizar/devolver/reabrir grupo.
-- Compartilhar link do grupo.
-- Notificar admins na devolucao/finalizacao, seguindo padrao atual.
+- [x] Designar grupo para publicador.
+- [x] Mostrar grupos em "Meus".
+- [x] Marcar endereco visitado.
+- [x] Calcular progresso por endereco.
+- [ ] Parcial: finalizar/devolver/reabrir grupo. Finalizar/devolver implementados; reabrir explicito ainda pendente.
+- [x] Compartilhar link do grupo.
+- [ ] Notificar admins na devolucao/finalizacao, seguindo padrao atual.
 
 ### Fase 4 - Offline e relatorios
 
-- Criar outbox de progresso de grupos.
-- Validar conflito por `designacaoId`.
-- Relatorios administrativos de grupos/endereco.
-- Importador JSON idempotente.
-- Ajustar Ajuda/manual.
+- [ ] Criar outbox de progresso de grupos.
+- [ ] Validar conflito por `designacaoId`.
+- [ ] Relatorios administrativos de grupos/endereco.
+- [ ] Importador JSON idempotente.
+- [ ] Ajustar Ajuda/manual.
 
 ## Fora do MVP
 
@@ -348,13 +404,13 @@ Arquivos principais:
 
 ## Criterios de aceite do MVP
 
-- Admin consegue tocar no mapa e cadastrar endereco com codigo automatico.
-- Endereco aparece no mapa e pode ser compartilhado.
-- Endereco pode ser arquivado sem exclusao fisica.
-- Admin consegue criar grupo `T-00X` com enderecos proximos.
-- Grupo pode ser designado a publicador.
-- Publicador ve o grupo designado e marca enderecos visitados.
-- Progresso mostra `visitados / total de enderecos`.
-- Finalizacao/devolucao preserva historico e usa `designacaoId`.
-- Rules impedem usuario comum de alterar designacao, codigo, agrupamento ou arquivamento.
-- Build e lint passam.
+- [x] Admin consegue tocar no mapa e cadastrar endereco com codigo automatico.
+- [x] Endereco aparece no mapa e pode ser compartilhado.
+- [x] Endereco pode ser arquivado sem exclusao fisica.
+- [x] Admin consegue criar grupo `T-00X` com enderecos proximos.
+- [x] Grupo pode ser designado a publicador.
+- [x] Publicador ve o grupo designado e marca enderecos visitados.
+- [x] Progresso mostra `visitados / total de enderecos`.
+- [ ] Parcial: finalizacao/devolucao preserva historico e usa `designacaoId`. Historico implementado; guardrail por `designacaoId` ficara na fase offline.
+- [x] Rules impedem usuario comum de alterar designacao, codigo, agrupamento ou arquivamento.
+- [x] Build, lint e smoke local passam.

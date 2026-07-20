@@ -117,6 +117,14 @@ Quando o usuário está online, o app mostra uma barra discreta de salvamento ab
 
 O plano tecnico para evoluir esta instancia para cadastro de enderecos, agrupamento em territorios de idioma e designacao desses grupos esta em [docs/planejamento-territorios-idiomas-enderecos.md](./docs/planejamento-territorios-idiomas-enderecos.md).
 
+Status atual:
+
+- enderecos cadastraveis no mapa, com codigo automatico `E-000X`;
+- grupos de enderecos cadastraveis no mapa, com codigo automatico `T-00X`;
+- grupos podem ser designados para publicadores e aparecem em "Meus Territorios";
+- publicador marca enderecos visitados e finaliza o grupo quando todos foram visitados;
+- fluxo de enderecos/grupos esta online-first; o offline robusto segue disponivel para territorios/quadras.
+
 ### Coleções principais
 
 - `usuarios`
@@ -133,6 +141,20 @@ O plano tecnico para evoluir esta instancia para cadastro de enderecos, agrupame
   - documento: `{contextoId}__t_{numero}`
   - progresso do território no contexto ativo
   - campos comuns: `contextoId`, `territorioNumero`, `designadoPara`, `designadoNome`, `designacaoId`, `cicloAtual`, `quadras_feitas`, `status`, `historico`
+
+- `enderecos`
+  - documento: `e_0001`, `e_0002`, ...
+  - cadastro permanente de uma casa/local visitavel
+  - campos comuns: `codigo`, `status`, `grupoId`, `grupoCodigo`, `lat`, `lng`, `endereco`, `quantidadeEstrangeiros`, `observacao`, `origem`, `criadoEm`, `criadoPor`, `atualizadoEm`, `atualizadoPor`
+
+- `grupos_enderecos`
+  - documento: `g_001`, `g_002`, ...
+  - territorio de idioma designavel, formado por varios enderecos
+  - campos comuns: `codigo`, `nome`, `status`, `enderecoIds`, `totalEnderecos`, `totalEstrangeiros`, `centro`, `bounds`, `designadoPara`, `designadoNome`, `designacaoId`, `cicloAtual`, `enderecos_visitados`, `historico`
+
+- `contadores`
+  - documento: `codigos`
+  - controla as proximas sequencias `proximoEndereco` e `proximoGrupoEndereco`
 
 - `configuracoes`
   - documento: `sistema`
@@ -171,6 +193,10 @@ As regras atuais cobrem:
 - bloqueio de escrita quando `designacaoId` mudou
 - bloqueio de campos administrativos para usuário comum
 - escrita de notas validada por designação e permissões de autor/admin
+- leitura de `enderecos` e `grupos_enderecos` por usuários aprovados
+- cadastro/edição/arquivamento de endereços apenas por admin
+- criação, edição, designação e arquivamento de grupos apenas por admin
+- progresso/finalização de grupo apenas pelo publicador designado
 
 ## Instalação
 
@@ -244,6 +270,16 @@ O `npm run android:sync` tambem sincroniza a config nativa do Capacitor,
 icones e splash com a instancia ativa selecionada pelo `android:firebase:*`.
 
 Observação: `npm run build` atualiza automaticamente os arquivos de versão antes da build.
+
+### Smoke de enderecos/grupos
+
+O fluxo de enderecos e grupos pode ser validado localmente com Auth e Firestore Emulator, sem tocar no projeto real:
+
+```bash
+npm exec --yes --package firebase-tools -- firebase emulators:exec --project territorios-idiomas-smoke --only firestore,auth "node scripts/smoke-enderecos-grupos-emulator.mjs"
+```
+
+Esse smoke cria usuarios temporarios no emulador e valida cadastro de enderecos, criacao/designacao/finalizacao de grupo e bloqueios de permissao.
 
 `npm run dev` e `npm run deploy` perguntam qual instância usar antes de continuar. Para automações ou quando já souber a congregação, use o script explícito, como `npm run dev:palmas`, `npm run dev:general`, `npm run deploy:palmas` ou `npm run deploy:general`.
 
