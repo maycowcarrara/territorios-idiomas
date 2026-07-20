@@ -293,11 +293,11 @@ O push pelo OneSignal também é separado por instância:
 - O Worker de cada instância precisa dos secrets `ONESIGNAL_APP_ID` e `ONESIGNAL_REST_API_KEY`.
 - O app registra tags no OneSignal com `instancia` e `firebaseProjectId`, facilitando conferir no painel se o dispositivo está no ambiente correto.
 
-Para conferir os secrets do Worker do General:
+Para conferir os secrets do Worker de Idiomas:
 
 ```bash
 cd workers/notifications-relay
-wrangler secret list --config wrangler.general.toml
+wrangler secret list --config wrangler.idiomas.toml
 ```
 
 Para inicializar o Firestore de uma instância nova:
@@ -336,7 +336,7 @@ npm run deploy:rules:general
 
 Antes de qualquer deploy Firebase, os scripts rodam uma trava com `firebase projects:list --json` e bloqueiam se a conta ativa nao tiver acesso ao projeto esperado em `.firebaserc`.
 
-Antes de qualquer deploy do Worker, os scripts rodam uma trava com `npx wrangler whoami` e bloqueiam se o `account_id` esperado nao aparecer na conta Cloudflare ativa. O General ja tem `account_id` em `workers/notifications-relay/wrangler.general.toml`. Para Palmas, preencha o `account_id` em `workers/notifications-relay/wrangler.palmas.toml` depois de entrar na conta Cloudflare correta:
+Antes de qualquer deploy do Worker, os scripts rodam uma trava com `npx wrangler whoami` e bloqueiam se o `account_id` esperado nao aparecer na conta Cloudflare ativa. Idiomas usa `workers/notifications-relay/wrangler.idiomas.toml`; General usa `workers/notifications-relay/wrangler.general.toml`. Se alguma instância mudar de conta Cloudflare, entre na conta correta e atualize o `account_id` do arquivo da instância:
 
 ```bash
 cd workers/notifications-relay

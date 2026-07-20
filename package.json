@@ -1,7 +1,7 @@
 {
   "name": "territorios-idiomas",
   "private": true,
-  "version": "2.6.334",
+  "version": "2.6.336",
   "type": "module",
   "scripts": {
     "dev": "node scripts/select-npm-instance.cjs dev",

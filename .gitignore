@@ -60,6 +60,7 @@ __pycache__/
 # Cloudflare Worker local secrets
 workers/**/.dev.vars
 workers/**/.dev.vars.*
+workers/**/.wrangler/
 
 # Firebase migration secrets and local exports
 service-account*.json

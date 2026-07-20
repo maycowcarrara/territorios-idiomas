@@ -5,10 +5,12 @@
     "deploy": "npm run deploy:idiomas",
     "deploy:idiomas": "node ../../scripts/check-deploy-auth.cjs wrangler idiomas --config wrangler.idiomas.toml --cwd . && wrangler deploy --config wrangler.idiomas.toml",
     "deploy:general": "node ../../scripts/check-deploy-auth.cjs wrangler general --config wrangler.general.toml --cwd . && wrangler deploy --config wrangler.general.toml",
-    "dev": "wrangler dev",
+    "dev": "npm run dev:idiomas",
     "dev:idiomas": "wrangler dev --config wrangler.idiomas.toml",
     "dev:general": "wrangler dev --config wrangler.general.toml",
-    "tail": "wrangler tail"
+    "tail": "npm run tail:idiomas",
+    "tail:idiomas": "wrangler tail --config wrangler.idiomas.toml",
+    "tail:general": "wrangler tail --config wrangler.general.toml"
   },
   "devDependencies": {
     "wrangler": "^4.11.1"

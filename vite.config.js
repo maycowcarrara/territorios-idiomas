@@ -18,16 +18,50 @@ export default defineConfig(({ mode }) => {
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
+          const normalizedId = id.replace(/\\/g, '/');
 
-          if (id.includes('leaflet') || id.includes('react-leaflet')) {
+          if (normalizedId.includes('leaflet') || normalizedId.includes('react-leaflet')) {
             return 'map-vendor';
           }
 
-          if (id.includes('firebase')) {
-            return 'firebase-vendor';
+          if (normalizedId.includes('@firebase/webchannel-wrapper')) {
+            return 'firebase-transport';
           }
 
-          if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom')) {
+          if (
+            normalizedId.includes('@firebase/firestore') ||
+            normalizedId.includes('firebase/firestore')
+          ) {
+            return 'firebase-firestore';
+          }
+
+          if (normalizedId.includes('@firebase/auth') || normalizedId.includes('firebase/auth')) {
+            return 'firebase-auth';
+          }
+
+          if (
+            normalizedId.includes('@firebase/messaging') ||
+            normalizedId.includes('@firebase/installations') ||
+            normalizedId.includes('firebase/messaging')
+          ) {
+            return 'firebase-messaging';
+          }
+
+          if (
+            normalizedId.includes('@firebase/app') ||
+            normalizedId.includes('firebase/app') ||
+            normalizedId.includes('@firebase/component') ||
+            normalizedId.includes('@firebase/logger') ||
+            normalizedId.includes('@firebase/util')
+          ) {
+            return 'firebase-core';
+          }
+
+          if (normalizedId.includes('firebase')) {
+            return 'firebase-misc';
+          }
+
+          if (normalizedId.includes('react') || normalizedId.includes('react-dom') || normalizedId.includes('react-router-dom')) {
             return 'react-vendor';
           }
         }
