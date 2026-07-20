@@ -1,0 +1,50 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+.env.*
+!.env.example
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+android/local.properties
+android/key.properties
+android/app/territorios-instance.properties
+android/app/*.jks
+android/app/*.keystore
+android/app/google-services.json
+android/app/google-services.json.old
+android/app/google-services.*.json
+android/app/google-services-*.json
+territorios-palmas-debug.apk
+android-release/
+
+# Cloudflare Worker local secrets
+workers/**/.dev.vars
+workers/**/.dev.vars.*
+
+# Firebase migration secrets and local exports
+service-account*.json
+firebase-service-account*.json
+*-firebase-adminsdk-*.json
+territorios-palmas-firebase-adminsdk-*.json
+territ-cong-15891-palmas-pr-firebase-adminsdk-*.json
+firestore-backups/
+*.firestore-export.json

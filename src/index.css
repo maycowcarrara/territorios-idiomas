@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-safe-area-top: env(safe-area-inset-top, 0px);
+}
+
+/* Ajuste para o mapa ocupar a tela toda depois */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 639px) {
+  .app-safe-header {
+    min-height: calc(3.5rem + var(--app-safe-area-top));
+    padding-top: var(--app-safe-area-top);
+  }
+
+  .app-safe-panel-header {
+    padding-top: calc(1rem + var(--app-safe-area-top));
+  }
+}
+
+/* Remove o fundo branco padrão dos números nas bolinhas */
+.leaflet-tooltip.sem-fundo {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: white !important; /* Garante que o número seja branco */
+  font-weight: bold;
+  font-size: 1.1rem; /* Número um pouco maior */
+}

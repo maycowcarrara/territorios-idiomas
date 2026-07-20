@@ -1,0 +1,120 @@
+apply plugin: 'com.android.application'
+
+import java.io.InputStreamReader
+import java.net.URI
+
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+def hasReleaseKeystore = keystorePropertiesFile.exists()
+
+if (hasReleaseKeystore) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+def instancePropertiesFile = file("territorios-instance.properties")
+def instanceProperties = new Properties()
+
+if (instancePropertiesFile.exists()) {
+    instanceProperties.load(new InputStreamReader(new FileInputStream(instancePropertiesFile), 'UTF-8'))
+}
+
+def activeApplicationId = instanceProperties['applicationId'] ?: 'br.com.territoriospalmas.app'
+def activeAppName = instanceProperties['appName'] ?: 'Territórios Palmas'
+def publicAppUrl = instanceProperties['publicAppUrl'] ?: ''
+def authDomain = instanceProperties['authDomain'] ?: ''
+def publicAppUri = publicAppUrl ? new URI(publicAppUrl) : null
+def publicAppScheme = 'https'
+def publicAppHost = publicAppUri?.host ?: authDomain ?: ''
+def secondaryPublicAppHost = (authDomain && authDomain != publicAppHost) ? authDomain : publicAppHost
+
+android {
+    namespace "br.com.territoriospalmas.app"
+    compileSdk rootProject.ext.compileSdkVersion
+    signingConfigs {
+        debugTerritorios {
+            keyAlias 'territoriosdebug'
+            keyPassword 'territoriosdebug'
+            storeFile file('debug-territorios.keystore')
+            storePassword 'territoriosdebug'
+        }
+        if (hasReleaseKeystore) {
+            release {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+    }
+    defaultConfig {
+        applicationId activeApplicationId
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 332
+        versionName "2.6.332"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        resValue "string", "app_name", activeAppName
+        resValue "string", "title_activity_main", activeAppName
+        resValue "string", "package_name", activeApplicationId
+        resValue "string", "custom_url_scheme", activeApplicationId
+        manifestPlaceholders = [
+            appLabel: activeAppName,
+            magicLinkScheme: publicAppScheme,
+            magicLinkHost: publicAppHost,
+            magicLinkSecondaryHost: secondaryPublicAppHost
+        ]
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debugTerritorios
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
+
+
+
+
+
+
+

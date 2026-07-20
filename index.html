@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#2563eb" />
+  <link rel="icon" type="image/png" sizes="192x192" href="%VITE_APP_ICON_192%" />
+  <link rel="apple-touch-icon" href="%VITE_APP_ICON_192%" />
+  <title>%VITE_APP_TITLE%</title>
+  <style>
+    #boot-fallback {
+      display: none;
+      min-height: 100vh;
+      box-sizing: border-box;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: #f1f5f9;
+      color: #0f172a;
+      font-family: Arial, sans-serif;
+    }
+
+    #boot-fallback[data-visible="true"] {
+      display: flex;
+    }
+
+    .boot-card {
+      width: 100%;
+      max-width: 420px;
+      border: 1px solid #fde68a;
+      border-radius: 20px;
+      background: #ffffff;
+      padding: 24px;
+      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+    }
+
+    .boot-eyebrow {
+      margin: 0 0 8px;
+      color: #d97706;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .boot-title {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+
+    .boot-copy {
+      margin: 14px 0 0;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .boot-button {
+      margin-top: 20px;
+      width: 100%;
+      border: 0;
+      border-radius: 14px;
+      background: #2563eb;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      padding: 14px 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <div id="boot-fallback" aria-live="polite">
+    <div class="boot-card">
+      <p class="boot-eyebrow">Carregamento interrompido</p>
+      <h1 class="boot-title">O app não conseguiu abrir por completo.</h1>
+      <p class="boot-copy">
+        Em alguns navegadores, extensões de privacidade ou bloqueadores de anúncios podem impedir o carregamento dos arquivos do app.
+      </p>
+      <p class="boot-copy">
+        Se você usa AdBlock, uBlock, Brave Shields ou algo parecido, libere este site e recarregue a página.
+      </p>
+      <button class="boot-button" type="button" onclick="window.location.reload()">Recarregar app</button>
+    </div>
+  </div>
+  <script>
+    window.__APP_BOOTED__ = false;
+    window.__MARK_APP_BOOTED__ = function () {
+      window.__APP_BOOTED__ = true;
+      var fallback = document.getElementById('boot-fallback');
+      if (fallback) fallback.setAttribute('data-visible', 'false');
+    };
+
+    window.setTimeout(function () {
+      var root = document.getElementById('root');
+      var fallback = document.getElementById('boot-fallback');
+      if (!fallback) return;
+
+      var appMounted = Boolean(root && root.childNodes.length > 0);
+      if (!window.__APP_BOOTED__ && !appMounted) {
+        fallback.setAttribute('data-visible', 'true');
+      }
+    }, 2500);
+  </script>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
+</html>

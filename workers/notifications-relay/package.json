@@ -1,0 +1,16 @@
+{
+  "name": "notifications-relay",
+  "private": true,
+  "scripts": {
+    "deploy": "npm run deploy:palmas",
+    "deploy:palmas": "node ../../scripts/check-deploy-auth.cjs wrangler palmas --config wrangler.palmas.toml --cwd . && wrangler deploy --config wrangler.palmas.toml",
+    "deploy:general": "node ../../scripts/check-deploy-auth.cjs wrangler general --config wrangler.general.toml --cwd . && wrangler deploy --config wrangler.general.toml",
+    "dev": "wrangler dev",
+    "dev:palmas": "wrangler dev --config wrangler.palmas.toml",
+    "dev:general": "wrangler dev --config wrangler.general.toml",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.11.1"
+  }
+}

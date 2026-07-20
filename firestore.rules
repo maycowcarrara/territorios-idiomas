@@ -1,0 +1,322 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estaLogado() {
+      return request.auth != null;
+    }
+
+    function meuEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function getDadosUsuario() {
+      return get(/databases/$(database)/documents/usuarios/$(meuEmail())).data;
+    }
+
+    function isAdmin() {
+      return estaLogado() &&
+             exists(/databases/$(database)/documents/usuarios/$(meuEmail())) &&
+             getDadosUsuario().role == 'admin';
+    }
+
+    function isAprovado() {
+      return estaLogado() &&
+             exists(/databases/$(database)/documents/usuarios/$(meuEmail())) &&
+             (getDadosUsuario().role == 'admin' || getDadosUsuario().role == 'comum');
+    }
+
+    function isAguardando() {
+      return estaLogado() &&
+             exists(/databases/$(database)/documents/usuarios/$(meuEmail())) &&
+             getDadosUsuario().role == 'aguardando';
+    }
+
+    function camposAlteradosApenas(camposPermitidos) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(camposPermitidos);
+    }
+
+    function camposOperacionaisTerritorio() {
+      return [
+        'quadras_feitas',
+        'status',
+        'historico',
+        'ultimaConclusao',
+        'ultimaAlteracao',
+        'designadoPara',
+        'designadoNome',
+        'dataDesignacao',
+        'designacaoId',
+        'cicloAtual',
+        'nome'
+      ];
+    }
+
+    function camposOperacionaisContexto() {
+      return [
+        'quadras_feitas',
+        'status',
+        'historico',
+        'ultimaConclusao',
+        'ultimaAlteracao',
+        'designadoPara',
+        'designadoNome',
+        'dataDesignacao',
+        'designacaoId',
+        'cicloAtual',
+        'nome',
+        'territorioBaseId',
+        'territorioNumero',
+        'contextoId',
+        'contextoTipo',
+        'contextoTitulo'
+      ];
+    }
+
+    function camposNotasTerritorio() {
+      return ['nome', 'notas_quadras', 'ultimaAlteracao'];
+    }
+
+    function camposNotaDocumento() {
+      return [
+        'quadraId',
+        'texto',
+        'autorEmail',
+        'autorNome',
+        'data',
+        'editadoEm',
+        'designacaoId',
+        'territorioId',
+        'contextoId'
+      ];
+    }
+
+    function docIdTerritorioContexto(contextoId, territorioBaseId) {
+      return contextoId + '__' + territorioBaseId;
+    }
+
+    function existeEstadoTerritorioNoContexto(territorioBaseId, contextoId) {
+      return contextoId == 'normal'
+        ? exists(/databases/$(database)/documents/territorios/$(territorioBaseId))
+        : exists(/databases/$(database)/documents/territorios_contexto/$(docIdTerritorioContexto(contextoId, territorioBaseId)));
+    }
+
+    function getEstadoTerritorioNoContexto(territorioBaseId, contextoId) {
+      return contextoId == 'normal'
+        ? get(/databases/$(database)/documents/territorios/$(territorioBaseId)).data
+        : get(/databases/$(database)/documents/territorios_contexto/$(docIdTerritorioContexto(contextoId, territorioBaseId))).data;
+    }
+
+    function notaDocumentoValida() {
+      return request.resource.data.keys().hasOnly(camposNotaDocumento()) &&
+             request.resource.data.quadraId is string &&
+             request.resource.data.texto is string &&
+             request.resource.data.texto.size() <= 4000 &&
+             request.resource.data.autorEmail is string &&
+             request.resource.data.autorNome is string &&
+             (request.resource.data.designacaoId == null || request.resource.data.designacaoId is string) &&
+             request.resource.data.contextoId is string;
+    }
+
+    function mantemOuLimpaDesignacaoPropria() {
+      return (
+               request.resource.data.designadoPara == resource.data.designadoPara &&
+               request.resource.data.designacaoId == resource.data.designacaoId
+             ) ||
+             (
+               resource.data.designadoPara == meuEmail() &&
+               request.resource.data.designadoPara == null &&
+               request.resource.data.designadoNome == null &&
+               request.resource.data.dataDesignacao == null &&
+               request.resource.data.designacaoId == null &&
+               request.resource.data.cicloAtual == null
+             );
+    }
+
+    function mantemNomeSalvo() {
+      return request.resource.data.nome == resource.data.nome ||
+             resource.data.nome == null;
+    }
+
+    function podeAtualizarTerritorioDesignado() {
+      return isAprovado() &&
+             resource.data.designadoPara == meuEmail() &&
+             camposAlteradosApenas(camposOperacionaisTerritorio()) &&
+             mantemOuLimpaDesignacaoPropria() &&
+             mantemNomeSalvo();
+    }
+
+    function podeAtualizarNotasTerritorio() {
+      return isAdmin() &&
+             camposAlteradosApenas(camposNotasTerritorio()) &&
+             mantemNomeSalvo();
+    }
+
+    function podeAtualizarContextoDesignado() {
+      return isAprovado() &&
+             resource.data.designadoPara == meuEmail() &&
+             camposAlteradosApenas(camposOperacionaisContexto()) &&
+             mantemOuLimpaDesignacaoPropria() &&
+             mantemNomeSalvo();
+    }
+
+    function podeCriarNotaTerritorio(territorioBaseId) {
+      return isAprovado() &&
+             notaDocumentoValida() &&
+             request.resource.data.autorEmail == meuEmail() &&
+             existeEstadoTerritorioNoContexto(territorioBaseId, request.resource.data.contextoId) &&
+             getEstadoTerritorioNoContexto(territorioBaseId, request.resource.data.contextoId).designadoPara == meuEmail() &&
+             getEstadoTerritorioNoContexto(territorioBaseId, request.resource.data.contextoId).designacaoId == request.resource.data.designacaoId;
+    }
+
+    function podeAtualizarNotaTerritorio(territorioBaseId) {
+      return isAprovado() &&
+             notaDocumentoValida() &&
+             resource.data.autorEmail == meuEmail() &&
+             request.resource.data.autorEmail == resource.data.autorEmail &&
+             request.resource.data.contextoId == resource.data.contextoId &&
+             request.resource.data.designacaoId == resource.data.designacaoId &&
+             existeEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId) &&
+             getEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId).designadoPara == meuEmail() &&
+             getEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId).designacaoId == resource.data.designacaoId;
+    }
+
+    function podeExcluirNotaTerritorio(territorioBaseId) {
+      return isAprovado() &&
+             resource.data.autorEmail == meuEmail() &&
+             existeEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId) &&
+             getEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId).designadoPara == meuEmail() &&
+             getEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId).designacaoId == resource.data.designacaoId;
+    }
+
+    function notificacaoValida() {
+      return request.resource.data.keys().hasOnly([
+               'para',
+               'texto',
+               'data',
+               'lida',
+               'lidaPor',
+               'tipo',
+               'origem',
+               'tituloPush'
+             ]) &&
+             request.resource.data.para is string &&
+             request.resource.data.texto is string &&
+             request.resource.data.data is timestamp &&
+             request.resource.data.lida is bool &&
+             request.resource.data.texto.size() <= 2000;
+    }
+
+    function destinatarioAdminValido() {
+      return request.resource.data.para is string &&
+             exists(/databases/$(database)/documents/usuarios/$(request.resource.data.para.lower())) &&
+             get(/databases/$(database)/documents/usuarios/$(request.resource.data.para.lower())).data.role == 'admin';
+    }
+
+    function podeCriarNotificacaoAdminSistemaDireta() {
+      return estaLogado() &&
+             notificacaoValida() &&
+             (
+               request.resource.data.para == 'ADMINS' ||
+               destinatarioAdminValido()
+             ) &&
+             request.resource.data.origem == 'sistema' &&
+             request.resource.data.lida == false &&
+             !request.resource.data.keys().hasAny(['lidaPor']) &&
+             (
+               (isAguardando() && request.resource.data.tipo == 'cadastro') ||
+               (isAprovado() &&
+                 (
+                   request.resource.data.tipo == 'conclusao' ||
+                   request.resource.data.tipo == 'devolucao'
+                 )
+               )
+             );
+    }
+
+    function atualizaLeituraNotificacao() {
+      return estaLogado() &&
+             camposAlteradosApenas(['lida']) &&
+             resource.data.para == meuEmail() &&
+             request.resource.data.lida is bool;
+    }
+
+    function atualizaLeituraNotificacaoAdmin() {
+      return isAdmin() &&
+             camposAlteradosApenas(['lidaPor']) &&
+             resource.data.para == 'ADMINS' &&
+             request.resource.data.lidaPor is list;
+    }
+
+    match /usuarios/{email} {
+      allow read: if estaLogado() && (isAdmin() || meuEmail() == email);
+
+      allow create: if isAdmin() || (
+        estaLogado() &&
+        meuEmail() == email &&
+        request.resource.data.role == 'aguardando'
+      );
+
+      allow update: if isAdmin() || (
+        estaLogado() &&
+        meuEmail() == email &&
+        request.resource.data.role == resource.data.role
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /territorios/{territorio} {
+      allow read: if isAprovado();
+      allow update: if isAdmin() ||
+                    podeAtualizarTerritorioDesignado() ||
+                    podeAtualizarNotasTerritorio();
+      allow create, delete: if isAdmin();
+
+      match /notas/{notaId} {
+        allow read: if isAprovado();
+        allow create: if isAdmin() || podeCriarNotaTerritorio(territorio);
+        allow update: if isAdmin() || podeAtualizarNotaTerritorio(territorio);
+        allow delete: if isAdmin() || podeExcluirNotaTerritorio(territorio);
+      }
+    }
+
+    match /territorios_contexto/{territorioContexto} {
+      allow read: if isAprovado();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || podeAtualizarContextoDesignado();
+      allow delete: if isAdmin();
+    }
+
+    match /configuracoes/{docId} {
+      allow read: if isAprovado();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /campanhas/{campanhaId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /notificacoes/{notificacao} {
+      allow read: if estaLogado() && (
+        resource.data.para == meuEmail() ||
+        (resource.data.para == 'ADMINS' && isAdmin())
+      );
+
+      allow create: if isAdmin() || (
+        estaLogado() &&
+        notificacaoValida() &&
+        request.resource.data.para == meuEmail()
+      ) || podeCriarNotificacaoAdminSistemaDireta();
+
+      allow update: if atualizaLeituraNotificacao() ||
+                    atualizaLeituraNotificacaoAdmin();
+
+      allow delete: if estaLogado() && (
+        resource.data.para == meuEmail()
+      );
+    }
+  }
+}
