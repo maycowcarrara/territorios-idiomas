@@ -278,14 +278,8 @@ Para login por link mágico no Android, a instância ativa também precisa mante
 
 O APK registra os dois hosts (`web.app` e `firebaseapp.com`, quando forem diferentes) para que o toque no e-mail volte ao app em vez de cair só no navegador. Se mudar qualquer um desses domínios, rode uma nova sincronização/build Android além do deploy web.
 
-O app tenta enviar o link mágico em duas etapas:
-
-- o Worker (`/auth/magic-link`) gera o link no Firebase, aplica cooldown por e-mail e mantém a lógica de criar `usuarios/{email}` como `aguardando`
-- o frontend envia o e-mail pelo EmailJS/Gmail usando `VITE_EMAILJS_PUBLIC_KEY`, `VITE_EMAILJS_SERVICE_ID` e `VITE_EMAILJS_TEMPLATE_ID`
-
-Se o Worker novo ainda não estiver publicado ou o EmailJS não estiver configurado, o frontend faz fallback temporário para o envio nativo do Firebase.
-
-O HTML sugerido para o template do EmailJS está em [docs/emailjs-magic-link-template.md](./docs/emailjs-magic-link-template.md).
+O link mágico é enviado diretamente pelo Firebase Authentication usando `sendSignInLinkToEmail`.
+Não configure EmailJS, Brevo ou outro provedor externo para esse fluxo; basta habilitar o provedor de link por e-mail no Firebase Auth e manter o domínio do Hosting autorizado.
 
 Cada instância também pode apontar para um mapa próprio com `VITE_MAPA_URL`. Para o General, use `./mapa.general.json`; enquanto o mapa real não estiver pronto, esse arquivo pode ser uma `FeatureCollection` vazia.
 

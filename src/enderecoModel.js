@@ -1,4 +1,5 @@
 import {
+    arrayUnion,
     collection,
     doc,
     runTransaction,
@@ -93,8 +94,56 @@ function buildActorEmail(user) {
     return String(user?.email || '').toLowerCase();
 }
 
+function normalizeEmail(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
 function normalizeGrupoNome(value, fallback) {
     return normalizeText(value, 120) || fallback;
+}
+
+function ensureArray(value) {
+    return Array.isArray(value) ? [...value] : [];
+}
+
+function createDesignacaoId() {
+    return crypto.randomUUID();
+}
+
+function buildHistoricoGrupoEndereco({ grupo, responsavelNome, agora }) {
+    const ciclo = grupo.cicloAtual || {
+        dataInicio: grupo.dataDesignacao || agora,
+        responsaveis: [responsavelNome],
+        designacaoId: grupo.designacaoId || null
+    };
+
+    return {
+        ...ciclo,
+        designacaoId: ciclo.designacaoId || grupo.designacaoId || null,
+        dataTermino: agora,
+        responsaveis: [...new Set([...(ciclo.responsaveis || []), responsavelNome])]
+    };
+}
+
+export function getGrupoEnderecoProgresso(grupo) {
+    const totalSeguro = Math.max(Number(grupo?.totalEnderecos) || 0, 0);
+    const visitadosReais = ensureArray(grupo?.enderecos_visitados).length;
+    const visitadosExibicao = Math.min(visitadosReais, totalSeguro || visitadosReais);
+    const percentualExibicao = totalSeguro > 0
+        ? Math.round((visitadosExibicao / totalSeguro) * 100)
+        : 0;
+
+    return {
+        statusSalvo: grupo?.status || GRUPO_ENDERECO_STATUS.ATIVO,
+        totalEnderecos: totalSeguro,
+        visitadosReais,
+        visitadosExibicao,
+        faltantes: Math.max(totalSeguro - visitadosExibicao, 0),
+        percentualExibicao,
+        completo: totalSeguro > 0 && visitadosReais >= totalSeguro,
+        isFinalizado: grupo?.status === GRUPO_ENDERECO_STATUS.FINALIZADO,
+        isArquivado: grupo?.status === GRUPO_ENDERECO_STATUS.ARQUIVADO
+    };
 }
 
 export function calculateGrupoEnderecoStats(enderecos = []) {
@@ -287,12 +336,18 @@ export async function setEnderecoArquivado(db, enderecoId, arquivar, user) {
                     .filter(Boolean);
                 enderecosGrupo.push(enderecoAtualizado);
 
-                transaction.set(grupoRef, {
+                const grupoUpdates = {
                     ...calculateGrupoEnderecoStats(enderecosGrupo),
                     ultimaAlteracao: agora,
                     atualizadoEm: agora,
                     atualizadoPor: actorEmail
-                }, { merge: true });
+                };
+
+                if (arquivar) {
+                    grupoUpdates.enderecos_visitados = ensureArray(grupo.enderecos_visitados).filter((id) => id !== enderecoId);
+                }
+
+                transaction.set(grupoRef, grupoUpdates, { merge: true });
             }
         }
 
@@ -406,6 +461,159 @@ export async function setGrupoEnderecoArquivado(db, grupoId, arquivar, user) {
         arquivadoEm: arquivar ? agora : null,
         arquivadoPor: arquivar ? buildActorEmail(user) : null
     }, { merge: true });
+}
+
+export async function designarGrupoEndereco(db, { grupoId, usuario, user }) {
+    const agora = new Date();
+    const designacaoId = createDesignacaoId();
+    const usuarioEmail = normalizeEmail(usuario?.email);
+    const novoNome = usuario?.nome || usuario?.email || 'Dirigente';
+
+    await setDoc(getGrupoEnderecoRef(db, grupoId), {
+        designadoPara: usuarioEmail,
+        designadoNome: novoNome,
+        dataDesignacao: agora,
+        designacaoId,
+        cicloAtual: {
+            dataInicio: agora,
+            responsaveis: [novoNome],
+            designacaoId
+        },
+        status: GRUPO_ENDERECO_STATUS.ATIVO,
+        ultimaAlteracao: agora,
+        atualizadoEm: agora,
+        atualizadoPor: buildActorEmail(user)
+    }, { merge: true });
+
+    return {
+        designacaoId,
+        designadoNome: novoNome
+    };
+}
+
+export async function devolverGrupoEndereco(db, { grupoId, user }) {
+    const actorEmail = buildActorEmail(user);
+    const agora = new Date();
+
+    return runTransaction(db, async (transaction) => {
+        const grupoRef = getGrupoEnderecoRef(db, grupoId);
+        const grupoSnapshot = await transaction.get(grupoRef);
+
+        if (!grupoSnapshot.exists()) {
+            throw new Error('Grupo não encontrado.');
+        }
+
+        const grupo = grupoSnapshot.data();
+        if (!grupo.designadoPara) {
+            return;
+        }
+
+        const responsavelNome = grupo.designadoNome || grupo.designadoPara || 'Dirigente';
+
+        transaction.set(grupoRef, {
+            designadoPara: null,
+            designadoNome: null,
+            dataDesignacao: null,
+            designacaoId: null,
+            cicloAtual: null,
+            historico: arrayUnion(buildHistoricoGrupoEndereco({
+                grupo,
+                responsavelNome,
+                agora
+            })),
+            status: GRUPO_ENDERECO_STATUS.ATIVO,
+            ultimaAlteracao: agora,
+            atualizadoEm: agora,
+            atualizadoPor: actorEmail
+        }, { merge: true });
+    });
+}
+
+export async function toggleEnderecoVisitadoGrupo(db, { grupoId, enderecoId, user }) {
+    const actorEmail = buildActorEmail(user);
+    const agora = new Date();
+
+    return runTransaction(db, async (transaction) => {
+        const grupoRef = getGrupoEnderecoRef(db, grupoId);
+        const grupoSnapshot = await transaction.get(grupoRef);
+
+        if (!grupoSnapshot.exists()) {
+            throw new Error('Grupo não encontrado.');
+        }
+
+        const grupo = grupoSnapshot.data();
+        if (grupo.status !== GRUPO_ENDERECO_STATUS.ATIVO) {
+            throw new Error('Este grupo não está ativo para execução.');
+        }
+
+        if (grupo.designadoPara !== actorEmail) {
+            throw new Error('Este grupo não está designado para você.');
+        }
+
+        if (!ensureArray(grupo.enderecoIds).includes(enderecoId)) {
+            throw new Error('Este endereço não pertence mais ao grupo.');
+        }
+
+        const visitados = new Set(ensureArray(grupo.enderecos_visitados));
+        if (visitados.has(enderecoId)) {
+            visitados.delete(enderecoId);
+        } else {
+            visitados.add(enderecoId);
+        }
+
+        transaction.set(grupoRef, {
+            enderecos_visitados: [...visitados],
+            status: GRUPO_ENDERECO_STATUS.ATIVO,
+            ultimaAlteracao: agora,
+            atualizadoEm: agora,
+            atualizadoPor: actorEmail
+        }, { merge: true });
+    });
+}
+
+export async function finalizarGrupoEnderecoDesignado(db, { grupoId, user }) {
+    const actorEmail = buildActorEmail(user);
+    const agora = new Date();
+
+    return runTransaction(db, async (transaction) => {
+        const grupoRef = getGrupoEnderecoRef(db, grupoId);
+        const grupoSnapshot = await transaction.get(grupoRef);
+
+        if (!grupoSnapshot.exists()) {
+            throw new Error('Grupo não encontrado.');
+        }
+
+        const grupo = grupoSnapshot.data();
+        if (grupo.designadoPara !== actorEmail) {
+            throw new Error('Este grupo não está designado para você.');
+        }
+
+        const progresso = getGrupoEnderecoProgresso(grupo);
+        if (!progresso.completo) {
+            throw new Error('Marque todos os endereços ativos antes de finalizar.');
+        }
+
+        const responsavelNome = grupo.designadoNome || user?.displayName || actorEmail;
+
+        transaction.set(grupoRef, {
+            designadoPara: null,
+            designadoNome: null,
+            dataDesignacao: null,
+            designacaoId: null,
+            cicloAtual: null,
+            historico: arrayUnion(buildHistoricoGrupoEndereco({
+                grupo,
+                responsavelNome,
+                agora
+            })),
+            ultimaConclusao: agora,
+            enderecos_visitados: [],
+            status: GRUPO_ENDERECO_STATUS.FINALIZADO,
+            ultimaAlteracao: agora,
+            atualizadoEm: agora,
+            atualizadoPor: actorEmail
+        }, { merge: true });
+    });
 }
 
 export async function removerEnderecoDoGrupo(db, { enderecoId, grupoId, user }) {

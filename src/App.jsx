@@ -33,6 +33,11 @@ import { normalizeTerritorioNome } from './territorioNome';
 import { useCoberturaCampanha } from './useCoberturaCampanha';
 import { finalizarTerritorioDesignado } from './territorioActions';
 import { describeOutboxConflict } from './territorioOfflineModel';
+import {
+  finalizarGrupoEnderecoDesignado,
+  getGrupoEnderecoProgresso,
+  getGruposEnderecoCollectionRef
+} from './enderecoModel';
 import { useTerritorioOutbox, useTerritorioSync } from './useTerritorioOffline';
 import { UiFeedbackProvider, useUiFeedback } from './uiFeedback';
 import { ModalFrame } from './uiPrimitives';
@@ -119,6 +124,31 @@ const carregarMeusTerritoriosDocs = async ({ email, contextoId }) => {
   }));
 };
 
+const carregarMeusGruposEnderecoDocs = async ({ email }) => {
+  const emailNormalizado = String(email || '').toLowerCase();
+  const querySnapshot = await getDocs(query(
+    getGruposEnderecoCollectionRef(db),
+    where("designadoPara", "==", emailNormalizado)
+  ));
+
+  return querySnapshot.docs.map((grupoDoc) => ({
+    id: grupoDoc.id,
+    ...grupoDoc.data()
+  }));
+};
+
+const getGrupoEnderecoBoundsStr = (grupo) => {
+  const bounds = grupo?.bounds;
+  if (!bounds) return null;
+
+  const { minLat, minLng, maxLat, maxLng } = bounds;
+  if (![minLat, minLng, maxLat, maxLng].every((value) => Number.isFinite(Number(value)))) {
+    return null;
+  }
+
+  return `${minLat},${minLng},${maxLat},${maxLng}`;
+};
+
 const montarListaMeusTerritorios = async ({ docs }) => {
   if (!Array.isArray(docs) || docs.length === 0) {
     return [];
@@ -167,6 +197,7 @@ const montarListaMeusTerritorios = async ({ docs }) => {
 
     return {
       ...territorioDoc,
+      tipo: 'territorio',
       numeroId,
       nome,
       boundsStr,
@@ -180,6 +211,8 @@ const montarListaMeusTerritorios = async ({ docs }) => {
       descricaoResumo,
       barraClasse,
       badgeClasse,
+      unidadeProgresso: 'quadras',
+      tipoLabel: 'Território',
       podeFinalizarDireto: progresso.isAguardandoFinalizacao && Boolean(territorioDoc.designadoPara)
     };
   });
@@ -188,6 +221,66 @@ const montarListaMeusTerritorios = async ({ docs }) => {
     const diffTempo = a.dataDesignacaoOrdenacao - b.dataDesignacaoOrdenacao;
     if (diffTempo !== 0) return diffTempo;
     return a.numeroId - b.numeroId;
+  });
+
+  return listaCompleta;
+};
+
+const montarListaMeusGruposEndereco = ({ docs }) => {
+  if (!Array.isArray(docs) || docs.length === 0) {
+    return [];
+  }
+
+  const listaCompleta = docs.map((grupoDoc) => {
+    const progresso = getGrupoEnderecoProgresso(grupoDoc);
+    const boundsStr = getGrupoEnderecoBoundsStr(grupoDoc);
+
+    let dataFormatada = "Data desc.";
+    let dataDesignacaoOrdenacao = 0;
+    if (grupoDoc.dataDesignacao) {
+      const d = grupoDoc.dataDesignacao.toDate ? grupoDoc.dataDesignacao.toDate() : new Date(grupoDoc.dataDesignacao);
+      dataFormatada = d.toLocaleDateString('pt-BR');
+      dataDesignacaoOrdenacao = d.getTime();
+    }
+
+    let statusResumo = 'Em andamento';
+    let descricaoResumo = `${progresso.faltantes} endereço${progresso.faltantes === 1 ? '' : 's'} faltando`;
+    let barraClasse = 'bg-indigo-600';
+    let badgeClasse = 'bg-indigo-100 text-indigo-700';
+
+    if (progresso.isFinalizado) {
+      statusResumo = 'Finalizado';
+      descricaoResumo = 'Grupo encerrado e aguardando nova liberação';
+      barraClasse = 'bg-green-500';
+      badgeClasse = 'bg-green-100 text-green-700';
+    }
+
+    return {
+      ...grupoDoc,
+      tipo: 'grupo_endereco',
+      numeroId: grupoDoc.codigo,
+      nome: grupoDoc.nome || grupoDoc.codigo || 'Grupo de endereços',
+      boundsStr,
+      dataFormatada,
+      dataDesignacaoOrdenacao,
+      totalQuadras: progresso.totalEnderecos,
+      quadrasFeitas: progresso.visitadosExibicao,
+      quadrasRestantes: progresso.faltantes,
+      percentual: progresso.percentualExibicao,
+      statusResumo,
+      descricaoResumo,
+      barraClasse,
+      badgeClasse,
+      unidadeProgresso: 'endereços',
+      tipoLabel: 'Grupo',
+      podeFinalizarDireto: progresso.completo && Boolean(grupoDoc.designadoPara) && !progresso.isFinalizado
+    };
+  });
+
+  listaCompleta.sort((a, b) => {
+    const diffTempo = a.dataDesignacaoOrdenacao - b.dataDesignacaoOrdenacao;
+    if (diffTempo !== 0) return diffTempo;
+    return String(a.codigo || a.id).localeCompare(String(b.codigo || b.id));
   });
 
   return listaCompleta;
@@ -272,31 +365,26 @@ function Login() {
     if (
       mensagem.includes('missing-continue-uri')
       || mensagem.includes('VITE_PUBLIC_APP_URL')
-      || mensagem.includes('VITE_EMAILJS_PUBLIC_KEY')
-      || mensagem.includes('VITE_EMAILJS_SERVICE_ID')
-      || mensagem.includes('VITE_EMAILJS_TEMPLATE_ID')
     ) {
       return 'O link mágico ainda não foi configurado corretamente neste ambiente.';
     }
 
-    if (mensagem.includes('Aguarde 1 minuto')) {
+    if (
+      mensagem.includes('operation-not-allowed')
+      || mensagem.includes('EMAIL_SIGNIN')
+    ) {
+      return 'Ative o provedor de link por e-mail no Firebase Authentication deste projeto.';
+    }
+
+    if (
+      mensagem.includes('unauthorized-continue-uri')
+      || mensagem.includes('unauthorized-domain')
+    ) {
+      return 'Autorize o domínio do app nas configurações do Firebase Authentication.';
+    }
+
+    if (mensagem.includes('too-many-requests') || mensagem.includes('Aguarde 1 minuto')) {
       return 'Aguarde cerca de 1 minuto antes de pedir outro link para este e-mail.';
-    }
-
-    if (mensagem.includes('magic-link-emailjs-unavailable')) {
-      return 'O envio por e-mail ainda não foi configurado corretamente neste ambiente.';
-    }
-
-    if (mensagem.includes('The Public Key is required') || mensagem.includes('publicKey')) {
-      return 'Falta configurar a chave pública do EmailJS neste ambiente.';
-    }
-
-    if (mensagem.includes('The Service ID is required') || mensagem.includes('service ID')) {
-      return 'Falta configurar o serviço do EmailJS neste ambiente.';
-    }
-
-    if (mensagem.includes('The Template ID is required') || mensagem.includes('template ID')) {
-      return 'Falta configurar o template do EmailJS neste ambiente.';
     }
 
     if (
@@ -1033,12 +1121,26 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
   const carregarLista = useCallback(async () => {
     if (!user?.email) return [];
 
-    const meusDocs = await carregarMeusTerritoriosDocs({
-      email: user.email,
-      contextoId: contextoIdAtual
-    });
+    const [meusDocs, meusGruposDocs] = await Promise.all([
+      carregarMeusTerritoriosDocs({
+        email: user.email,
+        contextoId: contextoIdAtual
+      }),
+      carregarMeusGruposEnderecoDocs({
+        email: user.email
+      })
+    ]);
 
-    return montarListaMeusTerritorios({ docs: meusDocs });
+    const [territorios, grupos] = await Promise.all([
+      montarListaMeusTerritorios({ docs: meusDocs }),
+      Promise.resolve(montarListaMeusGruposEndereco({ docs: meusGruposDocs }))
+    ]);
+
+    return [...territorios, ...grupos].sort((a, b) => {
+      const diffTempo = a.dataDesignacaoOrdenacao - b.dataDesignacaoOrdenacao;
+      if (diffTempo !== 0) return diffTempo;
+      return String(a.nome || a.id).localeCompare(String(b.nome || b.id));
+    });
   }, [contextoIdAtual, user?.email]);
 
   useEffect(() => {
@@ -1094,9 +1196,10 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
 
   const finalizarDireto = async (item) => {
     if (!user?.email || !item?.podeFinalizarDireto) return;
+    const isGrupoEndereco = item.tipo === 'grupo_endereco';
     if (!(await confirm({
-      title: 'Finalizar territorio',
-      message: `Confirmar a finalização do território ${item.nome || item.numeroId}?`,
+      title: isGrupoEndereco ? 'Finalizar grupo' : 'Finalizar territorio',
+      message: `Confirmar a finalização ${isGrupoEndereco ? 'do grupo' : 'do território'} ${item.nome || item.numeroId}?`,
       tone: 'warning',
       confirmLabel: 'Finalizar'
     }))) return;
@@ -1104,6 +1207,20 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
     setTerritorioProcessandoId(item.id);
 
     try {
+      if (isGrupoEndereco) {
+        await finalizarGrupoEnderecoDesignado(db, {
+          grupoId: item.id,
+          user
+        });
+        setLista((listaAtual) => listaAtual.filter((registro) => registro.id !== item.id));
+        notify({
+          title: 'Grupo finalizado',
+          message: `Grupo ${item.codigo || item.nome} finalizado com sucesso.`,
+          variant: 'success'
+        });
+        return;
+      }
+
       const stateRef = getTerritorioStateRef(db, item.numeroId, contextoSistema?.contextoAtivoId);
       const salvarEstadoTerritorio = async (updates) => {
         await setDoc(stateRef, updates, { merge: true });
@@ -1128,7 +1245,7 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
       console.error(error);
       notify({
         title: 'Finalização indisponível',
-        message: 'Não foi possível finalizar o território agora. Tente novamente.',
+        message: 'Não foi possível finalizar esta designação agora. Tente novamente.',
         variant: 'error'
       });
     } finally {
@@ -1160,13 +1277,13 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
           ) : lista.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <p className="mb-2 text-4xl">🤷‍♂️</p>
-              <p>Nenhum território designado para você no momento.</p>
+              <p>Nenhum território ou grupo designado para você no momento.</p>
               <p className="text-xs mt-2 text-gray-400">Fale com o Servo de Territórios.</p>
             </div>
           ) : (
             <div className="space-y-3">
               <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                Ordenado dos territórios mais antigos para os mais recentes.
+                Ordenado das designações mais antigas para as mais recentes.
               </div>
               {lista.map((t) => (
                 <div key={t.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow">
@@ -1175,11 +1292,13 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
                       <h4 className="font-bold text-gray-800 text-lg">{t.nome || `Território ${t.numeroId}`}</h4>
                       <p className="text-xs text-gray-500">Recebido em: <span className="font-medium text-gray-700">{t.dataFormatada}</span></p>
                     </div>
-                    <div className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">#{t.numeroId}</div>
+                    <div className={`${t.tipo === 'grupo_endereco' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'} text-xs font-bold px-2 py-1 rounded-full`}>
+                      {t.tipoLabel || 'Território'} {t.numeroId}
+                    </div>
                   </div>
                   <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                     <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-gray-600">
-                      <span>{t.quadrasFeitas} de {t.totalQuadras} quadras</span>
+                      <span>{t.quadrasFeitas} de {t.totalQuadras} {t.unidadeProgresso || 'quadras'}</span>
                       <span>{t.percentual}%</span>
                     </div>
                       <div className="h-2 overflow-hidden rounded-full bg-gray-200">
@@ -2075,13 +2194,26 @@ function Dashboard() {
     const verificarSeTemTerritorios = async () => {
       try {
         const contextoId = contextoSistema?.contextoAtivoId || 'normal';
-        const meusDocs = await carregarMeusTerritoriosDocs({
-          email: user.email,
-          contextoId
-        });
+        const [meusDocs, meusGruposDocs] = await Promise.all([
+          carregarMeusTerritoriosDocs({
+            email: user.email,
+            contextoId
+          }),
+          carregarMeusGruposEnderecoDocs({
+            email: user.email
+          })
+        ]);
 
-        if (ativo && meusDocs.length > 0) {
-          const items = await montarListaMeusTerritorios({ docs: meusDocs });
+        if (ativo && (meusDocs.length > 0 || meusGruposDocs.length > 0)) {
+          const [territorios, grupos] = await Promise.all([
+            montarListaMeusTerritorios({ docs: meusDocs }),
+            Promise.resolve(montarListaMeusGruposEndereco({ docs: meusGruposDocs }))
+          ]);
+          const items = [...territorios, ...grupos].sort((a, b) => {
+            const diffTempo = a.dataDesignacaoOrdenacao - b.dataDesignacaoOrdenacao;
+            if (diffTempo !== 0) return diffTempo;
+            return String(a.nome || a.id).localeCompare(String(b.nome || b.id));
+          });
           setMeusTerritoriosPrecarregados({
             email: user.email,
             contextoId,

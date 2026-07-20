@@ -1,9 +1,6 @@
 const GOOGLE_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const FIREBASE_JWKS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const ONESIGNAL_NOTIFICATIONS_URL = 'https://api.onesignal.com/notifications';
-const IDENTITY_TOOLKIT_SEND_OOB_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode';
-const MAGIC_LINK_EMAIL_COOLDOWN_MS = 60 * 1000;
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 let cachedAccessToken = null;
 let cachedAccessTokenExpiry = 0;
@@ -32,25 +29,6 @@ const parseJsonBody = async (request) => {
         throw new Error('Corpo JSON inválido.');
     }
 };
-
-const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
-
-const isValidEmail = (value) => emailRegex.test(normalizeEmail(value));
-
-const parseDateValue = (value) => {
-    if (!value) return null;
-    const timestamp = Date.parse(String(value));
-    return Number.isNaN(timestamp) ? null : timestamp;
-};
-
-const getRequestIp = (request) =>
-    String(
-        request.headers.get('CF-Connecting-IP')
-        || request.headers.get('X-Forwarded-For')
-        || ''
-    )
-        .split(',')[0]
-        .trim();
 
 const encodeBase64Url = (input) =>
     btoa(String.fromCharCode(...new Uint8Array(input)))
@@ -302,53 +280,6 @@ const firestoreCommitUrl = (env) =>
     `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`;
 
 const getPublicAppUrl = (env) => String(env.PUBLIC_APP_URL || 'https://territ-es-sbs.web.app').replace(/\/$/, '');
-const getAppDisplayName = (env) => String(env.APP_DISPLAY_NAME || 'Territórios').trim() || 'Territórios';
-const getAppSubtitle = (env) => String(env.APP_SUBTITLE || '').trim();
-const getAppIconPath = (env) => String(env.APP_ICON_PATH || '/icon-192.png').trim() || '/icon-192.png';
-const getMagicLinkEmailSubject = (env) => String(env.MAGIC_LINK_EMAIL_SUBJECT || '').trim();
-const getMagicLinkEmailIntro = (env) => String(env.MAGIC_LINK_EMAIL_INTRO || '').trim();
-const getMagicLinkEmailButtonLabel = (env) => String(env.MAGIC_LINK_EMAIL_BUTTON_LABEL || '').trim();
-const getMagicLinkEmailHint = (env) => String(env.MAGIC_LINK_EMAIL_HINT || '').trim();
-const getMagicLinkEmailFooter = (env) => String(env.MAGIC_LINK_EMAIL_FOOTER || '').trim();
-const getAppIconUrl = (env) => {
-    const iconPath = getAppIconPath(env);
-    if (/^https?:\/\//i.test(iconPath)) return iconPath;
-    const normalizedPath = iconPath.startsWith('/') ? iconPath : `/${iconPath}`;
-    return `${getPublicAppUrl(env)}${normalizedPath}`;
-};
-
-const stripFirestoreMetadata = (document) => {
-    if (!document) return {};
-    const { name: _DOCUMENT_NAME, id: _DOCUMENT_ID, ...fields } = document;
-    return fields;
-};
-
-const writeFirestoreDocument = async (env, accessToken, path, data) => {
-    const response = await fetch(firestoreCommitUrl(env), {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            writes: [
-                {
-                    update: {
-                        name: firestoreDocumentName(env, path),
-                        fields: Object.fromEntries(
-                            Object.entries(data).map(([key, value]) => [key, toFirestoreValue(value)])
-                        )
-                    }
-                }
-            ]
-        })
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-        throw new Error(`Erro ao gravar documento Firestore ${path}: ${JSON.stringify(payload)}`);
-    }
-};
 
 const getFirestoreDocument = async (env, accessToken, path) => {
     const response = await fetch(firestoreDocumentUrl(env, path), {
@@ -433,139 +364,6 @@ const escreverNotificacoes = async (env, accessToken, notificacoes) => {
             throw new Error(`Erro ao gravar notificações no Firestore: ${JSON.stringify(data)}`);
         }
     }
-};
-
-const criarSolicitacaoPendenteSeNecessario = async (env, accessToken, email) => {
-    const normalized = normalizeEmail(email);
-    const userPath = `usuarios/${encodeURIComponent(normalized)}`;
-    const existente = await getFirestoreDocument(env, accessToken, userPath);
-    const agora = new Date();
-
-    if (!existente) {
-        await writeFirestoreDocument(env, accessToken, userPath, {
-            role: 'aguardando',
-            nome: 'Sem nome',
-            emailOriginal: normalized,
-            whatsapp: '',
-            criadoEm: agora,
-            ultimoEnvioLinkMagicoEm: agora
-        });
-
-        return {
-            created: true,
-            user: {
-                role: 'aguardando',
-                nome: 'Sem nome',
-                emailOriginal: normalized,
-                whatsapp: '',
-                criadoEm: agora.toISOString(),
-                ultimoEnvioLinkMagicoEm: agora.toISOString()
-            }
-        };
-    }
-
-    const dadosUsuario = stripFirestoreMetadata(existente);
-    const ultimoEnvio = parseDateValue(dadosUsuario.ultimoEnvioLinkMagicoEm);
-    if (ultimoEnvio && (Date.now() - ultimoEnvio) < MAGIC_LINK_EMAIL_COOLDOWN_MS) {
-        throw new Error('Aguarde 1 minuto antes de pedir outro link para este e-mail.');
-    }
-
-    await writeFirestoreDocument(env, accessToken, userPath, {
-        ...dadosUsuario,
-        emailOriginal: dadosUsuario.emailOriginal || normalized,
-        ultimoEnvioLinkMagicoEm: agora
-    });
-
-    return {
-        created: false,
-        user: {
-            ...dadosUsuario,
-            emailOriginal: dadosUsuario.emailOriginal || normalized,
-            ultimoEnvioLinkMagicoEm: agora.toISOString()
-        }
-    };
-};
-
-const avisarAdminsNovoCadastroPendente = async (env, accessToken, usuarios, email) => {
-    const admins = usuarios.filter((usuario) => usuario.role === 'admin');
-    if (!admins.length) return;
-
-    const texto = `Novo cadastro pendente: ${email}`;
-    const agora = new Date();
-    await escreverNotificacoes(
-        env,
-        accessToken,
-        admins.map((admin) => ({
-            para: admin.id,
-            texto,
-            data: agora,
-            lida: false,
-            tipo: 'cadastro',
-            origem: 'sistema'
-        }))
-    );
-
-    await enviarPushes(env, accessToken, {
-        titulo: 'Novo cadastro pendente',
-        mensagem: texto,
-        tipo: 'cadastro',
-        tokens: getTokensDestinatarios(admins),
-        externalIds: getExternalIdsDestinatarios(admins),
-        targetRoute: '/app'
-    });
-};
-
-const gerarLinkMagicoFirebase = async (env, accessToken, { email, settings, userIp }) => {
-    const response = await fetch(IDENTITY_TOOLKIT_SEND_OOB_URL, {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            requestType: 'EMAIL_SIGNIN',
-            email,
-            continueUrl: String(settings?.url || getPublicAppUrl(env)).trim(),
-            canHandleCodeInApp: Boolean(settings?.handleCodeInApp),
-            androidPackageName: settings?.android?.packageName || undefined,
-            androidInstallApp: Boolean(settings?.android?.installApp),
-            userIp: userIp || undefined,
-            targetProjectId: env.FIREBASE_PROJECT_ID,
-            returnOobLink: true
-        })
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload?.oobLink) {
-        throw new Error(`Falha ao gerar link mágico no Firebase: ${JSON.stringify(payload)}`);
-    }
-
-    return payload.oobLink;
-};
-
-const buildMagicLinkEmailPayload = (env, { email, magicLink }) => {
-    const appName = getAppDisplayName(env);
-    const appSubtitle = getAppSubtitle(env);
-    const appIconUrl = getAppIconUrl(env);
-    const publicUrl = getPublicAppUrl(env);
-    const subject = getMagicLinkEmailSubject(env) || `Seu link de acesso ao ${appName}`;
-    const introText = getMagicLinkEmailIntro(env) || `Recebemos um pedido de acesso ao ${appName}.`;
-    const buttonLabel = getMagicLinkEmailButtonLabel(env) || 'Entrar com link mágico';
-    const hintText = getMagicLinkEmailHint(env) || 'Use o botão abaixo para concluir o login com segurança no mesmo dispositivo em que possível.';
-    const footerText = getMagicLinkEmailFooter(env) || 'O acesso continua sujeito à aprovação do administrador para o e-mail informado.';
-    return {
-        toEmail: email,
-        appName,
-        appSubtitle,
-        appIconUrl,
-        publicUrl,
-        subject,
-        introText,
-        buttonLabel,
-        hintText,
-        footerText,
-        magicLink
-    };
 };
 
 const enviarMensagemFcm = async (env, accessToken, { token, titulo, mensagem, tipo = 'sistema', targetRoute = '/app' }) => {
@@ -853,47 +651,6 @@ const enviarPushes = async (env, accessToken, { titulo, mensagem, tipo, tokens, 
     };
 };
 
-const handleMagicLinkRequest = async (request, env, headers) => {
-    const body = await parseJsonBody(request);
-    const email = normalizeEmail(body?.email);
-    const settings = body?.settings || {};
-
-    if (!isValidEmail(email)) {
-        return json({ error: 'Informe um e-mail válido para receber o link mágico.' }, 400, headers);
-    }
-
-    const accessToken = await getGoogleAccessToken(env);
-    const { created } = await criarSolicitacaoPendenteSeNecessario(env, accessToken, email);
-    const magicLink = await gerarLinkMagicoFirebase(env, accessToken, {
-        email,
-        settings,
-        userIp: getRequestIp(request)
-    });
-    const emailTemplate = buildMagicLinkEmailPayload(env, {
-        email,
-        magicLink
-    });
-
-    if (created) {
-        try {
-            const usuarios = await listUsuarios(env, accessToken);
-            await avisarAdminsNovoCadastroPendente(env, accessToken, usuarios, email);
-        } catch (error) {
-            console.error('Falha ao avisar admins sobre cadastro pendente:', error);
-        }
-    }
-
-    return json({
-        ok: true,
-        action: 'magic-link',
-        email,
-        created,
-        provider: 'emailjs',
-        magicLink,
-        emailTemplate
-    }, 200, headers);
-};
-
 const handleNotificationRelayRequest = async (request, env, headers) => {
     const body = await parseJsonBody(request);
     const action = String(body?.action || 'broadcast').trim();
@@ -1032,10 +789,6 @@ export default {
         try {
             if (!env.FIREBASE_PROJECT_ID) {
                 throw new Error('FIREBASE_PROJECT_ID não configurado no Worker.');
-            }
-
-            if (pathname === '/auth/magic-link') {
-                return await handleMagicLinkRequest(request, env, headers);
             }
 
             if (pathname === '/send') {

@@ -33,13 +33,18 @@ import { buildAppLocationUrl, buildGoogleMapsUrl, buildLocationShareText, buildW
 import {
     createGrupoEnderecoManual,
     createEnderecoManual,
+    devolverGrupoEndereco,
+    designarGrupoEndereco,
     ENDERECO_STATUS,
+    finalizarGrupoEnderecoDesignado,
+    getGrupoEnderecoProgresso,
     GRUPO_ENDERECO_STATUS,
     getEnderecosCollectionRef,
     getGruposEnderecoCollectionRef,
     removerEnderecoDoGrupo,
     setEnderecoArquivado,
     setGrupoEnderecoArquivado,
+    toggleEnderecoVisitadoGrupo,
     updateEnderecoBasico
 } from './enderecoModel';
 import { extractTerritorioCodigo, normalizeTerritorioNome } from './territorioNome';
@@ -1228,8 +1233,28 @@ const buildGrupoBoundsPositions = (bounds) => {
     ];
 };
 
-const GrupoEnderecoLayer = ({ grupo, isAdmin, isOnline, onShare, onToggleArchive }) => {
+const GrupoEnderecoLayer = ({
+    grupo,
+    user,
+    isAdmin,
+    isOnline,
+    listaUsuarios,
+    enderecosGrupo,
+    onShare,
+    onToggleArchive,
+    onDesignar,
+    onDevolver,
+    onToggleVisitado,
+    onFinalizar
+}) => {
     const arquivado = grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO;
+    const progresso = getGrupoEnderecoProgresso(grupo);
+    const visitados = new Set(grupo.enderecos_visitados || []);
+    const userEmail = String(user?.email || '').toLowerCase();
+    const isMeu = grupo.designadoPara === userEmail;
+    const podeExecutar = isMeu && isOnline && !arquivado && !progresso.isFinalizado;
+    const [usuarioSelecionado, setUsuarioSelecionado] = useState('');
+    const [loadingAction, setLoadingAction] = useState(false);
     const boundsPositions = buildGrupoBoundsPositions(grupo.bounds);
     const hasArea = boundsPositions && (
         Math.abs(Number(grupo.bounds.maxLat) - Number(grupo.bounds.minLat)) > 0.00001 ||
@@ -1242,7 +1267,20 @@ const GrupoEnderecoLayer = ({ grupo, isAdmin, isOnline, onShare, onToggleArchive
         iconAnchor: [17, 17]
     }), [arquivado]);
 
+    useEffect(() => {
+        setUsuarioSelecionado('');
+    }, [grupo.id, grupo.designadoPara]);
+
     if (!grupo.centro) return null;
+
+    const executarAcaoGrupo = async (acao) => {
+        setLoadingAction(true);
+        try {
+            await acao();
+        } finally {
+            setLoadingAction(false);
+        }
+    };
 
     return (
         <>
@@ -1280,16 +1318,95 @@ const GrupoEnderecoLayer = ({ grupo, isAdmin, isOnline, onShare, onToggleArchive
                         <div className="rounded-lg bg-slate-50 p-2 text-xs font-semibold text-slate-600">
                             {grupo.totalEnderecos || 0} endereço(s) · {grupo.totalEstrangeiros || 0} estrangeiro(s)
                         </div>
+                        <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                            <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-gray-600">
+                                <span>{progresso.visitadosExibicao} de {progresso.totalEnderecos} visitados</span>
+                                <span>{progresso.percentualExibicao}%</span>
+                            </div>
+                            <div className="h-2 overflow-hidden rounded-full bg-gray-200">
+                                <div
+                                    className={`h-full rounded-full transition-all duration-500 ${progresso.isFinalizado ? 'bg-green-500' : 'bg-indigo-600'}`}
+                                    style={{ width: `${progresso.percentualExibicao}%` }}
+                                ></div>
+                            </div>
+                        </div>
                         <button onClick={() => onShare(grupo)} className="popup-btn-action bg-blue-600 text-white hover:bg-blue-700">
                             Compartilhar localização
                         </button>
                         {isAdmin && (
+                            <>
+                                {!arquivado && !progresso.isFinalizado && (
+                                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                                        <div className="mb-2 text-center text-[11px] font-bold uppercase text-slate-500">
+                                            {grupo.designadoPara ? `Responsável: ${grupo.designadoNome || grupo.designadoPara}` : 'Sem responsável'}
+                                        </div>
+                                        <select
+                                            className="mb-2 w-full rounded-md border border-slate-300 bg-white p-2 text-xs outline-none disabled:bg-slate-100"
+                                            value={usuarioSelecionado}
+                                            onChange={(event) => setUsuarioSelecionado(event.target.value)}
+                                            disabled={loadingAction || !isOnline}
+                                        >
+                                            <option value="">-- escolher publicador --</option>
+                                            {listaUsuarios.map((usuario) => (
+                                                <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            onClick={() => executarAcaoGrupo(() => onDesignar(grupo, usuarioSelecionado))}
+                                            disabled={!usuarioSelecionado || loadingAction || !isOnline}
+                                            className="popup-btn-action bg-indigo-700 text-white hover:bg-indigo-800 disabled:opacity-50"
+                                        >
+                                            {loadingAction ? 'Salvando...' : 'Designar grupo'}
+                                        </button>
+                                        {grupo.designadoPara && (
+                                            <button
+                                                onClick={() => executarAcaoGrupo(() => onDevolver(grupo))}
+                                                disabled={loadingAction || !isOnline}
+                                                className="popup-btn-action mt-2 border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                            >
+                                                Devolver grupo
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                                <button
+                                    onClick={() => onToggleArchive(grupo)}
+                                    disabled={!isOnline || loadingAction}
+                                    className={`popup-btn-action disabled:opacity-50 ${arquivado ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+                                >
+                                    {arquivado ? 'Reativar grupo' : 'Arquivar grupo'}
+                                </button>
+                            </>
+                        )}
+                        {(isMeu || isAdmin) && enderecosGrupo.length > 0 && (
+                            <div className="max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2">
+                                {enderecosGrupo.map((endereco) => {
+                                    const feito = visitados.has(endereco.id);
+                                    return (
+                                        <button
+                                            key={endereco.id}
+                                            type="button"
+                                            onClick={() => executarAcaoGrupo(() => onToggleVisitado(grupo, endereco))}
+                                            disabled={!podeExecutar || loadingAction}
+                                            className={`mb-1 flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition last:mb-0 disabled:cursor-not-allowed disabled:opacity-60 ${feito ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-indigo-50'}`}
+                                        >
+                                            <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-black ${feito ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-transparent'}`}>✓</span>
+                                            <span>
+                                                <span className="block font-bold">{endereco.codigo} · {endereco.endereco || 'Sem endereço'}</span>
+                                                <span className="text-slate-500">{endereco.quantidadeEstrangeiros || 0} estrangeiro(s)</span>
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        {podeExecutar && progresso.completo && (
                             <button
-                                onClick={() => onToggleArchive(grupo)}
-                                disabled={!isOnline}
-                                className={`popup-btn-action disabled:opacity-50 ${arquivado ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+                                onClick={() => executarAcaoGrupo(() => onFinalizar(grupo))}
+                                disabled={loadingAction}
+                                className="popup-btn-action bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
                             >
-                                {arquivado ? 'Reativar grupo' : 'Arquivar grupo'}
+                                {loadingAction ? 'Finalizando...' : 'Finalizar grupo'}
                             </button>
                         )}
                     </div>
@@ -2331,16 +2448,44 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         return null;
     };
 
-    const enderecosVisiveis = useMemo(() => enderecos.filter((endereco) => (
-        endereco.status === ENDERECO_STATUS.ATIVO ||
-        (isAdmin && mostrarEnderecosArquivados && endereco.status === ENDERECO_STATUS.ARQUIVADO)
-    )), [enderecos, isAdmin, mostrarEnderecosArquivados]);
+    const meusGrupoEnderecoIds = useMemo(() => new Set(
+        gruposEndereco
+            .filter((grupo) => grupo.designadoPara === String(user?.email || '').toLowerCase())
+            .map((grupo) => grupo.id)
+    ), [gruposEndereco, user?.email]);
+
+    const enderecosPorGrupo = useMemo(() => {
+        const map = new Map();
+        enderecos.forEach((endereco) => {
+            if (!endereco.grupoId) return;
+            if (!map.has(endereco.grupoId)) {
+                map.set(endereco.grupoId, []);
+            }
+            map.get(endereco.grupoId).push(endereco);
+        });
+
+        map.forEach((lista) => lista.sort((a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id))));
+        return map;
+    }, [enderecos]);
+
+    const enderecosVisiveis = useMemo(() => enderecos.filter((endereco) => {
+        if (isAdmin) {
+            return endereco.status === ENDERECO_STATUS.ATIVO ||
+                (mostrarEnderecosArquivados && endereco.status === ENDERECO_STATUS.ARQUIVADO);
+        }
+
+        return endereco.status === ENDERECO_STATUS.ATIVO && meusGrupoEnderecoIds.has(endereco.grupoId);
+    }), [enderecos, isAdmin, meusGrupoEnderecoIds, mostrarEnderecosArquivados]);
 
     const totalEnderecosArquivados = useMemo(() => enderecos.filter((endereco) => endereco.status === ENDERECO_STATUS.ARQUIVADO).length, [enderecos]);
-    const gruposEnderecoVisiveis = useMemo(() => gruposEndereco.filter((grupo) => (
-        grupo.status === GRUPO_ENDERECO_STATUS.ATIVO ||
-        (isAdmin && mostrarGruposArquivados && grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO)
-    )), [gruposEndereco, isAdmin, mostrarGruposArquivados]);
+    const gruposEnderecoVisiveis = useMemo(() => gruposEndereco.filter((grupo) => {
+        if (isAdmin) {
+            return grupo.status === GRUPO_ENDERECO_STATUS.ATIVO ||
+                (mostrarGruposArquivados && grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO);
+        }
+
+        return grupo.status === GRUPO_ENDERECO_STATUS.ATIVO && grupo.designadoPara === String(user?.email || '').toLowerCase();
+    }), [gruposEndereco, isAdmin, mostrarGruposArquivados, user?.email]);
     const totalGruposArquivados = useMemo(() => gruposEndereco.filter((grupo) => grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO).length, [gruposEndereco]);
     const enderecosSelecionadosDados = useMemo(() => {
         const porId = new Map(enderecos.map((endereco) => [endereco.id, endereco]));
@@ -2628,6 +2773,139 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         }
     };
 
+    const salvarDesignacaoGrupoEndereco = async (grupo, usuarioEmail) => {
+        if (!isOnline) {
+            notify({
+                title: 'Designação bloqueada offline',
+                message: ADMIN_OFFLINE_MESSAGE,
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        const usuario = listaUsuarios.find((item) => item.email === usuarioEmail);
+        if (!usuario) {
+            notify({
+                title: 'Usuário não encontrado',
+                message: 'Escolha um usuário aprovado para designar o grupo.',
+                variant: 'warning'
+            });
+            return;
+        }
+
+        try {
+            await designarGrupoEndereco(db, {
+                grupoId: grupo.id,
+                usuario,
+                user
+            });
+            notify({
+                title: 'Grupo designado',
+                message: `${grupo.codigo} designado para ${usuario.nome}.`,
+                variant: 'success'
+            });
+        } catch (error) {
+            console.error('Erro ao designar grupo:', error);
+            notify({
+                title: 'Designação não salva',
+                message: String(error?.message || 'Não foi possível designar o grupo agora.'),
+                variant: 'error',
+                durationMs: 7000
+            });
+        }
+    };
+
+    const devolverDesignacaoGrupoEndereco = async (grupo) => {
+        if (!isOnline) {
+            notify({
+                title: 'Devolução bloqueada offline',
+                message: ADMIN_OFFLINE_MESSAGE,
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        const confirmar = await confirm({
+            title: 'Devolver grupo',
+            message: `Confirmar devolução do grupo ${grupo.codigo}?`,
+            tone: 'warning',
+            confirmLabel: 'Devolver'
+        });
+
+        if (!confirmar) return;
+
+        try {
+            await devolverGrupoEndereco(db, {
+                grupoId: grupo.id,
+                user
+            });
+            notify({
+                title: 'Grupo devolvido',
+                message: `${grupo.codigo} ficou livre para nova designação.`,
+                variant: 'success'
+            });
+        } catch (error) {
+            console.error('Erro ao devolver grupo:', error);
+            notify({
+                title: 'Devolução não salva',
+                message: String(error?.message || 'Não foi possível devolver o grupo agora.'),
+                variant: 'error',
+                durationMs: 7000
+            });
+        }
+    };
+
+    const alternarEnderecoVisitadoGrupo = async (grupo, endereco) => {
+        try {
+            await toggleEnderecoVisitadoGrupo(db, {
+                grupoId: grupo.id,
+                enderecoId: endereco.id,
+                user
+            });
+        } catch (error) {
+            console.error('Erro ao marcar endereço do grupo:', error);
+            notify({
+                title: 'Progresso não salvo',
+                message: String(error?.message || 'Não foi possível salvar o progresso do grupo agora.'),
+                variant: 'error',
+                durationMs: 7000
+            });
+        }
+    };
+
+    const finalizarGrupoEndereco = async (grupo) => {
+        const confirmar = await confirm({
+            title: 'Finalizar grupo',
+            message: `Confirmar finalização do grupo ${grupo.codigo}?`,
+            tone: 'warning',
+            confirmLabel: 'Finalizar'
+        });
+
+        if (!confirmar) return;
+
+        try {
+            await finalizarGrupoEnderecoDesignado(db, {
+                grupoId: grupo.id,
+                user
+            });
+            notify({
+                title: 'Grupo finalizado',
+                message: `${grupo.codigo} foi finalizado com sucesso.`,
+                variant: 'success'
+            });
+        } catch (error) {
+            console.error('Erro ao finalizar grupo:', error);
+            notify({
+                title: 'Finalização indisponível',
+                message: String(error?.message || 'Não foi possível finalizar o grupo agora.'),
+                variant: 'error',
+                durationMs: 7000
+            });
+        }
+    };
+
     const removerEnderecoSelecionadoDoGrupo = async (endereco) => {
         if (!endereco?.grupoId) return;
         const confirmar = await confirm({
@@ -2768,10 +3046,17 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                         <GrupoEnderecoLayer
                             key={grupo.id}
                             grupo={grupo}
+                            user={user}
                             isAdmin={isAdmin}
                             isOnline={isOnline}
+                            listaUsuarios={listaUsuarios}
+                            enderecosGrupo={enderecosPorGrupo.get(grupo.id) || []}
                             onShare={compartilharGrupoEndereco}
                             onToggleArchive={alternarArquivoGrupoEndereco}
+                            onDesignar={salvarDesignacaoGrupoEndereco}
+                            onDevolver={devolverDesignacaoGrupoEndereco}
+                            onToggleVisitado={alternarEnderecoVisitadoGrupo}
+                            onFinalizar={finalizarGrupoEndereco}
                         />
                     ))}
 
