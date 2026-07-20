@@ -1,0 +1,18 @@
+name = "territorios-notifications-relay"
+main = "src/index.js"
+compatibility_date = "2026-04-04"
+# Obrigatorio para a trava de deploy:
+# entre na conta Cloudflare correta, rode `npx wrangler whoami` e preencha o Account ID.
+account_id = "bc54e1bbe352496f81da54a08dea8e01"
+
+[vars]
+FIREBASE_PROJECT_ID = "territorios-idiomas"
+PUBLIC_APP_URL = "https://territorios-idiomas.web.app"
+APP_DISPLAY_NAME = "Territórios Idiomas"
+APP_SUBTITLE = "Congregação de Idiomas"
+APP_ICON_PATH = "/icon-192.png"
+MAGIC_LINK_EMAIL_SUBJECT = "Seu link de acesso ao Territórios Idiomas"
+MAGIC_LINK_EMAIL_INTRO = "Recebemos um pedido de acesso ao Territórios Idiomas."
+MAGIC_LINK_EMAIL_BUTTON_LABEL = "Entrar no Territórios Idiomas"
+MAGIC_LINK_EMAIL_HINT = "Use o botão abaixo para concluir o login com segurança e voltar ao sistema da congregação de idiomas."
+MAGIC_LINK_EMAIL_FOOTER = "O acesso ao Territórios Idiomas continua sujeito à aprovação do administrador para o e-mail informado."

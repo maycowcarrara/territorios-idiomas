@@ -26,9 +26,9 @@ function readProperties(filePath) {
 }
 
 const instanceProps = readProperties(instancePropertiesPath);
-const appId = instanceProps.applicationId || 'br.com.territoriospalmas.app';
-const appName = instanceProps.appName || 'Territórios Palmas';
-const instance = instanceProps.instance || 'palmas';
+const appId = instanceProps.applicationId || 'br.com.territoriosidiomas.app';
+const appName = instanceProps.appName || 'Territórios Idiomas';
+const instance = instanceProps.instance || 'idiomas';
 
 if (!fs.existsSync(rootConfigPath)) {
   console.error(`Config Capacitor nao encontrada em: ${rootConfigPath}`);

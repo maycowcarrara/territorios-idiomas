@@ -40,7 +40,7 @@ O envio do link mágico agora funciona em duas etapas:
 1. o Worker gera o `oobLink` com o Firebase e devolve o payload pronto
 2. o app envia o e-mail pelo EmailJS usando o template configurado no dashboard
 
-Para o EmailJS, o app precisa destas variáveis em `.env.palmas` ou `.env.general`:
+Para o EmailJS, o app precisa destas variáveis em `.env.idiomas` ou `.env.general`:
 
 - `VITE_EMAILJS_PUBLIC_KEY`
 - `VITE_EMAILJS_SERVICE_ID`

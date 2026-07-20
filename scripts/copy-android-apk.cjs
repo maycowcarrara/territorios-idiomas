@@ -23,8 +23,8 @@ function readProperties(filePath) {
 }
 
 function getArtifactInstance() {
-  const instance = readProperties(instancePropertiesPath).instance || 'palmas';
-  return instance.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'palmas';
+  const instance = readProperties(instancePropertiesPath).instance || 'idiomas';
+  return instance.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'idiomas';
 }
 
 const artifactInstance = getArtifactInstance();

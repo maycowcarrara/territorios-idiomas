@@ -122,7 +122,7 @@ async function main() {
 
   if (!instances.length) {
     console.error(`Nenhuma instancia encontrada para "npm run ${action}".`);
-    console.error(`Crie scripts como "${action}:palmas" e "build:palmas" no package.json.`);
+    console.error(`Crie scripts como "${action}:idiomas" e "build:idiomas" no package.json.`);
     process.exit(1);
   }
 

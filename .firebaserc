@@ -1,15 +1,14 @@
 {
   "projects": {
-    "default": "territorios-palmas",
-    "palmas-novo": "territ-cong-15891-palmas-pr",
-    "palmas": "territ-cong-15891-palmas-pr",
+    "default": "territorios-idiomas",
+    "idiomas": "territorios-idiomas",
     "general": "territ-gc"
   },
   "targets": {
-    "territ-cong-15891-palmas-pr": {
+    "territorios-idiomas": {
       "hosting": {
         "app": [
-          "territorios-15891-palmas-pr"
+          "territorios-idiomas"
         ]
       }
     },

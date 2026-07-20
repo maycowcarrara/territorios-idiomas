@@ -18,8 +18,8 @@ if (instancePropertiesFile.exists()) {
     instanceProperties.load(new InputStreamReader(new FileInputStream(instancePropertiesFile), 'UTF-8'))
 }
 
-def activeApplicationId = instanceProperties['applicationId'] ?: 'br.com.territoriospalmas.app'
-def activeAppName = instanceProperties['appName'] ?: 'Territórios Palmas'
+def activeApplicationId = instanceProperties['applicationId'] ?: 'br.com.territoriosidiomas.app'
+def activeAppName = instanceProperties['appName'] ?: 'Territórios Idiomas'
 def publicAppUrl = instanceProperties['publicAppUrl'] ?: ''
 def authDomain = instanceProperties['authDomain'] ?: ''
 def publicAppUri = publicAppUrl ? new URI(publicAppUrl) : null
@@ -28,7 +28,7 @@ def publicAppHost = publicAppUri?.host ?: authDomain ?: ''
 def secondaryPublicAppHost = (authDomain && authDomain != publicAppHost) ? authDomain : publicAppHost
 
 android {
-    namespace "br.com.territoriospalmas.app"
+    namespace "br.com.territoriosidiomas.app"
     compileSdk rootProject.ext.compileSdkVersion
     signingConfigs {
         debugTerritorios {

@@ -6,7 +6,7 @@ const path = require('node:path');
 const instance = process.argv[2];
 
 if (!instance) {
-  console.error('Informe a instancia. Ex.: node scripts/use-android-firebase-config.cjs palmas');
+  console.error('Informe a instancia. Ex.: node scripts/use-android-firebase-config.cjs idiomas');
   process.exit(1);
 }
 
@@ -79,8 +79,8 @@ const instanceLabel = instance
   .map((part) => part[0].toUpperCase() + part.slice(1))
   .join(' ');
 
-const appName = instance === 'palmas'
-  ? 'Territórios Palmas'
+const appName = instance === 'idiomas'
+  ? 'Territórios Idiomas'
   : `Territórios ${instanceLabel}`;
 const instanceEnv = readEnvFile(instanceEnvPath);
 const publicAppUrl = instanceEnv.VITE_PUBLIC_APP_URL || '';

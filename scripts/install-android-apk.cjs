@@ -33,17 +33,17 @@ function getActiveAppId() {
     if (packageName) return packageName;
   }
 
-  return 'br.com.territoriospalmas.app';
+  return 'br.com.territoriosidiomas.app';
 }
 
 function getActiveInstance() {
-  const instance = readProperties(instancePropertiesPath).instance || 'palmas';
-  return instance.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'palmas';
+  const instance = readProperties(instancePropertiesPath).instance || 'idiomas';
+  return instance.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'idiomas';
 }
 
 const appId = getActiveAppId();
 const apkPath = path.join(projectRoot, `territorios-${getActiveInstance()}-debug.apk`);
-const legacyApkPath = path.join(projectRoot, 'territorios-palmas-debug.apk');
+const legacyApkPath = path.join(projectRoot, 'territorios-idiomas-debug.apk');
 
 const sdkRoots = [
   process.env.ANDROID_HOME,

@@ -26,7 +26,7 @@ if (!version) {
   process.exit(1);
 }
 
-const zipName = `territorios-palmas-${version}.zip`;
+const zipName = `territorios-idiomas-${version}.zip`;
 const zipPath = path.join(liveUpdateDir, zipName);
 const manifestPath = path.join(liveUpdateDir, 'manifest.json');
 

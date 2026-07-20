@@ -27,10 +27,10 @@ function readProperties(filePath) {
 }
 
 function normalizeInstance(value) {
-  return String(value || 'palmas')
+  return String(value || 'idiomas')
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'palmas';
+    .replace(/^-+|-+$/g, '') || 'idiomas';
 }
 
 function resolvePublicAsset(assetPath) {

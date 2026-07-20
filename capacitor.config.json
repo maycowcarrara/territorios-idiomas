@@ -1,10 +1,10 @@
 {
-  "appId": "br.com.territoriospalmas.app",
-  "appName": "Territórios Palmas",
+  "appId": "br.com.territoriosidiomas.app",
+  "appName": "Territórios Idiomas",
   "webDir": "dist",
   "bundledWebRuntime": false,
   "server": {
-    "hostname": "territorios-palmas.local",
+    "hostname": "territorios-idiomas.local",
     "androidScheme": "https"
   },
   "android": {

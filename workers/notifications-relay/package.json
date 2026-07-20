@@ -2,11 +2,11 @@
   "name": "notifications-relay",
   "private": true,
   "scripts": {
-    "deploy": "npm run deploy:palmas",
-    "deploy:palmas": "node ../../scripts/check-deploy-auth.cjs wrangler palmas --config wrangler.palmas.toml --cwd . && wrangler deploy --config wrangler.palmas.toml",
+    "deploy": "npm run deploy:idiomas",
+    "deploy:idiomas": "node ../../scripts/check-deploy-auth.cjs wrangler idiomas --config wrangler.idiomas.toml --cwd . && wrangler deploy --config wrangler.idiomas.toml",
     "deploy:general": "node ../../scripts/check-deploy-auth.cjs wrangler general --config wrangler.general.toml --cwd . && wrangler deploy --config wrangler.general.toml",
     "dev": "wrangler dev",
-    "dev:palmas": "wrangler dev --config wrangler.palmas.toml",
+    "dev:idiomas": "wrangler dev --config wrangler.idiomas.toml",
     "dev:general": "wrangler dev --config wrangler.general.toml",
     "tail": "wrangler tail"
   },

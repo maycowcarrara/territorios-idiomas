@@ -1,4 +1,4 @@
-package br.com.territoriospalmas.app;
+package br.com.territoriosidiomas.app;
 
 import android.app.Activity;
 import android.content.SharedPreferences;

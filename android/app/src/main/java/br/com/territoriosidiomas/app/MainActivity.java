@@ -1,4 +1,4 @@
-package br.com.territoriospalmas.app;
+package br.com.territoriosidiomas.app;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
