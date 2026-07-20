@@ -18,6 +18,13 @@ export const buildGoogleMapsUrl = (lat, lng) => {
         : '';
 };
 
+export const buildGoogleMapsDirectionsUrl = (lat, lng) => {
+    const destination = buildCoordinateQuery(lat, lng);
+    return destination
+        ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`
+        : '';
+};
+
 export const buildAppLocationUrl = (lat, lng, z = 16) =>
     buildPublicAppRouteUrl('/app', { lat, lng, z });
 

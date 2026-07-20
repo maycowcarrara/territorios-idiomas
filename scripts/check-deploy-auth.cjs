@@ -139,7 +139,31 @@ function checkFirebase(selectedInstance) {
   const result = runFirebase(['projects:list', '--json']);
   const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
 
-  if (result.error || result.status !== 0) {
+  let parsed;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch (error) {
+    if (result.error || result.status !== 0) {
+      fail('Nao foi possivel validar a conta ativa do Firebase antes do deploy.', [
+        result.error?.message,
+        output,
+        'Entre na conta correta e tente novamente:',
+        '  npm exec firebase -- logout',
+        '  npm exec firebase -- login'
+      ]);
+    }
+
+    fail('A resposta do Firebase CLI nao veio em JSON valido.', [
+      error.message,
+      output
+    ]);
+  }
+
+  const projectIds = collectProjectIds(parsed);
+
+  if ((result.error || result.status !== 0) && projectIds.has(expectedProjectId)) {
+    info('Firebase CLI encerrou com aviso/erro apos listar projetos, mas o projeto esperado foi confirmado no JSON.');
+  } else if (result.error || result.status !== 0) {
     fail('Nao foi possivel validar a conta ativa do Firebase antes do deploy.', [
       result.error?.message,
       output,
@@ -148,18 +172,6 @@ function checkFirebase(selectedInstance) {
       '  npm exec firebase -- login'
     ]);
   }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch (error) {
-    fail('A resposta do Firebase CLI nao veio em JSON valido.', [
-      error.message,
-      output
-    ]);
-  }
-
-  const projectIds = collectProjectIds(parsed);
 
   if (!projectIds.has(expectedProjectId)) {
     const loginSummary = getFirebaseLoginSummary();

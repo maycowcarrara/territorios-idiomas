@@ -55,6 +55,26 @@ export function formatGrupoEnderecoCodigo(sequence) {
     return `T-${String(safeSequence).padStart(GRUPO_ENDERECO_CODE_WIDTH, '0')}`;
 }
 
+export function formatGrupoEnderecoCodigoExibicao(value) {
+    const codigo = String(value || '').trim();
+    const match = codigo.match(/^T-0*(\d+)$/i);
+    if (!match) return codigo;
+
+    return `T-${Number.parseInt(match[1], 10)}`;
+}
+
+export function formatGrupoEnderecoNomeExibicao(nome, codigo) {
+    const codigoBase = String(codigo || '').trim();
+    const codigoExibicao = formatGrupoEnderecoCodigoExibicao(codigoBase);
+    const texto = String(nome || '').trim();
+
+    if (!texto || texto === codigoBase) {
+        return codigoExibicao ? `Território ${codigoExibicao}` : 'Território';
+    }
+
+    return texto.replace(/^T-0*(\d+)/i, (_, sequence) => `T-${Number.parseInt(sequence, 10)}`);
+}
+
 export function getGrupoEnderecoDocIdFromSequence(sequence) {
     const safeSequence = Math.max(1, Number.parseInt(sequence, 10) || 1);
     return `g_${String(safeSequence).padStart(GRUPO_ENDERECO_CODE_WIDTH, '0')}`;
@@ -368,7 +388,7 @@ export async function createGrupoEnderecoManual(db, { enderecos, nome, user }) {
     const counterRef = getCodigosCounterRef(db);
 
     if (!enderecoIds.length) {
-        throw new Error('Selecione pelo menos um endereço para criar o grupo.');
+        throw new Error('Selecione pelo menos um endereço para criar o território.');
     }
 
     return runTransaction(db, async (transaction) => {
@@ -399,7 +419,7 @@ export async function createGrupoEnderecoManual(db, { enderecos, nome, user }) {
             }
 
             if (endereco.grupoId) {
-                throw new Error(`${endereco.codigo || 'Endereço'} já pertence a um grupo.`);
+                throw new Error(`${endereco.codigo || 'Endereço'} já pertence a um território.`);
             }
         });
 
@@ -500,7 +520,7 @@ export async function devolverGrupoEndereco(db, { grupoId, user }) {
         const grupoSnapshot = await transaction.get(grupoRef);
 
         if (!grupoSnapshot.exists()) {
-            throw new Error('Grupo não encontrado.');
+            throw new Error('Território não encontrado.');
         }
 
         const grupo = grupoSnapshot.data();
@@ -538,20 +558,20 @@ export async function toggleEnderecoVisitadoGrupo(db, { grupoId, enderecoId, use
         const grupoSnapshot = await transaction.get(grupoRef);
 
         if (!grupoSnapshot.exists()) {
-            throw new Error('Grupo não encontrado.');
+            throw new Error('Território não encontrado.');
         }
 
         const grupo = grupoSnapshot.data();
         if (grupo.status !== GRUPO_ENDERECO_STATUS.ATIVO) {
-            throw new Error('Este grupo não está ativo para execução.');
+            throw new Error('Este território não está ativo para execução.');
         }
 
         if (grupo.designadoPara !== actorEmail) {
-            throw new Error('Este grupo não está designado para você.');
+            throw new Error('Este território não está designado para você.');
         }
 
         if (!ensureArray(grupo.enderecoIds).includes(enderecoId)) {
-            throw new Error('Este endereço não pertence mais ao grupo.');
+            throw new Error('Este endereço não pertence mais ao território.');
         }
 
         const visitados = new Set(ensureArray(grupo.enderecos_visitados));
@@ -580,12 +600,12 @@ export async function finalizarGrupoEnderecoDesignado(db, { grupoId, user }) {
         const grupoSnapshot = await transaction.get(grupoRef);
 
         if (!grupoSnapshot.exists()) {
-            throw new Error('Grupo não encontrado.');
+            throw new Error('Território não encontrado.');
         }
 
         const grupo = grupoSnapshot.data();
         if (grupo.designadoPara !== actorEmail) {
-            throw new Error('Este grupo não está designado para você.');
+            throw new Error('Este território não está designado para você.');
         }
 
         const progresso = getGrupoEnderecoProgresso(grupo);
@@ -627,13 +647,13 @@ export async function removerEnderecoDoGrupo(db, { enderecoId, grupoId, user }) 
         const enderecoSnapshot = await transaction.get(enderecoRef);
 
         if (!grupoSnapshot.exists() || !enderecoSnapshot.exists()) {
-            throw new Error('Grupo ou endereço não encontrado.');
+            throw new Error('Território ou endereço não encontrado.');
         }
 
         const grupo = grupoSnapshot.data();
         const endereco = enderecoSnapshot.data();
         if (endereco.grupoId !== grupoId) {
-            throw new Error('O endereço não pertence mais a este grupo.');
+            throw new Error('O endereço não pertence mais a este território.');
         }
 
         const proximosEnderecoIds = (grupo.enderecoIds || []).filter((id) => id !== enderecoId);

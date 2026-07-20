@@ -41,6 +41,8 @@ import { finalizarTerritorioDesignado } from './territorioActions';
 import { describeOutboxConflict } from './territorioOfflineModel';
 import {
   finalizarGrupoEnderecoDesignado,
+  formatGrupoEnderecoCodigoExibicao,
+  formatGrupoEnderecoNomeExibicao,
   getGrupoEnderecoProgresso,
   getGruposEnderecoCollectionRef
 } from './enderecoModel';
@@ -240,6 +242,8 @@ const montarListaMeusGruposEndereco = ({ docs }) => {
   const listaCompleta = docs.map((grupoDoc) => {
     const progresso = getGrupoEnderecoProgresso(grupoDoc);
     const boundsStr = getGrupoEnderecoBoundsStr(grupoDoc);
+    const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupoDoc.codigo || grupoDoc.id);
+    const nomeExibicao = formatGrupoEnderecoNomeExibicao(grupoDoc.nome, grupoDoc.codigo || grupoDoc.id);
 
     let dataFormatada = "Data desc.";
     let dataDesignacaoOrdenacao = 0;
@@ -256,7 +260,7 @@ const montarListaMeusGruposEndereco = ({ docs }) => {
 
     if (progresso.isFinalizado) {
       statusResumo = 'Finalizado';
-      descricaoResumo = 'Grupo encerrado e aguardando nova liberação';
+      descricaoResumo = 'Território encerrado e aguardando nova liberação';
       barraClasse = 'bg-green-500';
       badgeClasse = 'bg-green-100 text-green-700';
     }
@@ -264,8 +268,8 @@ const montarListaMeusGruposEndereco = ({ docs }) => {
     return {
       ...grupoDoc,
       tipo: 'grupo_endereco',
-      numeroId: grupoDoc.codigo,
-      nome: grupoDoc.nome || grupoDoc.codigo || 'Grupo de endereços',
+      numeroId: codigoExibicao,
+      nome: nomeExibicao,
       boundsStr,
       dataFormatada,
       dataDesignacaoOrdenacao,
@@ -278,7 +282,7 @@ const montarListaMeusGruposEndereco = ({ docs }) => {
       barraClasse,
       badgeClasse,
       unidadeProgresso: 'endereços',
-      tipoLabel: 'Grupo',
+      tipoLabel: 'Território',
       podeFinalizarDireto: progresso.completo && Boolean(grupoDoc.designadoPara) && !progresso.isFinalizado
     };
   });
@@ -1204,8 +1208,8 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
     if (!user?.email || !item?.podeFinalizarDireto) return;
     const isGrupoEndereco = item.tipo === 'grupo_endereco';
     if (!(await confirm({
-      title: isGrupoEndereco ? 'Finalizar grupo' : 'Finalizar territorio',
-      message: `Confirmar a finalização ${isGrupoEndereco ? 'do grupo' : 'do território'} ${item.nome || item.numeroId}?`,
+      title: 'Finalizar território',
+      message: `Confirmar a finalização do território ${item.nome || item.numeroId}?`,
       tone: 'warning',
       confirmLabel: 'Finalizar'
     }))) return;
@@ -1220,8 +1224,8 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
         });
         setLista((listaAtual) => listaAtual.filter((registro) => registro.id !== item.id));
         notify({
-          title: 'Grupo finalizado',
-          message: `Grupo ${item.codigo || item.nome} finalizado com sucesso.`,
+          title: 'Território finalizado',
+          message: `Território ${item.numeroId || item.nome} finalizado com sucesso.`,
           variant: 'success'
         });
         return;
@@ -1283,7 +1287,7 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
           ) : lista.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <p className="mb-2 text-4xl">🤷‍♂️</p>
-              <p>Nenhum território ou grupo designado para você no momento.</p>
+              <p>Nenhum território designado para você no momento.</p>
               <p className="text-xs mt-2 text-gray-400">Fale com o Servo de Territórios.</p>
             </div>
           ) : (
