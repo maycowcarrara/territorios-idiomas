@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
 .env.*
 !.env.example
 
@@ -33,8 +34,28 @@ android/app/google-services.json
 android/app/google-services.json.old
 android/app/google-services.*.json
 android/app/google-services-*.json
-territorios-palmas-debug.apk
+google-services*.json
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
 android-release/
+.firebase/
+backup/
+backups/
+*.bak
+*.backup
+*.backup.*
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Cloudflare Worker local secrets
 workers/**/.dev.vars
@@ -42,9 +63,9 @@ workers/**/.dev.vars.*
 
 # Firebase migration secrets and local exports
 service-account*.json
+serviceAccount*.json
+serviceAccountKey.json
 firebase-service-account*.json
 *-firebase-adminsdk-*.json
-territorios-palmas-firebase-adminsdk-*.json
-territ-cong-15891-palmas-pr-firebase-adminsdk-*.json
 firestore-backups/
 *.firestore-export.json
