@@ -1510,12 +1510,31 @@ const buildGrupoEnderecoAppLink = ({ grupo, centro }) => {
     return buildPublicAppRouteUrl('/app');
 };
 
-const buildMensagemDesignacaoGrupoEndereco = ({ grupo, usuario, centro, contextoSistema }) => {
+const buildGrupoEnderecoTituloMensagem = (grupo) => {
     const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo?.codigo || grupo?.id);
     const nomeExibicao = formatGrupoEnderecoNomeExibicao(grupo?.nome, grupo?.codigo || grupo?.id);
-    const tituloTerritorio = nomeExibicao && nomeExibicao !== `Território ${codigoExibicao}`
-        ? `${codigoExibicao} - ${nomeExibicao}`
-        : codigoExibicao;
+    const nomeNormalizado = String(nomeExibicao || '').trim();
+
+    if (!codigoExibicao) {
+        return nomeNormalizado || 'Território';
+    }
+
+    const nomeLower = nomeNormalizado.toLowerCase();
+    const codigoLower = codigoExibicao.toLowerCase();
+
+    if (!nomeNormalizado || nomeLower === codigoLower || nomeLower === `território ${codigoLower}`) {
+        return codigoExibicao;
+    }
+
+    if (nomeLower.startsWith(`${codigoLower} - `) || nomeLower.startsWith(`${codigoLower} `)) {
+        return nomeNormalizado;
+    }
+
+    return `${codigoExibicao} - ${nomeNormalizado}`;
+};
+
+const buildMensagemDesignacaoGrupoEndereco = ({ grupo, usuario, centro, contextoSistema }) => {
+    const tituloTerritorio = buildGrupoEnderecoTituloMensagem(grupo);
     const nome = usuario?.nome || grupo?.designadoNome || grupo?.designadoPara || 'Publicador';
     const link = buildGrupoEnderecoAppLink({ grupo, centro });
     const contextoLinha = contextoSistema?.campanhaAtiva ? `\n *Modo:* ${contextoSistema.contextoAtivoTitulo}` : '';

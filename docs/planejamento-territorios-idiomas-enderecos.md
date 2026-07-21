@@ -46,7 +46,7 @@ Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, 
 Ainda pendente para fechar o plano completo:
 
 - teste manual em producao com uma conta admin e uma conta publicador;
-- mensagem/WhatsApp/notificacao ao designar grupo;
+- notificacao automatica ao designar grupo;
 - listagem administrativa dedicada para enderecos e grupos;
 - relatorios de enderecos/grupos;
 - importador de enderecos idempotente para semear enderecos/grupos futuramente;
@@ -250,7 +250,7 @@ No mapa:
 4. Publicador passa a ver o grupo em "Meus".
 5. Link compartilhado deve abrir o mapa enquadrando o grupo ou centralizando no primeiro endereco.
 
-Status: implementado o fluxo de designacao e visualizacao em "Meus Territorios". A navegacao de "Meus" usa bounds quando existem e centro do grupo como fallback. A mensagem pronta/WhatsApp ao designar grupo ainda esta pendente.
+Status: implementado o fluxo de designacao e visualizacao em "Meus Territorios". A navegacao de "Meus" usa bounds quando existem e centro do grupo como fallback. Ao designar territorio, o app prepara uma mensagem com link direto e permite enviar pelo WhatsApp quando o publicador tem telefone cadastrado, ou compartilhar o link quando nao tem.
 
 ### Execucao pelo publicador
 
@@ -401,6 +401,7 @@ Arquivos principais:
 - [x] Calcular progresso por endereco.
 - [ ] Parcial: finalizar/devolver/reabrir grupo. Finalizar/devolver implementados; reabrir explicito ainda pendente.
 - [x] Compartilhar link do grupo.
+- [x] Preparar mensagem/WhatsApp ao designar territorio.
 - [ ] Notificar admins na devolucao/finalizacao, seguindo padrao atual.
 
 ### Fase 4 - Offline e relatorios
