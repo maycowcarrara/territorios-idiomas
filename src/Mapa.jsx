@@ -331,6 +331,13 @@ const calcularDistanciaMetros = (origem, destino) => {
     return 2 * raioTerra * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+const toPlainLatLng = (latlng) => {
+    const lat = Number(latlng?.lat);
+    const lng = Number(latlng?.lng);
+
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+};
+
 const formatarDistanciaMetros = (metros) => {
     const valor = Number(metros);
     if (!Number.isFinite(valor)) return '';
@@ -1837,7 +1844,7 @@ const FocoGrupoEnderecoMapController = ({ grupoId, enderecos }) => {
     return null;
 };
 
-const BairroSbsLayer = ({ bairrosGeoJson, resumoPorBairro, onLongPressStart, onLongPressEnd, shouldIgnoreClick }) => {
+const BairroSbsLayer = ({ bairrosGeoJson, resumoPorBairro, onLongPressStart, onLongPressEnd, onLongPressCancel, onContextMenu, shouldIgnoreClick }) => {
     const features = bairrosGeoJson?.features || [];
 
     return (
@@ -1872,7 +1879,11 @@ const BairroSbsLayer = ({ bairrosGeoJson, resumoPorBairro, onLongPressStart, onL
                             touchstart: onLongPressStart,
                             mouseup: onLongPressEnd,
                             touchend: onLongPressEnd,
-                            touchcancel: onLongPressEnd,
+                            touchcancel: onLongPressCancel,
+                            contextmenu: (event) => {
+                                onContextMenu?.(event);
+                                if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
+                            },
                             click: (event) => {
                                 if (shouldIgnoreClick?.()) {
                                     if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
@@ -2967,7 +2978,7 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
 
     return (
         <>
-            <Polygon positions={posicoes} pathOptions={{ color: corBorda, weight: pesoBorda, fillColor: corPreenchimento, fillOpacity: opacidade, opacity: opacidadeBorda }} eventHandlers={{ click: (e) => { if (e.originalEvent) L.DomEvent.stopPropagation(e.originalEvent); setPosicaoClique(e.latlng); } }}>
+            <Polygon positions={posicoes} pathOptions={{ color: corBorda, weight: pesoBorda, fillColor: corPreenchimento, fillOpacity: opacidade, opacity: opacidadeBorda }} eventHandlers={{ click: (e) => { if (e.originalEvent) L.DomEvent.stopPropagation(e.originalEvent); setPosicaoClique(toPlainLatLng(e.latlng)); } }}>
                 <Popup>
                     <div className="min-w-[260px] p-1 font-sans">
                         <div className="border-b border-gray-200 pb-2 mb-2 text-center relative">
@@ -3207,6 +3218,10 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
     const [mostrarDicasControles, setMostrarDicasControles] = useState(true);
     const [tentativaMapa, setTentativaMapa] = useState(0);
     const mapLongPressTimerRef = useRef(null);
+    const mapLongPressOpenAfterReleaseTimerRef = useRef(null);
+    const mapLongPressPendingLatLngRef = useRef(null);
+    const mapLongPressCompletedRef = useRef(false);
+    const mapLongPressSuppressNextClickRef = useRef(false);
     const mapLongPressSuppressClickUntilRef = useRef(0);
     const { notify, confirm } = useUiFeedback();
 
@@ -3341,6 +3356,23 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
             window.clearTimeout(mapLongPressTimerRef.current);
             mapLongPressTimerRef.current = null;
         }
+
+        if (mapLongPressOpenAfterReleaseTimerRef.current) {
+            window.clearTimeout(mapLongPressOpenAfterReleaseTimerRef.current);
+            mapLongPressOpenAfterReleaseTimerRef.current = null;
+        }
+
+        mapLongPressPendingLatLngRef.current = null;
+        mapLongPressCompletedRef.current = false;
+    }, []);
+
+    const selecionarPontoMapa = useCallback((latlng) => {
+        if (!latlng) return;
+
+        setPontoMapaSelecionado({
+            lat: latlng.lat,
+            lng: latlng.lng
+        });
     }, []);
 
     const iniciarToqueLongoMapa = useCallback((event) => {
@@ -3348,19 +3380,55 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         if (!latlng) return;
 
         cancelarToqueLongoMapa();
+        mapLongPressPendingLatLngRef.current = latlng;
+        mapLongPressCompletedRef.current = false;
         mapLongPressTimerRef.current = window.setTimeout(() => {
             mapLongPressTimerRef.current = null;
+            mapLongPressPendingLatLngRef.current = latlng;
+            mapLongPressCompletedRef.current = true;
+            mapLongPressSuppressNextClickRef.current = true;
             mapLongPressSuppressClickUntilRef.current = Date.now() + MAP_LONG_PRESS_CLICK_SUPPRESSION_MS;
-            setPontoMapaSelecionado({
-                lat: latlng.lat,
-                lng: latlng.lng
-            });
         }, MAP_LONG_PRESS_DURATION_MS);
     }, [cancelarToqueLongoMapa]);
 
-    const ignorarCliqueAposToqueLongoMapa = useCallback(() => (
-        Date.now() < mapLongPressSuppressClickUntilRef.current
-    ), []);
+    const finalizarToqueLongoMapa = useCallback(() => {
+        if (mapLongPressTimerRef.current) {
+            window.clearTimeout(mapLongPressTimerRef.current);
+            mapLongPressTimerRef.current = null;
+        }
+
+        const latlng = mapLongPressCompletedRef.current ? mapLongPressPendingLatLngRef.current : null;
+        mapLongPressPendingLatLngRef.current = null;
+        mapLongPressCompletedRef.current = false;
+
+        if (!latlng) return;
+
+        mapLongPressSuppressNextClickRef.current = true;
+        mapLongPressSuppressClickUntilRef.current = Date.now() + MAP_LONG_PRESS_CLICK_SUPPRESSION_MS;
+        mapLongPressOpenAfterReleaseTimerRef.current = window.setTimeout(() => {
+            mapLongPressOpenAfterReleaseTimerRef.current = null;
+            selecionarPontoMapa(latlng);
+        }, 80);
+    }, [selecionarPontoMapa]);
+
+    const abrirPontoMapaPorContexto = useCallback((event) => {
+        const latlng = event?.latlng;
+        if (!latlng) return;
+
+        cancelarToqueLongoMapa();
+        mapLongPressSuppressClickUntilRef.current = Date.now() + MAP_LONG_PRESS_CLICK_SUPPRESSION_MS;
+        if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
+        selecionarPontoMapa(latlng);
+    }, [cancelarToqueLongoMapa, selecionarPontoMapa]);
+
+    const ignorarCliqueAposToqueLongoMapa = useCallback(() => {
+        if (mapLongPressSuppressNextClickRef.current) {
+            mapLongPressSuppressNextClickRef.current = false;
+            return true;
+        }
+
+        return Date.now() < mapLongPressSuppressClickUntilRef.current;
+    }, []);
 
     useEffect(() => cancelarToqueLongoMapa, [cancelarToqueLongoMapa]);
 
@@ -3376,14 +3444,10 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
             },
             mousedown: iniciarToqueLongoMapa,
             touchstart: iniciarToqueLongoMapa,
-            mouseup: cancelarToqueLongoMapa,
-            touchend: cancelarToqueLongoMapa,
+            mouseup: finalizarToqueLongoMapa,
+            touchend: finalizarToqueLongoMapa,
             touchcancel: cancelarToqueLongoMapa,
-            contextmenu: (event) => {
-                if (ignorarCliqueAposToqueLongoMapa() && event.originalEvent) {
-                    L.DomEvent.stop(event.originalEvent);
-                }
-            },
+            contextmenu: abrirPontoMapaPorContexto,
             zoomstart: () => {
                 cancelarToqueLongoMapa();
                 setPontoMapaSelecionado(null);
@@ -3428,11 +3492,13 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
             };
 
             L.DomEvent.on(container, 'touchstart', handleTouchStart);
-            L.DomEvent.on(container, 'touchend touchcancel', cancelarToqueLongoMapa);
+            L.DomEvent.on(container, 'touchend', finalizarToqueLongoMapa);
+            L.DomEvent.on(container, 'touchcancel', cancelarToqueLongoMapa);
 
             return () => {
                 L.DomEvent.off(container, 'touchstart', handleTouchStart);
-                L.DomEvent.off(container, 'touchend touchcancel', cancelarToqueLongoMapa);
+                L.DomEvent.off(container, 'touchend', finalizarToqueLongoMapa);
+                L.DomEvent.off(container, 'touchcancel', cancelarToqueLongoMapa);
             };
         });
 
@@ -4389,7 +4455,9 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                             bairrosGeoJson={bairrosGeoJson}
                             resumoPorBairro={resumoBairros}
                             onLongPressStart={iniciarToqueLongoMapa}
-                            onLongPressEnd={cancelarToqueLongoMapa}
+                            onLongPressEnd={finalizarToqueLongoMapa}
+                            onLongPressCancel={cancelarToqueLongoMapa}
+                            onContextMenu={abrirPontoMapaPorContexto}
                             shouldIgnoreClick={ignorarCliqueAposToqueLongoMapa}
                         />
                     )}

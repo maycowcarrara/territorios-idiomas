@@ -1,32 +1,180 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
+import { getDocs, query, where } from 'firebase/firestore';
 import { db } from './firebase';
-import { loadMapaData } from './mapData';
-import { buildFeatureIndex, getFeatureBoundsStr, getTerritorioQuadrasCount } from './mapaUtils';
 import { exportarPdfParaDispositivo } from './pdfExport';
 import { buildPublicAppRouteUrl } from './publicAppUrl';
 import { useSistema } from './useSistema';
-import { getSistemaTheme, isNormalContext, NORMAL_CONTEXT_ID } from './sistema';
-import { normalizeTerritorioNome } from './territorioNome';
+import { getSistemaTheme } from './sistema';
 import { useUiFeedback } from './uiFeedback';
 import { AppPage, PageHeader } from './uiPrimitives';
 import { buttonClass, cardBaseClass, cn } from './uiClasses';
+import { TERRITORIO_STATUS } from './territorioContext';
 import {
-    getTerritorioContextCollectionRef,
-    getTerritorioNumeroFromDocId,
-    getTerritorioProgresso,
-    getTerritorioStatusOperacional,
-    mergeTerritorioData,
-    TERRITORIO_STATUS
-} from './territorioContext';
+    calculateGrupoEnderecoStats,
+    ENDERECO_STATUS,
+    formatGrupoEnderecoCodigoExibicao,
+    formatGrupoEnderecoNomeExibicao,
+    getEnderecosCollectionRef,
+    getGrupoEnderecoProgresso,
+    getGruposEnderecoCollectionRef,
+    GRUPO_ENDERECO_STATUS
+} from './enderecoModel';
+
+const STATUS_ARQUIVADO = 'arquivado';
+
+const toDateValue = (value) => {
+    if (!value) return null;
+    const date = value.toDate ? value.toDate() : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatDateValue = (value) => {
+    const date = toDateValue(value);
+    return date ? date.toLocaleDateString('pt-BR') : '-';
+};
+
+const getDiasDesde = (date) => {
+    if (!date) return 0;
+    return Math.ceil(Math.abs(new Date() - date) / (1000 * 60 * 60 * 24));
+};
+
+const normalizeKey = (value) => String(value || '').trim().toLowerCase();
+
+const getGrupoEnderecoIdentityKey = (value) => {
+    const texto = normalizeKey(value);
+    const match = texto.match(/^(?:t-|g_)?0*(\d+)$/i);
+    return match ? `n:${Number.parseInt(match[1], 10)}` : texto;
+};
+
+const getCodigoOrdenacao = (value) => {
+    const match = String(value || '').match(/(\d+)/);
+    return match ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
+};
+
+const getUltimaEdicaoTexto = ({ dataRef, hasDesignacao }) => {
+    if (!hasDesignacao) return { diasSemEdicao: 0, ultimaEdicaoTexto: 'Sem dados' };
+
+    const referencia = dataRef || new Date();
+    const diferencaMs = Math.abs(new Date() - referencia);
+    const diferencaMinutos = Math.floor(diferencaMs / (1000 * 60));
+    const diferencaHoras = Math.floor(diferencaMs / (1000 * 60 * 60));
+    const diasSemEdicao = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
+
+    if (diferencaMinutos < 2) {
+        return { diasSemEdicao, ultimaEdicaoTexto: 'agora mesmo' };
+    }
+
+    if (diferencaMinutos < 60) {
+        return { diasSemEdicao, ultimaEdicaoTexto: `há ${diferencaMinutos} min` };
+    }
+
+    if (diferencaHoras < 24) {
+        return { diasSemEdicao, ultimaEdicaoTexto: `há ${diferencaHoras} h` };
+    }
+
+    if (diasSemEdicao === 1) {
+        return { diasSemEdicao, ultimaEdicaoTexto: 'ontem' };
+    }
+
+    return { diasSemEdicao, ultimaEdicaoTexto: `há ${diasSemEdicao} dias` };
+};
+
+const processarHistorico = (historico) => {
+    if (!Array.isArray(historico)) return [];
+
+    return historico
+        .map((item) => {
+            const inicio = toDateValue(item.dataInicio) || toDateValue(item.dataRetirada) || new Date();
+            const fim = toDateValue(item.dataTermino) || toDateValue(item.dataDevolucao) || new Date();
+            const listaNomes = Array.isArray(item.responsaveis)
+                ? item.responsaveis.join(', ')
+                : (item.responsavel || 'Desconhecido');
+
+            return {
+                nomes: listaNomes,
+                inicio: inicio && !Number.isNaN(inicio.getTime()) ? inicio.toLocaleDateString('pt-BR') : '?',
+                termino: fim && !Number.isNaN(fim.getTime()) ? fim.toLocaleDateString('pt-BR') : '?',
+                timestampFim: fim || new Date(0)
+            };
+        })
+        .sort((a, b) => b.timestampFim - a.timestampFim)
+        .slice(0, 10);
+};
+
+const getGrupoEnderecoBoundsStr = (grupo) => {
+    const bounds = grupo?.bounds;
+    if (!bounds) return null;
+
+    const { minLat, minLng, maxLat, maxLng } = bounds;
+    if (![minLat, minLng, maxLat, maxLng].every((value) => Number.isFinite(Number(value)))) {
+        return null;
+    }
+
+    return `${minLat},${minLng},${maxLat},${maxLng}`;
+};
+
+const getGrupoEnderecoCentro = (grupo) => {
+    const lat = Number(grupo?.centro?.lat);
+    const lng = Number(grupo?.centro?.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return { lat, lng };
+    }
+
+    const bounds = grupo?.bounds;
+    if (!bounds) return null;
+
+    const minLat = Number(bounds.minLat);
+    const minLng = Number(bounds.minLng);
+    const maxLat = Number(bounds.maxLat);
+    const maxLng = Number(bounds.maxLng);
+    if (![minLat, minLng, maxLat, maxLng].every(Number.isFinite)) {
+        return null;
+    }
+
+    return {
+        lat: (minLat + maxLat) / 2,
+        lng: (minLng + maxLng) / 2
+    };
+};
+
+const getGrupoEnderecoStatusRelatorio = (grupo) => {
+    const status = grupo?.status || GRUPO_ENDERECO_STATUS.ATIVO;
+    if (status === GRUPO_ENDERECO_STATUS.ARQUIVADO) return STATUS_ARQUIVADO;
+    if (status === GRUPO_ENDERECO_STATUS.FINALIZADO) return TERRITORIO_STATUS.FINALIZADO;
+    if (grupo?.designadoPara && getGrupoEnderecoProgresso(grupo).completo) {
+        return TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO;
+    }
+    return grupo?.designadoPara ? 'ocupado' : 'livre';
+};
+
+const getGrupoEnderecoCanonicalKeys = (grupo) => [
+    getGrupoEnderecoIdentityKey(grupo?.id),
+    getGrupoEnderecoIdentityKey(grupo?.codigo)
+].filter(Boolean);
+
+const buildMapaLinkSearch = (registro) => {
+    if (registro.boundsStr) {
+        return `bounds=${encodeURIComponent(registro.boundsStr)}`;
+    }
+
+    if (Number.isFinite(Number(registro.lat)) && Number.isFinite(Number(registro.lng))) {
+        return new URLSearchParams({
+            lat: String(registro.lat),
+            lng: String(registro.lng),
+            z: '17'
+        }).toString();
+    }
+
+    return '';
+};
 
 const Relatorios = () => {
     const [territorios, setTerritorios] = useState([]);
     const [loading, setLoading] = useState(true);
     const [exportandoPdf, setExportandoPdf] = useState(false);
-    const [campanhas, setCampanhas] = useState([]);
-    const [contextoSelecionadoId, setContextoSelecionadoId] = useState(null);
+    const [erroCarregamento, setErroCarregamento] = useState('');
+    const [reloadSeq, setReloadSeq] = useState(0);
     const { config: contextoSistema, loading: carregandoSistema } = useSistema();
     const { notify } = useUiFeedback();
     const temaSistema = getSistemaTheme(contextoSistema);
@@ -40,16 +188,17 @@ const Relatorios = () => {
     const [tempoFiltro, setTempoFiltro] = useState('todos');
     const [sortConfig, setSortConfig] = useState({ key: 'diasParado', direction: 'desc' });
 
-    const contextoRelatorioId = contextoSelecionadoId || contextoSistema.contextoAtivoId || NORMAL_CONTEXT_ID;
-    const contextoRelatorio = isNormalContext(contextoRelatorioId)
-        ? { id: NORMAL_CONTEXT_ID, titulo: 'Pregação normal', tipo: 'normal' }
-        : {
-            id: contextoRelatorioId,
-            titulo: campanhas.find((campanha) => campanha.id === contextoRelatorioId)?.titulo || contextoRelatorioId,
-            tipo: 'campanha'
-        };
-
     const getStatusVisual = (status, porcentagem) => {
+        if (status === STATUS_ARQUIVADO) {
+            return {
+                label: 'Arquivado',
+                badgeClass: 'bg-slate-100 text-slate-500 border border-slate-200',
+                detailClass: 'text-slate-500',
+                style: null,
+                progressoTexto: 'Fora do mapa padrão'
+            };
+        }
+
         if (status === TERRITORIO_STATUS.FINALIZADO) {
             return {
                 label: 'Finalizado',
@@ -93,172 +242,133 @@ const Relatorios = () => {
     };
 
     useEffect(() => {
-        const unsubscribe = onSnapshot(collection(db, "campanhas"), (snapshot) => {
-            const lista = snapshot.docs.map((campanhaDoc) => ({
-                id: campanhaDoc.id,
-                ...campanhaDoc.data()
-            }));
-
-            lista.sort((a, b) => {
-                const dataA = a.atualizadaEm?.seconds || a.criadaEm?.seconds || 0;
-                const dataB = b.atualizadaEm?.seconds || b.criadaEm?.seconds || 0;
-                return dataB - dataA;
-            });
-
-            setCampanhas(lista);
-        });
-
-        return () => unsubscribe();
-    }, []);
-
-    useEffect(() => {
         if (carregandoSistema) return;
-        if (contextoSelecionadoId !== null) return;
-        setContextoSelecionadoId(contextoSistema.contextoAtivoId || NORMAL_CONTEXT_ID);
-    }, [carregandoSistema, contextoSelecionadoId, contextoSistema.contextoAtivoId]);
-
-    useEffect(() => {
-        if (carregandoSistema || !contextoRelatorioId) return;
 
         let ativo = true;
 
         const carregarDados = async () => {
             if (ativo) {
                 setLoading(true);
+                setErroCarregamento('');
             }
             try {
-                const geoData = await loadMapaData();
-                const featureMap = buildFeatureIndex(geoData);
-                const territoriosBaseSnapshot = await getDocs(collection(db, "territorios"));
-                const baseMap = new Map();
+                const [
+                    gruposEnderecoSnapshot,
+                    enderecosSnapshot
+                ] = await Promise.all([
+                    getDocs(getGruposEnderecoCollectionRef(db)),
+                    getDocs(query(
+                        getEnderecosCollectionRef(db),
+                        where('status', '==', ENDERECO_STATUS.ATIVO)
+                    ))
+                ]);
 
-                territoriosBaseSnapshot.forEach((territorioDoc) => {
-                    baseMap.set(getTerritorioNumeroFromDocId(territorioDoc.id), territorioDoc.data());
+                const enderecos = enderecosSnapshot.docs.map((enderecoDoc) => ({
+                    id: enderecoDoc.id,
+                    ...enderecoDoc.data()
+                }));
+                const enderecosPorGrupo = new Map();
+
+                enderecos.forEach((endereco) => {
+                    if (endereco.status === ENDERECO_STATUS.ARQUIVADO) return;
+                    const key = getGrupoEnderecoIdentityKey(endereco.grupoId || endereco.grupoCodigo);
+                    if (!key) return;
+                    if (!enderecosPorGrupo.has(key)) {
+                        enderecosPorGrupo.set(key, []);
+                    }
+                    enderecosPorGrupo.get(key).push(endereco);
                 });
 
-                const contextoMap = new Map();
-                if (!isNormalContext(contextoRelatorioId)) {
-                    const contextoSnapshot = await getDocs(query(
-                        getTerritorioContextCollectionRef(db),
-                        where("contextoId", "==", contextoRelatorioId)
-                    ));
+                const gruposRegistrados = new Set();
+                const gruposEnderecoDocs = gruposEnderecoSnapshot.docs.map((grupoDoc) => ({
+                    id: grupoDoc.id,
+                    ...grupoDoc.data()
+                }));
 
-                    contextoSnapshot.forEach((territorioDoc) => {
-                        const data = territorioDoc.data();
-                        const numeroId = data.territorioNumero || getTerritorioNumeroFromDocId(territorioDoc.id);
-                        contextoMap.set(numeroId, data);
+                gruposEnderecoDocs.forEach((grupo) => {
+                    getGrupoEnderecoCanonicalKeys(grupo).forEach((key) => gruposRegistrados.add(key));
+                });
+
+                const gruposSinteticos = [];
+                enderecosPorGrupo.forEach((enderecosGrupo, grupoKey) => {
+                    if (gruposRegistrados.has(grupoKey)) return;
+                    const primeiroEndereco = enderecosGrupo[0] || {};
+                    const codigo = primeiroEndereco.grupoCodigo || primeiroEndereco.grupoId || grupoKey;
+                    gruposSinteticos.push({
+                        id: grupoKey,
+                        codigo,
+                        nome: `Território ${formatGrupoEnderecoCodigoExibicao(codigo) || codigo}`,
+                        status: GRUPO_ENDERECO_STATUS.ATIVO,
+                        enderecoIds: enderecosGrupo.map((endereco) => endereco.id).filter(Boolean),
+                        enderecos_visitados: [],
+                        sintetico: true
                     });
-                }
+                });
 
-                const numeros = Array.from(featureMap.keys()).sort((a, b) => a - b);
-                const lista = numeros.map((numeroId) => {
-                    const feature = featureMap.get(numeroId);
-                    const nomeSeguro = normalizeTerritorioNome(feature?.properties?.nome, `Território ${numeroId}`);
-                    const data = mergeTerritorioData({
-                        contextoId: contextoRelatorioId,
-                        nomeFallback: nomeSeguro,
-                        baseData: baseMap.get(numeroId),
-                        stateData: isNormalContext(contextoRelatorioId) ? baseMap.get(numeroId) : contextoMap.get(numeroId)
-                    });
-
-                    let totalQuadras = 1;
-                    let porcentagem = 0;
-                    const boundsStr = getFeatureBoundsStr(feature);
-
-                    if (feature) {
-                        totalQuadras = getTerritorioQuadrasCount(feature);
-                        const progresso = getTerritorioProgresso(data, totalQuadras);
-                        porcentagem = progresso.percentualExibicao;
-                    }
-
-                    const statusOperacional = getTerritorioStatusOperacional(data, totalQuadras);
+                const gruposEnderecoRelatorio = [...gruposEnderecoDocs, ...gruposSinteticos].map((grupo) => {
+                    const enderecosGrupo = getGrupoEnderecoCanonicalKeys(grupo)
+                        .flatMap((key) => enderecosPorGrupo.get(key) || []);
+                    const enderecosUnicos = [...new Map(enderecosGrupo.map((endereco) => [endereco.id, endereco])).values()];
+                    const statsRuntime = enderecosUnicos.length ? calculateGrupoEnderecoStats(enderecosUnicos) : null;
+                    const grupoCompleto = statsRuntime ? { ...grupo, ...statsRuntime } : grupo;
+                    const progresso = getGrupoEnderecoProgresso(grupoCompleto);
+                    const statusOperacional = getGrupoEnderecoStatusRelatorio(grupoCompleto);
+                    const totalEnderecos = progresso.totalEnderecos;
+                    const visitadosExibicao = progresso.isFinalizado ? totalEnderecos : progresso.visitadosExibicao;
+                    const porcentagem = progresso.isFinalizado && totalEnderecos > 0
+                        ? 100
+                        : progresso.percentualExibicao;
                     const statusVisual = getStatusVisual(statusOperacional, porcentagem);
-
-                    let diasParado = 0;
-                    let dataUltimaStr = '-';
-                    let dataUltimaObj = null;
-                    if (data.ultimaConclusao) {
-                        dataUltimaObj = data.ultimaConclusao.toDate ? data.ultimaConclusao.toDate() : new Date(data.ultimaConclusao);
-                        diasParado = Math.ceil(Math.abs(new Date() - dataUltimaObj) / (1000 * 60 * 60 * 24));
-                        dataUltimaStr = dataUltimaObj.toLocaleDateString('pt-BR');
-                    }
-
-                    let dataDesigStr = '-';
-                    let dataDesigObj = null;
-                    if (data.designadoPara && data.dataDesignacao) {
-                        dataDesigObj = data.dataDesignacao.toDate ? data.dataDesignacao.toDate() : new Date(data.dataDesignacao);
-                        dataDesigStr = dataDesigObj.toLocaleDateString('pt-BR');
-                    }
-
-                    let diasSemEdicao = 0;
-                    let ultimaEdicaoTexto = "Sem dados";
-                    if (data.designadoPara) {
-                        let dataRef = null;
-                        if (data.ultimaAlteracao) {
-                            dataRef = data.ultimaAlteracao.toDate ? data.ultimaAlteracao.toDate() : new Date(data.ultimaAlteracao);
-                        } else if (dataDesigObj) {
-                            dataRef = dataDesigObj;
-                        } else {
-                            dataRef = new Date();
-                        }
-
-                        const agora = new Date();
-                        const diferencaMs = Math.abs(agora - dataRef);
-                        const diferencaMinutos = Math.floor(diferencaMs / (1000 * 60));
-                        const diferencaHoras = Math.floor(diferencaMs / (1000 * 60 * 60));
-                        diasSemEdicao = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
-
-                        if (diferencaMinutos < 2) {
-                            ultimaEdicaoTexto = "agora mesmo";
-                        } else if (diferencaMinutos < 60) {
-                            ultimaEdicaoTexto = `há ${diferencaMinutos} min`;
-                        } else if (diferencaHoras < 24) {
-                            ultimaEdicaoTexto = `há ${diferencaHoras} h`;
-                        } else if (diasSemEdicao === 1) {
-                            ultimaEdicaoTexto = "ontem";
-                        } else {
-                            ultimaEdicaoTexto = `há ${diasSemEdicao} dias`;
-                        }
-                    }
-
-                    let historicoProcessado = [];
-                    if (data.historico && Array.isArray(data.historico)) {
-                        historicoProcessado = data.historico.map(h => {
-                            const inicio = h.dataInicio?.toDate ? h.dataInicio.toDate() : (h.dataRetirada?.toDate ? h.dataRetirada.toDate() : new Date());
-                            const fim = h.dataTermino?.toDate ? h.dataTermino.toDate() : (h.dataDevolucao?.toDate ? h.dataDevolucao.toDate() : new Date());
-                            const inicioStr = !isNaN(inicio) ? inicio.toLocaleDateString('pt-BR') : '?';
-                            const fimStr = !isNaN(fim) ? fim.toLocaleDateString('pt-BR') : '?';
-                            const listaNomes = Array.isArray(h.responsaveis) ? h.responsaveis.join(", ") : (h.responsavel || "Desconhecido");
-                            return { nomes: listaNomes, inicio: inicioStr, termino: fimStr, timestampFim: fim };
-                        });
-                        historicoProcessado.sort((a, b) => b.timestampFim - a.timestampFim);
-                        historicoProcessado = historicoProcessado.slice(0, 10);
-                    }
+                    const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id);
+                    const nomeExibicao = formatGrupoEnderecoNomeExibicao(grupo.nome, grupo.codigo || grupo.id);
+                    const dataUltimaObj = toDateValue(grupo.ultimaConclusao);
+                    const dataCriacaoObj = toDateValue(grupo.criadoEm);
+                    const nuncaTrabalhado = !dataUltimaObj;
+                    const diasParado = dataUltimaObj
+                        ? getDiasDesde(dataUltimaObj)
+                        : (dataCriacaoObj ? getDiasDesde(dataCriacaoObj) : Number.POSITIVE_INFINITY);
+                    const dataDesigObj = grupo.designadoPara ? toDateValue(grupo.dataDesignacao) : null;
+                    const dataRefEdicao = toDateValue(grupo.ultimaAlteracao) || dataDesigObj;
+                    const { diasSemEdicao, ultimaEdicaoTexto } = getUltimaEdicaoTexto({
+                        dataRef: dataRefEdicao,
+                        hasDesignacao: Boolean(grupo.designadoPara)
+                    });
+                    const centro = getGrupoEnderecoCentro(grupoCompleto);
+                    const totalEstrangeiros = Math.max(0, Math.trunc(Number(grupoCompleto.totalEstrangeiros) || 0));
 
                     return {
-                        id: isNormalContext(contextoRelatorioId) ? `t_${numeroId}` : `${contextoRelatorioId}__t_${numeroId}`,
-                        numeroId,
-                        ...data,
-                        nome: nomeSeguro,
+                        id: `grupo_endereco__${grupo.id}`,
+                        numeroId: codigoExibicao || grupo.id,
+                        ...grupoCompleto,
+                        tipoRelatorio: 'grupo_endereco',
+                        codigoOrdenacao: getCodigoOrdenacao(codigoExibicao || grupo.id),
+                        nome: nomeExibicao,
+                        lat: centro?.lat,
+                        lng: centro?.lng,
                         diasParado,
+                        nuncaTrabalhado,
                         diasSemEdicao,
                         ultimaEdicaoTexto,
-                        totalQuadras,
+                        totalEnderecos,
+                        totalEstrangeiros,
                         porcentagem,
-                        dataUltimaStr,
+                        dataUltimaStr: formatDateValue(grupo.ultimaConclusao),
                         dataUltimaObj,
-                        dataDesigStr,
+                        dataDesigStr: dataDesigObj ? dataDesigObj.toLocaleDateString('pt-BR') : '-',
                         dataDesigObj,
-                        historicoLista: historicoProcessado,
+                        historicoLista: processarHistorico(grupo.historico),
                         status: statusOperacional,
                         statusLabel: statusVisual.label,
                         statusBadgeClass: statusVisual.badgeClass,
                         statusDetailClass: statusVisual.detailClass,
                         statusStyle: statusVisual.style,
-                        progressoTexto: statusVisual.progressoTexto,
-                        boundsStr
+                        progressoTexto: `${visitadosExibicao}/${totalEnderecos} endereços`,
+                        resumoOperacional: `${totalEnderecos} endereço${totalEnderecos === 1 ? '' : 's'} | ${totalEstrangeiros} pessoa${totalEstrangeiros === 1 ? '' : 's'}`,
+                        boundsStr: getGrupoEnderecoBoundsStr(grupoCompleto)
                     };
                 });
+
+                const lista = gruposEnderecoRelatorio;
 
                 if (ativo) {
                     setTerritorios(lista);
@@ -267,6 +377,8 @@ const Relatorios = () => {
             } catch (error) {
                 console.error("Erro ao carregar dados:", error);
                 if (ativo) {
+                    setTerritorios([]);
+                    setErroCarregamento(String(error?.message || 'Não foi possível carregar o relatório agora.'));
                     setLoading(false);
                 }
             }
@@ -277,9 +389,10 @@ const Relatorios = () => {
         return () => {
             ativo = false;
         };
-    }, [carregandoSistema, contextoRelatorioId]);
+    }, [carregandoSistema, reloadSeq]);
 
     const formatarTempo = (dias) => {
+        if (!Number.isFinite(Number(dias))) return "Nunca";
         if (dias === 0) return "Hoje";
         if (dias < 30) return `${dias} dias`;
         const meses = Math.floor(dias / 30);
@@ -288,6 +401,10 @@ const Relatorios = () => {
         if (restoDias > 0) texto += ` e ${restoDias} ${restoDias > 1 ? 'dias' : 'dia'}`;
         return texto;
     };
+
+    const formatarTempoTerritorio = (territorio) => (
+        territorio?.nuncaTrabalhado ? 'Nunca' : formatarTempo(territorio?.diasParado || 0)
+    );
 
     const toggleLinha = (id) => {
         setLinhasExpandidas(prev => {
@@ -317,6 +434,7 @@ const Relatorios = () => {
         if (tipo === 'ocupado') setStatusFiltro('ocupado');
         if (tipo === 'aguardando_finalizacao') setStatusFiltro(TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO);
         if (tipo === 'finalizado') setStatusFiltro(TERRITORIO_STATUS.FINALIZADO);
+        if (tipo === STATUS_ARQUIVADO) setStatusFiltro(STATUS_ARQUIVADO);
         if (tipo === 'criticos') setTempoFiltro('4_meses');
     };
 
@@ -339,8 +457,8 @@ const Relatorios = () => {
 
         if (sortConfig.key) {
             dados.sort((a, b) => {
-                let aValue = a[sortConfig.key];
-                let bValue = b[sortConfig.key];
+                let aValue = sortConfig.key === 'numeroId' ? a.codigoOrdenacao : a[sortConfig.key];
+                let bValue = sortConfig.key === 'numeroId' ? b.codigoOrdenacao : b[sortConfig.key];
                 if (aValue === null || aValue === undefined || aValue === '-') return 1;
                 if (bValue === null || bValue === undefined || bValue === '-') return -1;
                 if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -366,7 +484,9 @@ const Relatorios = () => {
     const ocupados = territorios.filter(t => t.status === 'ocupado' || t.status === TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO).length;
     const livres = territorios.filter(t => t.status === 'livre').length;
     const finalizados = territorios.filter(t => t.status === TERRITORIO_STATUS.FINALIZADO).length;
+    const arquivados = territorios.filter(t => t.status === STATUS_ARQUIVADO).length;
     const getCorTempo = (dias) => {
+        if (!Number.isFinite(Number(dias))) return 'bg-orange-600 text-white';
         if (dias > 180) return 'bg-orange-600 text-white';
         if (dias > 120) return 'bg-orange-500 text-white';
         if (dias > 60) return 'bg-orange-300 text-orange-900';
@@ -386,15 +506,13 @@ const Relatorios = () => {
             ]);
 
             const doc = new jsPDF();
-            const tituloRelatorio = contextoRelatorio.tipo === 'campanha'
-                ? `Relatório de Territórios - ${contextoRelatorio.titulo}`
-                : "Relatório de Territórios - Pregação normal";
+            const tituloRelatorio = 'Relatório de Territórios de Idiomas';
 
             doc.setFontSize(18);
             doc.text(tituloRelatorio, 14, 20);
             doc.setFontSize(10);
             doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, 14, 26);
-            doc.text(`Contexto: ${contextoRelatorio.titulo}`, 14, 31);
+            doc.text('Fonte: endereços e territórios cadastrados', 14, 31);
 
             doc.setFontSize(8);
             doc.setTextColor(100);
@@ -407,7 +525,7 @@ const Relatorios = () => {
             const textoFiltro = busca ? `Busca: "${busca}"` : "Sem busca";
             doc.text(`Filtros: Status (${statusFiltro}) | Tempo (${textoTempoFiltro}) | ${textoFiltro}`, 14, 36);
 
-            const tableColumn = ["Cód.", "Nome", "Status / Progresso", "Histórico / Ciclos", "Ult. Conclusão", "Tempo Parado"];
+            const tableColumn = ["Cód.", "Nome", "Status", "Progresso", "Histórico / Ciclos", "Ult. Conclusão", "Tempo Parado"];
             const tableRows = [];
 
             dadosProcessados.forEach(t => {
@@ -427,8 +545,15 @@ const Relatorios = () => {
                 } else if (t.status === TERRITORIO_STATUS.FINALIZADO) {
                     statusTexto = `Finalizado em ${t.dataUltimaStr}`;
                     textoHistorico += `[FINALIZADO]\nUltima conclusao: ${t.dataUltimaStr}\n\n`;
+                } else if (t.status === STATUS_ARQUIVADO) {
+                    statusTexto = 'Arquivado';
+                    textoHistorico += `[ARQUIVADO]\n${t.resumoOperacional || 'Fora do mapa padrão'}\n\n`;
                 } else {
                     textoHistorico += "LIVRE\n";
+                }
+
+                if (t.resumoOperacional) {
+                    textoHistorico += `Resumo: ${t.resumoOperacional}\n`;
                 }
 
                 if (t.historicoLista && t.historicoLista.length > 0) {
@@ -440,15 +565,17 @@ const Relatorios = () => {
                     textoHistorico += "\n(Sem histórico)";
                 }
 
-                const hasLink = !!t.boundsStr;
+                const mapSearch = buildMapaLinkSearch(t);
+                const hasLink = !!mapSearch;
 
                 tableRows.push([
                     t.numeroId,
                     { content: t.nome, styles: { textColor: hasLink ? [0, 0, 255] : [0, 0, 0] } },
                     statusTexto,
+                    t.progressoTexto,
                     textoHistorico,
                     t.dataUltimaStr,
-                    t.diasParado > 0 ? formatarTempo(t.diasParado) : 'Nunca'
+                    formatarTempoTerritorio(t)
                 ]);
             });
 
@@ -460,22 +587,21 @@ const Relatorios = () => {
                 styles: { fontSize: 8, cellPadding: 2, valign: 'top' },
                 headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
                 columnStyles: {
-                    3: { cellWidth: 80 }
+                    4: { cellWidth: 72 }
                 },
                 didDrawCell: (data) => {
                     if (data.section === 'body' && data.column.index === 1) {
                         const t = dadosProcessados[data.row.index];
-                        if (t && t.boundsStr) {
-                            const deepLink = buildPublicAppRouteUrl('/app', { bounds: t.boundsStr });
+                        const mapSearch = t ? buildMapaLinkSearch(t) : '';
+                        if (mapSearch) {
+                            const deepLink = buildPublicAppRouteUrl('/app') + `?${mapSearch}`;
                             doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url: deepLink });
                         }
                     }
                 }
             });
 
-            const nomeArquivo = isNormalContext(contextoRelatorioId)
-                ? 'Relatorio_Territorios_Normal.pdf'
-                : `Relatorio_${contextoRelatorio.id}.pdf`;
+            const nomeArquivo = 'Relatorio_Territorios_Idiomas.pdf';
             const resultadoExportacao = await exportarPdfParaDispositivo(doc, nomeArquivo);
 
             if (resultadoExportacao.modo === 'share') {
@@ -510,11 +636,11 @@ const Relatorios = () => {
                         <>
                             <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
                                 <span>Relatório:</span>
-                                <span>{contextoRelatorio.titulo}</span>
+                                <span>Territórios de idiomas</span>
                             </span>
                             <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${temaSistema.panelBg} ${temaSistema.panelText} ${temaSistema.panelBorder}`}>
-                                <span>{contextoSistema.campanhaAtiva ? '📢' : '🗺️'}</span>
-                                <span>Modo atual: {contextoSistema.contextoAtivoTitulo}</span>
+                                <span>Fonte</span>
+                                <span>Endereços cadastrados</span>
                             </span>
                         </>
                     )}
@@ -555,8 +681,26 @@ const Relatorios = () => {
                     )}
                 />
 
+                {erroCarregamento && (
+                    <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <p className="font-bold">Não foi possível carregar o relatório.</p>
+                                <p className="mt-1 text-red-600">{erroCarregamento}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setReloadSeq((value) => value + 1)}
+                                className="rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-bold uppercase tracking-wide text-red-700 transition-colors hover:bg-red-100"
+                            >
+                                Tentar novamente
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* CARDS DE RESUMO */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-2 gap-4 mb-6 md:grid-cols-5">
                     <div onClick={() => aplicarFiltroRapido('total')} className={`${cardBaseClass} cursor-pointer p-4 transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md`}>
                         <p className="text-xs font-bold text-slate-400 uppercase">Total</p>
                         <p className="text-3xl font-black text-slate-700">{total}</p>
@@ -577,31 +721,16 @@ const Relatorios = () => {
                         <p className="text-3xl font-black text-emerald-700">{finalizados}</p>
                         <p className="text-[10px] text-emerald-500 mt-1">Clique para filtrar</p>
                     </div>
+                    <div onClick={() => aplicarFiltroRapido(STATUS_ARQUIVADO)} className="cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md">
+                        <p className="text-xs font-bold text-slate-500 uppercase">Arquivados</p>
+                        <p className="text-3xl font-black text-slate-700">{arquivados}</p>
+                        <p className="text-[10px] text-slate-500 mt-1">Clique para filtrar</p>
+                    </div>
                 </div>
 
                 {/* BARRA DE FILTROS */}
                 <div className={`${cardBaseClass} mb-6 p-4`}>
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px,minmax(0,1fr),210px,150px,auto] lg:items-end">
-                        <div className="w-full">
-                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
-                                Contexto do relatório
-                            </label>
-                            <select
-                                value={contextoRelatorioId}
-                                onChange={(e) => {
-                                    setContextoSelecionadoId(e.target.value);
-                                    setLinhasExpandidas([]);
-                                }}
-                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer"
-                            >
-                                <option value={NORMAL_CONTEXT_ID}>Pregação normal</option>
-                                {campanhas.map((campanha) => (
-                                    <option key={campanha.id} value={campanha.id}>
-                                        {campanha.titulo || campanha.id}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr),210px,150px,auto] lg:items-end">
                         <div className="w-full">
                             <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
                                 Busca
@@ -623,6 +752,7 @@ const Relatorios = () => {
                                 <option value="ocupado">Em andamento</option>
                                 <option value={TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO}>Aguardando finalização</option>
                                 <option value={TERRITORIO_STATUS.FINALIZADO}>Finalizados</option>
+                                <option value={STATUS_ARQUIVADO}>Arquivados</option>
                             </select>
                         </div>
                         <div className="w-full">
@@ -659,9 +789,9 @@ const Relatorios = () => {
                                         #{t.numeroId}
                                     </span>
                                     <h3 className="font-bold text-slate-800 text-lg leading-tight">
-                                        {t.boundsStr ? (
+                                        {buildMapaLinkSearch(t) ? (
                                             <Link 
-                                                to={`/app?bounds=${t.boundsStr}`} 
+                                                to={`/app?${buildMapaLinkSearch(t)}`} 
                                                 className="text-blue-600 hover:underline"
                                             >
                                                 {t.nome}
@@ -701,6 +831,16 @@ const Relatorios = () => {
                                     <span className="text-slate-400 text-xs">Designado em</span>
                                     <span className="font-medium">{t.dataDesigStr}</span>
                                 </div>
+                                {t.resumoOperacional && (
+                                    <div className="flex justify-between border-b border-slate-50 pb-1">
+                                        <span className="text-slate-400 text-xs">Resumo</span>
+                                        <span className="font-medium text-right max-w-[60%]">{t.resumoOperacional}</span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between border-b border-slate-50 pb-1">
+                                    <span className="text-slate-400 text-xs">Progresso</span>
+                                    <span className="font-medium">{t.progressoTexto}</span>
+                                </div>
                                 {t.status !== 'ocupado' && t.status !== TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO && (
                                     <div className="flex justify-between border-b border-slate-50 pb-1">
                                         <span className="text-slate-400 text-xs">Última Conclusão</span>
@@ -711,7 +851,7 @@ const Relatorios = () => {
                                     <div className="flex justify-between">
                                         <span className="text-slate-400 text-xs">Tempo Parado</span>
                                         <span className={`px-2 py-0.5 rounded text-xs font-bold ${getCorTempo(t.diasParado)}`}>
-                                            {formatarTempo(t.diasParado)}
+                                            {formatarTempoTerritorio(t)}
                                         </span>
                                     </div>
                                 )}
@@ -774,6 +914,7 @@ const Relatorios = () => {
                                     <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('numeroId')}>Cód. {getSortIcon('numeroId')}</th>
                                     <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('nome')}>Nome {getSortIcon('nome')}</th>
                                     <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('status')}>Status {getSortIcon('status')}</th>
+                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('porcentagem')}>Progresso {getSortIcon('porcentagem')}</th>
                                     <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('designadoNome')}>Responsável {getSortIcon('designadoNome')}</th>
                                     <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataDesigObj')}>Designado em {getSortIcon('dataDesigObj')}</th>
                                     <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataUltimaObj')}>Conclusão {getSortIcon('dataUltimaObj')}</th>
@@ -792,9 +933,9 @@ const Relatorios = () => {
                                             <td className="px-4 py-3 text-xs font-mono text-slate-400 font-bold">{t.numeroId}</td>
                                             
                                             <td className="px-4 py-3 font-bold text-slate-700">
-                                                {t.boundsStr ? (
+                                                {buildMapaLinkSearch(t) ? (
                                                     <Link 
-                                                        to={`/app?bounds=${t.boundsStr}`} 
+                                                        to={`/app?${buildMapaLinkSearch(t)}`} 
                                                         className="text-blue-600 hover:underline hover:text-blue-800 transition-colors"
                                                         onClick={(e) => e.stopPropagation()} 
                                                     >
@@ -824,6 +965,7 @@ const Relatorios = () => {
                                                     <span className={`inline-flex items-center justify-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase min-w-[100px] ${t.statusBadgeClass}`}>{t.statusLabel}</span>
                                                 )}
                                             </td>
+                                            <td className="px-4 py-3 text-xs font-semibold text-slate-600">{t.progressoTexto}</td>
                                             <td className="px-4 py-3 text-slate-600">
                                                 {t.designadoNome || '-'}
                                                 {(t.status === 'ocupado' || t.status === TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO) && t.cicloAtual && t.cicloAtual.responsaveis && t.cicloAtual.responsaveis.length > 1 && (
@@ -835,19 +977,24 @@ const Relatorios = () => {
 
                                             <td className="px-4 py-3 text-right">
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${getCorTempo(t.diasParado)}`}>
-                                                    {formatarTempo(t.diasParado)}
+                                                    {formatarTempoTerritorio(t)}
                                                 </span>
                                             </td>
                                         </tr>
 
                                         {linhasExpandidas.includes(t.id) && (
                                             <tr className="bg-slate-50 animate-fade-in">
-                                                <td colSpan="8" className="p-0">
+                                                <td colSpan="9" className="p-0">
                                                     <div className="p-4 border-b border-slate-200 shadow-inner">
                                                         <div className="bg-white rounded-lg border border-slate-200 p-3">
                                                             <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
                                                                         📜 Histórico de Ciclos
                                                             </h4>
+                                                            {t.resumoOperacional && (
+                                                                <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+                                                                    {t.resumoOperacional}
+                                                                </p>
+                                                            )}
                                                             {t.historicoLista.length > 0 ? (
                                                                 <table className="w-full text-xs text-left">
                                                                     <thead>
@@ -878,7 +1025,7 @@ const Relatorios = () => {
                                     </React.Fragment>
                                 ))}
                                 {dadosProcessados.length === 0 && (
-                                    <tr><td colSpan="8" className="p-8 text-center text-slate-400">Nenhum território encontrado com os filtros atuais.</td></tr>
+                                    <tr><td colSpan="9" className="p-8 text-center text-slate-400">Nenhum território encontrado com os filtros atuais.</td></tr>
                                 )}
                             </tbody>
                         </table>

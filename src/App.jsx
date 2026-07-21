@@ -96,16 +96,41 @@ function AuthStatusScreen({ message = 'Entrando...' }) {
   );
 }
 
+const buildSafeAuthUser = (currentUser) => {
+  if (!currentUser) return null;
+
+  return {
+    uid: currentUser.uid || '',
+    email: currentUser.email || '',
+    displayName: currentUser.displayName || '',
+    photoURL: currentUser.photoURL || '',
+    isAnonymous: Boolean(currentUser.isAnonymous),
+    providerId: currentUser.providerId || 'firebase'
+  };
+};
+
+const buildSafeOneSignalVerification = (detail) => {
+  if (!detail || typeof detail !== 'object') return {};
+
+  return {
+    title: String(detail.title || detail.titulo || ''),
+    message: String(detail.message || detail.mensagem || ''),
+    buttonLabel: String(detail.buttonLabel || detail.confirmLabel || ''),
+    plataforma: String(detail.plataforma || ''),
+    subscriptionId: detail.subscriptionId ? String(detail.subscriptionId) : null
+  };
+};
+
 function useAuthSessionState() {
   const [authState, setAuthState] = useState(() => ({
-    user: auth.currentUser,
+    user: buildSafeAuthUser(auth.currentUser),
     loading: true
   }));
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setAuthState({
-        user: currentUser,
+        user: buildSafeAuthUser(currentUser),
         loading: false
       });
     });
@@ -2179,7 +2204,7 @@ const LegendaModal = ({ isOpen, onClose, isAdmin }) => {
 // --- MENU LATERAL (ATUALIZADO - ORDEM REAJUSTADA) ---
 const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, abrirAjuda, abrirLegenda, abrirSobre, abrirMapaOffline, mapaOfflineNeedsRefresh, contextoSistema, coberturaCampanha, carregandoCobertura }) => {
   const isNativePlatform = Capacitor.isNativePlatform();
-  const deferredPromptRef = useRef(isNativePlatform ? null : deferredPromptGlobal);
+  const [instalacaoDisponivel, setInstalacaoDisponivel] = useState(() => Boolean(!isNativePlatform && deferredPromptGlobal));
   const [photoUrlComErro, setPhotoUrlComErro] = useState(null);
   const temaSistema = getSistemaTheme(contextoSistema);
   const { notify } = useUiFeedback();
@@ -2195,8 +2220,8 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
 
     const handleBeforeInstallPrompt = (e) => {
       e.preventDefault();
-      deferredPromptRef.current = e;
       deferredPromptGlobal = e;
+      setInstalacaoDisponivel(true);
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => {
@@ -2205,13 +2230,13 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
   }, [isNativePlatform]);
 
   const instalarApp = async () => {
-    const deferredPrompt = deferredPromptRef.current;
+    const deferredPrompt = deferredPromptGlobal;
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === 'accepted') {
-        deferredPromptRef.current = null;
         deferredPromptGlobal = null;
+        setInstalacaoDisponivel(false);
       }
     } else {
       notify({
@@ -2373,7 +2398,7 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
                 <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 11.25 3.75 3.75 3.75-3.75" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5h15" />
               </svg>
-              Instalar Aplicativo
+              {instalacaoDisponivel ? 'Instalar Aplicativo' : 'Como instalar'}
             </button>
           )}
         </div>
@@ -2454,7 +2479,7 @@ function Dashboard() {
       if (!currentUser) {
         navigate('/');
       } else {
-        setUser(currentUser);
+        setUser(buildSafeAuthUser(currentUser));
       }
       setVerificandoLogin(false);
     });
@@ -2495,7 +2520,7 @@ function Dashboard() {
     if (typeof window === 'undefined') return undefined;
 
     const handleOneSignalReady = (event) => {
-      setVerificacaoOneSignal(event.detail || {});
+      setVerificacaoOneSignal(buildSafeOneSignalVerification(event.detail));
     };
 
     window.addEventListener(ONESIGNAL_VERIFICATION_EVENT, handleOneSignalReady);
