@@ -12,7 +12,7 @@ O territorio designavel para o publicador passa a ser um grupo de enderecos prox
 
 Atualizado em 2026-07-21.
 
-Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, site `territ-es-sbs`, ultima versao publicada confirmada neste plano: `2.6.336`):
+Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, site `territ-es-sbs`, ultima versao publicada confirmada neste plano: `3.0.340`):
 
 - cadastro manual de enderecos no mapa por clique/toque em area vazia;
 - codigo automatico transacional `E-000X`;
@@ -32,21 +32,19 @@ Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, 
 - publicador marcar enderecos visitados;
 - finalizar grupo quando todos os enderecos ativos estiverem visitados;
 - regras do Firestore para `enderecos`, `grupos_enderecos` e `contadores/codigos`;
-- smoke local em Auth/Firestore Emulator validando fluxo admin/publicador.
-
-Ja implementado localmente, mas ainda nao publicado/verificado em producao depois da versao `2.6.336` (`package.json` atual em `3.0.340`):
-
+- smoke local em Auth/Firestore Emulator validando fluxo admin/publicador;
 - divisao de chunks Firebase no `vite.config.js`, removendo o aviso de chunk maior que 500 kB no build local;
 - nomenclatura visual normalizada para "territorio" e codigos curtos de exibicao (`T-001` salvo, `T-1` exibido; `E-0001` salvo, `E-1` exibido);
 - "Meus Territorios" usa `bounds` quando disponivel e cai para `centro` do grupo quando nao houver bounds;
 - mapa reconhece `grupoCodigo` como vinculo alem de `grupoId`, evitando que endereco ja agrupado volte a aparecer como selecionavel;
 - mapa monta grupos sinteticos a partir de enderecos vinculados quando o documento de `grupos_enderecos` nao estiver presente na leitura local, e recalcula contadores/centro/bounds em tempo de execucao para exibir dados mais completos;
 - grupos finalizados aparecem para admin com status visual proprio, e a execucao de enderecos fica bloqueada quando o grupo nao esta ativo;
-- `npm.cmd run lint`, `npm.cmd run build` e smoke Auth/Firestore Emulator (`firebase emulators:exec ... scripts/smoke-enderecos-grupos-emulator.mjs`) passaram em 2026-07-21.
+- botao de informacoes gerais no header com totais de territorios ativos, enderecos ativos e pessoas cadastradas, usando agregacoes `count`/`sum` do Firestore e cache curto em `sessionStorage`;
+- indice de agregacao versionado em `firestore.indexes.json` e publicado com `firebase deploy --project idiomas --only firestore:indexes`;
+- `npm.cmd run lint`, `npm.cmd run build`, `firebase deploy --project idiomas --only firestore:indexes` e `npm.cmd run web:deploy` passaram em 2026-07-21.
 
 Ainda pendente para fechar o plano completo:
 
-- publicar o bundle web atual se as alteracoes locais forem aprovadas;
 - teste manual em producao com uma conta admin e uma conta publicador;
 - mensagem/WhatsApp/notificacao ao designar grupo;
 - listagem administrativa dedicada para enderecos e grupos;
@@ -339,7 +337,8 @@ Arquivos principais:
 - `src/App.jsx`
   - adaptar "Meus territorios" para incluir grupos de enderecos;
   - progresso deve poder ser por quadras ou por enderecos;
-  - navegar por bounds ou por centro do grupo quando bounds nao estiverem disponiveis.
+  - navegar por bounds ou por centro do grupo quando bounds nao estiverem disponiveis;
+  - exibir informacoes gerais no header por agregacoes do Firestore, sem listeners abertos nem leitura completa das colecoes.
 
 - `src/territorioContext.js`
   - sem alteracao principal para grupos no MVP; o progresso de grupos ficou em `src/enderecoModel.js`.
@@ -361,6 +360,9 @@ Arquivos principais:
 
 - `firestore.rules`
   - colecoes, validacoes e permissao de progresso/finalizacao por responsavel implementadas.
+
+- `firestore.indexes.json`
+  - indice de agregacao para resumo geral de enderecos ativos e soma de `quantidadeEstrangeiros`.
 
 - `scripts/smoke-enderecos-grupos-emulator.mjs`
   - valida o fluxo admin/publicador com Auth e Firestore Emulator sem tocar no projeto real.
@@ -405,6 +407,7 @@ Arquivos principais:
 
 - [ ] Criar outbox de progresso de grupos.
 - [ ] Validar conflito por `designacaoId`.
+- [x] Resumo geral agregado no header para territorios, enderecos e pessoas.
 - [ ] Relatorios administrativos de grupos/endereco.
 - [ ] Importador JSON idempotente.
 - [ ] Ajustar Ajuda/manual.

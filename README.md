@@ -123,6 +123,7 @@ Status atual:
 - grupos de enderecos cadastraveis no mapa, com codigo automatico `T-00X`;
 - grupos podem ser designados para publicadores e aparecem em "Meus Territorios";
 - publicador marca enderecos visitados e finaliza o grupo quando todos foram visitados;
+- botão de informações gerais no header com totais de territórios, endereços e pessoas por agregações do Firestore;
 - fluxo de enderecos/grupos esta online-first; o offline robusto segue disponivel para territorios/quadras.
 
 ### Coleções principais
@@ -183,6 +184,7 @@ Notas novas ficam na subcoleção `territorios/{id}/notas`, com campos como:
 ## Regras do Firestore
 
 As rules do projeto estão versionadas em [firestore.rules](./firestore.rules) e referenciadas em [firebase.json](./firebase.json).
+Os índices do Firestore estão versionados em [firestore.indexes.json](./firestore.indexes.json) e também referenciados em [firebase.json](./firebase.json).
 
 As regras atuais cobrem:
 
@@ -309,6 +311,12 @@ Publicar apenas as rules do Firestore:
 
 ```bash
 npm run deploy:rules
+```
+
+Publicar apenas os índices do Firestore:
+
+```bash
+firebase deploy --project idiomas --only firestore:indexes
 ```
 
 Antes de qualquer deploy Firebase, os scripts rodam uma trava com `firebase projects:list --json` e bloqueiam se a conta ativa nao tiver acesso ao projeto esperado em `.firebaserc`.
