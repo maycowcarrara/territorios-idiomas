@@ -10,9 +10,9 @@ O territorio designavel para o publicador passa a ser um grupo de enderecos prox
 
 ## Status atual da implementacao
 
-Atualizado em 2026-07-20.
+Atualizado em 2026-07-21.
 
-Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, site `territ-es-sbs`, versao publicada `2.6.336`):
+Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, site `territ-es-sbs`, ultima versao publicada confirmada neste plano: `2.6.336`):
 
 - cadastro manual de enderecos no mapa por clique/toque em area vazia;
 - codigo automatico transacional `E-000X`;
@@ -34,12 +34,19 @@ Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, 
 - regras do Firestore para `enderecos`, `grupos_enderecos` e `contadores/codigos`;
 - smoke local em Auth/Firestore Emulator validando fluxo admin/publicador.
 
-Ja implementado localmente, mas ainda nao publicado depois da versao `2.6.336`:
+Ja implementado localmente, mas ainda nao publicado/verificado em producao depois da versao `2.6.336` (`package.json` atual em `3.0.340`):
 
-- divisao de chunks Firebase no `vite.config.js`, removendo o aviso de chunk maior que 500 kB no build local.
+- divisao de chunks Firebase no `vite.config.js`, removendo o aviso de chunk maior que 500 kB no build local;
+- nomenclatura visual normalizada para "territorio" e codigos curtos de exibicao (`T-001` salvo, `T-1` exibido; `E-0001` salvo, `E-1` exibido);
+- "Meus Territorios" usa `bounds` quando disponivel e cai para `centro` do grupo quando nao houver bounds;
+- mapa reconhece `grupoCodigo` como vinculo alem de `grupoId`, evitando que endereco ja agrupado volte a aparecer como selecionavel;
+- mapa monta grupos sinteticos a partir de enderecos vinculados quando o documento de `grupos_enderecos` nao estiver presente na leitura local, e recalcula contadores/centro/bounds em tempo de execucao para exibir dados mais completos;
+- grupos finalizados aparecem para admin com status visual proprio, e a execucao de enderecos fica bloqueada quando o grupo nao esta ativo;
+- `npm.cmd run lint`, `npm.cmd run build` e smoke Auth/Firestore Emulator (`firebase emulators:exec ... scripts/smoke-enderecos-grupos-emulator.mjs`) passaram em 2026-07-21.
 
 Ainda pendente para fechar o plano completo:
 
+- publicar o bundle web atual se as alteracoes locais forem aprovadas;
 - teste manual em producao com uma conta admin e uma conta publicador;
 - mensagem/WhatsApp/notificacao ao designar grupo;
 - listagem administrativa dedicada para enderecos e grupos;
@@ -47,6 +54,7 @@ Ainda pendente para fechar o plano completo:
 - importador de enderecos idempotente para semear enderecos/grupos futuramente;
 - offline robusto para execucao de grupos, equivalente ao fluxo de territorios/quadras;
 - ajuda/manual do usuario para o novo fluxo.
+- evolucao futura de areas/bairros por poligonos, agrupando varios territorios de idioma para acompanhar quando a area inteira foi pregada.
 
 ## Decisao de modelo
 
@@ -166,6 +174,8 @@ Criar codigo por transaction:
 - endereco: `E-0001`, `E-0002`, ...
 - grupo/territorio de idioma: `T-001`, `T-002`, ...
 
+Observacao de UI: o codigo persistido e validado pelas rules continua com largura minima (`T-001`, `E-0001`), mas a exibicao ao usuario remove zeros a esquerda (`T-1`, `E-1`) para combinar com o padrao visual curto do app.
+
 ## Importacao futura de enderecos
 
 Para Idiomas, `public/mapa.json` nao e mais base visual nem fonte inicial de dados. Quando `VITE_MAPA_URL` estiver vazio, o app abre com uma `FeatureCollection` vazia e mostra apenas os enderecos/grupos cadastrados no Firestore.
@@ -225,7 +235,7 @@ Fluxos do admin/dirigente:
 - arquivar/reactivar endereco;
 - arquivar/reactivar grupo.
 
-Status: implementados selecionar enderecos sem grupo, criar grupo, remover endereco de grupo e arquivar/reativar endereco/grupo. Adicionar a grupo existente e mover entre grupos continuam pendentes.
+Status: implementados selecionar enderecos sem grupo, criar grupo, remover endereco de grupo e arquivar/reativar endereco/grupo. O mapa ja trata `grupoId` e `grupoCodigo` como sinais de vinculo, inclusive para evitar selecao duplicada. Adicionar a grupo existente e mover entre grupos continuam pendentes.
 
 No mapa:
 
@@ -242,7 +252,7 @@ No mapa:
 4. Publicador passa a ver o grupo em "Meus".
 5. Link compartilhado deve abrir o mapa enquadrando o grupo ou centralizando no primeiro endereco.
 
-Status: implementado o fluxo de designacao e visualizacao em "Meus Territorios". A mensagem pronta/WhatsApp ao designar grupo ainda esta pendente.
+Status: implementado o fluxo de designacao e visualizacao em "Meus Territorios". A navegacao de "Meus" usa bounds quando existem e centro do grupo como fallback. A mensagem pronta/WhatsApp ao designar grupo ainda esta pendente.
 
 ### Execucao pelo publicador
 
@@ -252,7 +262,7 @@ Status: implementado o fluxo de designacao e visualizacao em "Meus Territorios".
 4. Pode adicionar observacao de visita se necessario.
 5. Ao completar todos os enderecos ativos, app permite solicitar/confirmar finalizacao seguindo o padrao atual.
 
-Status: implementado online-first. O publicador ve o grupo no mapa, marca enderecos e finaliza quando o progresso esta completo.
+Status: implementado online-first. O publicador ve o grupo no mapa, marca enderecos e finaliza quando o progresso esta completo. Localmente, grupos finalizados aparecem para admin com status proprio e nao aceitam marcacao de novos enderecos ate voltarem para status ativo.
 
 ## Offline
 
@@ -291,7 +301,8 @@ Rules implementadas para:
 - leitura de `enderecos` e `grupos_enderecos` por usuarios aprovados;
 - create/update/delete logico de enderecos por admin;
 - create/update/archive de grupos por admin;
-- atualizacao operacional do grupo pelo responsavel atual;
+- atualizacao operacional do grupo pelo responsavel atual, separando progresso (`enderecos_visitados`) de finalizacao;
+- validacao de `enderecos_visitados` para impedir endereco fora do grupo, duplicidade e finalizacao antes de todos os enderecos estarem visitados;
 - validacao de campos e limites de texto.
 
 Ainda pendente nas rules/modelo offline:
@@ -310,7 +321,7 @@ Campos administrativos sensiveis:
 - `grupoId`
 - `enderecoIds`
 
-Usuario comum/responsavel nao deve conseguir trocar endereco de grupo, arquivar endereco, alterar codigo ou editar designacao.
+Usuario comum/responsavel nao deve conseguir trocar endereco de grupo, arquivar endereco, alterar codigo, editar designacao ou forjar finalizacao fora do fluxo completo.
 
 ## Impactos no codigo atual
 
@@ -322,11 +333,13 @@ Arquivos principais:
   - popup/formulario de cadastro;
   - popup de endereco;
   - popup de grupo;
-  - destaque visual por grupo/designacao.
+  - destaque visual por grupo/designacao;
+  - reconciliar `grupoId`/`grupoCodigo` e criar representacao sintetica local quando houver endereco vinculado sem grupo carregado.
 
 - `src/App.jsx`
   - adaptar "Meus territorios" para incluir grupos de enderecos;
-  - progresso deve poder ser por quadras ou por enderecos.
+  - progresso deve poder ser por quadras ou por enderecos;
+  - navegar por bounds ou por centro do grupo quando bounds nao estiverem disponiveis.
 
 - `src/territorioContext.js`
   - sem alteracao principal para grupos no MVP; o progresso de grupos ficou em `src/enderecoModel.js`.
@@ -374,6 +387,7 @@ Arquivos principais:
 - [ ] Parcial: vincular/remover/mover endereco entre grupos. Remover foi implementado; adicionar a grupo existente e mover continuam pendentes.
 - [x] Calcular `totalEnderecos`, `totalEstrangeiros`, `centro`, `bounds`.
 - [x] Mostrar grupo no mapa.
+- [x] Exibir grupo por `grupoCodigo`/grupo sintetico quando o documento do grupo nao estiver carregado.
 - [x] Arquivar/reativar grupo.
 - [x] Atualizar rules.
 
@@ -395,12 +409,35 @@ Arquivos principais:
 - [ ] Importador JSON idempotente.
 - [ ] Ajustar Ajuda/manual.
 
+### Evolucao futura - areas/bairros por poligonos
+
+Depois do MVP de enderecos e grupos `T`, uma fase futura pode desenhar poligonos de bairros ou areas maiores no mapa. Esses poligonos nao substituem `grupos_enderecos`; eles funcionam como uma camada de gestao acima dos grupos, reunindo varios territorios de idioma dentro de uma mesma area.
+
+Objetivos dessa camada:
+
+- agrupar visualmente varios territorios `T` por bairro/area;
+- calcular progresso consolidado da area a partir dos territorios ou enderecos vinculados;
+- indicar se o bairro esta disponivel, em andamento, aguardando finalizacao, finalizado ou parado ha muito tempo;
+- permitir que admin/dirigente veja rapidamente quais bairros precisam de prioridade;
+- reaproveitar a legenda de "Areas e bairros" do mapa, onde tons mais quentes indicam area disponivel com maior tempo parada.
+
+Modelo a definir nessa fase:
+
+- colecao propria para areas/bairros, por exemplo `areas_bairros`;
+- geometria do poligono, preferencialmente GeoJSON;
+- vinculo automatico ou manual entre area e territorios `T`;
+- regras para considerar uma area inteira pregada: todos os grupos ativos finalizados, todos os enderecos visitados no ciclo, ou outro criterio definido pela congregacao;
+- historico por ciclo da area, separado do historico operacional de cada `grupo_enderecos`.
+
+Fora dessa fase futura, os marcadores atuais continuam sendo a verdade operacional em Idiomas: `E` para endereco e `T` para territorio de enderecos.
+
 ## Fora do MVP
 
 - Nome estruturado do morador.
 - Geocoding automatico de endereco textual.
 - Criacao automatica de grupos por cluster.
 - Poligono editavel do grupo.
+- Poligonos de bairros/areas para consolidar varios territorios `T`.
 - Historico detalhado por pessoa/familia.
 - Regras complexas de privacidade por idioma.
 
@@ -415,4 +452,4 @@ Arquivos principais:
 - [x] Progresso mostra `visitados / total de enderecos`.
 - [ ] Parcial: finalizacao/devolucao preserva historico e usa `designacaoId`. Historico implementado; guardrail por `designacaoId` ficara na fase offline.
 - [x] Rules impedem usuario comum de alterar designacao, codigo, agrupamento ou arquivamento.
-- [x] Build, lint e smoke local passam.
+- [x] Build, lint e smoke local passam com as alteracoes locais de 2026-07-21.

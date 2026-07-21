@@ -50,6 +50,7 @@ import { useTerritorioOutbox, useTerritorioSync } from './useTerritorioOffline';
 import { UiFeedbackProvider, useUiFeedback } from './uiFeedback';
 import { ModalFrame } from './uiPrimitives';
 import { buttonClass } from './uiClasses';
+import { MAP_COLORS, TERRITORIO_RECENCY_STEPS } from './mapLegend';
 import {
   buildOfflineAreaDownloadPlan,
   clearOfflineMapCaches,
@@ -157,6 +158,31 @@ const getGrupoEnderecoBoundsStr = (grupo) => {
   return `${minLat},${minLng},${maxLat},${maxLng}`;
 };
 
+const getGrupoEnderecoCentro = (grupo) => {
+  const lat = Number(grupo?.centro?.lat);
+  const lng = Number(grupo?.centro?.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { lat, lng };
+  }
+
+  const bounds = grupo?.bounds;
+  if (!bounds) return null;
+
+  const minLat = Number(bounds.minLat);
+  const minLng = Number(bounds.minLng);
+  const maxLat = Number(bounds.maxLat);
+  const maxLng = Number(bounds.maxLng);
+  if (![minLat, minLng, maxLat, maxLng].every(Number.isFinite)) {
+    return null;
+  }
+
+  return {
+    lat: (minLat + maxLat) / 2,
+    lng: (minLng + maxLng) / 2
+  };
+};
+
+
 const montarListaMeusTerritorios = async ({ docs }) => {
   if (!Array.isArray(docs) || docs.length === 0) {
     return [];
@@ -242,6 +268,7 @@ const montarListaMeusGruposEndereco = ({ docs }) => {
   const listaCompleta = docs.map((grupoDoc) => {
     const progresso = getGrupoEnderecoProgresso(grupoDoc);
     const boundsStr = getGrupoEnderecoBoundsStr(grupoDoc);
+    const centro = getGrupoEnderecoCentro(grupoDoc);
     const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupoDoc.codigo || grupoDoc.id);
     const nomeExibicao = formatGrupoEnderecoNomeExibicao(grupoDoc.nome, grupoDoc.codigo || grupoDoc.id);
 
@@ -271,6 +298,8 @@ const montarListaMeusGruposEndereco = ({ docs }) => {
       numeroId: codigoExibicao,
       nome: nomeExibicao,
       boundsStr,
+      lat: centro?.lat,
+      lng: centro?.lng,
       dataFormatada,
       dataDesignacaoOrdenacao,
       totalQuadras: progresso.totalEnderecos,
@@ -1198,6 +1227,9 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
     if (item.boundsStr) {
       navigate(`/app?bounds=${item.boundsStr}`);
       onClose();
+    } else if (Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng))) {
+      navigate(`/app?lat=${item.lat}&lng=${item.lng}&z=17`);
+      onClose();
     } else {
       notify("Localização não encontrada.");
       onClose();
@@ -1796,30 +1828,111 @@ const BarraSalvandoHeader = ({ visible, count }) => (
 // --- MODAL DE LEGENDA ---
 const LegendaModal = ({ isOpen, onClose, isAdmin }) => {
   if (!isOpen) return null;
+
+  const Swatch = ({ colors, round = false, dashed = false }) => {
+    const fill = typeof colors === 'string' ? colors : colors.fill;
+    const border = typeof colors === 'string' ? colors : colors.border;
+
+    return (
+      <span
+        className={`h-8 w-8 shrink-0 ${round ? 'rounded-full' : 'rounded-lg'} border-2 shadow-sm`}
+        style={{
+          backgroundColor: fill,
+          borderColor: border || fill,
+          borderStyle: dashed ? 'dashed' : 'solid'
+        }}
+      />
+    );
+  };
+
+  const LegendItem = ({ colors, title, description, round = false, dashed = false }) => (
+    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+      <Swatch colors={colors} round={round} dashed={dashed} />
+      <div className="min-w-0">
+        <p className="text-sm font-black leading-tight text-slate-800">{title}</p>
+        <p className="mt-0.5 text-xs font-medium leading-snug text-slate-500">{description}</p>
+      </div>
+    </div>
+  );
+
   return (
     <ModalFrame
       isOpen={isOpen}
       onClose={onClose}
       title="Legenda do Mapa"
-      subtitle="Cores e estados usados nos territórios."
-      size="sm"
-      accentClass="bg-blue-600"
+      subtitle="Marcadores atuais e referência futura de áreas."
+      size="md"
+      accentClass="bg-slate-900"
       footer={(
         <button onClick={onClose} className={buttonClass('primary', 'w-full')}>
           Entendi
         </button>
       )}
     >
-        <div className="space-y-4">
-          <div className="flex items-center gap-3"><span className="w-8 h-8 rounded bg-orange-100 border border-orange-300 opacity-90 flex-shrink-0"></span><div><p className="text-gray-800 font-bold text-sm">Disponível Recente</p><p className="text-gray-500 text-xs">Trabalhado há menos tempo</p></div></div>
-          <div className="flex items-center gap-3"><span className="w-8 h-8 rounded bg-orange-500 border border-orange-700 opacity-70 flex-shrink-0"></span><div><p className="text-gray-800 font-bold text-sm">Disponível Antigo</p><p className="text-gray-500 text-xs">Quanto mais escuro, mais tempo parado</p></div></div>
-          <div className="flex items-center gap-3"><span className="w-8 h-8 rounded bg-blue-500 border border-blue-800 opacity-60 flex-shrink-0"></span><div><p className="text-gray-800 font-bold text-sm">Seu Território</p><p className="text-gray-500 text-xs">Em andamento</p></div></div>
-          {isAdmin && <div className="flex items-center gap-3"><span className="w-8 h-8 rounded bg-purple-500 border border-purple-800 opacity-60 flex-shrink-0"></span><div><p className="text-gray-800 font-bold text-sm">Seu (Admin)</p><p className="text-gray-500 text-xs">Designado para você</p></div></div>}
-          <div className="flex items-center gap-3"><span className="w-8 h-8 rounded bg-yellow-400 border border-yellow-700 opacity-70 flex-shrink-0"></span><div><p className="text-gray-800 font-bold text-sm">Aguardando Finalização</p><p className="text-gray-500 text-xs">100% marcado, mas ainda com o dirigente</p></div></div>
-          <div className="flex items-center gap-3"><span className="w-8 h-8 rounded bg-green-500 border border-green-800 opacity-60 flex-shrink-0"></span><div><p className="text-gray-800 font-bold text-sm">Finalizado</p><p className="text-gray-500 text-xs">Território encerrado oficialmente</p></div></div>
-          <div className="flex items-center gap-3"><span className="w-8 h-8 rounded bg-gray-500 border border-gray-700 opacity-30 flex-shrink-0"></span><div><p className="text-gray-800 font-bold text-sm">Ocupado</p><p className="text-gray-500 text-xs">Outro dirigente cuidando</p></div></div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-            No zoom mais longe, abaixo do código do território aparece há quanto tempo ele foi trabalhado pela última vez.
+        <div className="space-y-5">
+          <section className="space-y-2">
+            <h4 className="text-xs font-black uppercase tracking-[0.14em] text-indigo-700">Territórios de endereços</h4>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <LegendItem colors={MAP_COLORS.grupoEndereco.ativo} title="T ativo" description="Território de endereços disponível no mapa." round dashed />
+              <LegendItem colors={MAP_COLORS.grupoEndereco.designado} title="T designado" description="Território de endereços em andamento." round dashed />
+              <LegendItem colors={MAP_COLORS.grupoEndereco.finalizado} title="T finalizado" description="Território de endereços concluído." round dashed />
+              <LegendItem colors={MAP_COLORS.grupoEndereco.arquivado} title="T arquivado" description="Território guardado fora da visualização padrão." round dashed />
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h4 className="text-xs font-black uppercase tracking-[0.14em] text-teal-700">Marcadores</h4>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <LegendItem colors={MAP_COLORS.endereco.ativo} title="E ativo" description="Endereço individual disponível." round />
+              <LegendItem colors={MAP_COLORS.endereco.agrupado} title="E agrupado" description="Endereço já ligado a um território." round />
+              <LegendItem colors={MAP_COLORS.endereco.selecionado} title="E selecionado" description="Endereço escolhido para formar um território." round />
+              <LegendItem colors={MAP_COLORS.endereco.visitado} title="E pregado" description="Endereço marcado como feito durante o foco." round />
+              <LegendItem colors={MAP_COLORS.apoio.referencia} title="Referência" description="Ponto de apoio ou referência no mapa." round />
+              <LegendItem colors={MAP_COLORS.apoio.condominio} title="Condomínio" description="Ponto de condomínio exibido no mapa." round />
+            </div>
+          </section>
+
+          <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div>
+              <h4 className="text-xs font-black uppercase tracking-[0.14em] text-slate-600">Áreas e bairros</h4>
+              <p className="mt-1 text-xs font-medium leading-snug text-slate-500">
+                Referência para quando os polígonos de bairros agruparem territórios e mostrarem o progresso da área.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <h5 className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Andamento</h5>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <LegendItem colors={MAP_COLORS.territorio.meu} title="Meu território" description="Designado para você e ainda em andamento." />
+                {isAdmin && (
+                  <LegendItem colors={MAP_COLORS.territorio.meuAdmin} title="Meu território como admin" description="Você está vendo sua própria designação com perfil admin." />
+                )}
+                <LegendItem colors={MAP_COLORS.territorio.aguardandoFinalizacao} title="Aguardando finalização" description="Tudo foi marcado, mas o encerramento ainda não foi confirmado." />
+                <LegendItem colors={MAP_COLORS.territorio.finalizado} title="Finalizado" description="Território encerrado oficialmente." />
+                <LegendItem colors={MAP_COLORS.territorio.ocupado} title="Ocupado" description="Outro publicador está cuidando deste território." />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h5 className="text-[11px] font-black uppercase tracking-[0.14em] text-orange-700">Disponíveis</h5>
+              <p className="text-xs font-medium leading-snug text-slate-500">
+                Laranja indica área livre. Quanto mais escuro, maior a prioridade por tempo parado.
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {TERRITORIO_RECENCY_STEPS.map((step) => (
+                  <LegendItem
+                    key={step.id}
+                    colors={step.colors}
+                    title={step.label}
+                    description={step.description}
+                  />
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-medium leading-snug text-slate-600">
+            No zoom mais distante, o mapa mostra o código e o tempo desde a última conclusão. Ao aproximar, aparecem nome, status e detalhes permitidos para o seu perfil.
           </div>
         </div>
     </ModalFrame>

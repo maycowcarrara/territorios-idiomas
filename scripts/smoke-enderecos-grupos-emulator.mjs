@@ -202,6 +202,44 @@ async function main() {
         ));
         assert(meusGrupos.size === 1, 'Publicador deveria encontrar o grupo designado.');
 
+        await expectPermissionDenied('rule impede publicador designado marcar endereço fora do grupo', () => (
+            updateDoc(getGrupoEnderecoRef(publicadorClient.db, grupo.id), {
+                enderecos_visitados: [enderecoA.id, 'e_9999'],
+                atualizadoEm: new Date(),
+                atualizadoPor: publicadorInfo.email
+            })
+        ));
+
+        await expectPermissionDenied('rule impede publicador designado duplicar endereço visitado', () => (
+            updateDoc(getGrupoEnderecoRef(publicadorClient.db, grupo.id), {
+                enderecos_visitados: [enderecoA.id, enderecoA.id],
+                atualizadoEm: new Date(),
+                atualizadoPor: publicadorInfo.email
+            })
+        ));
+
+        await expectPermissionDenied('rule impede publicador designado finalizar antes de completar', () => (
+            updateDoc(getGrupoEnderecoRef(publicadorClient.db, grupo.id), {
+                status: 'finalizado',
+                designadoPara: null,
+                designadoNome: null,
+                dataDesignacao: null,
+                designacaoId: null,
+                cicloAtual: null,
+                enderecos_visitados: [],
+                historico: [{
+                    responsavelNome: publicadorInfo.nome,
+                    finalizadoEm: new Date(),
+                    totalEnderecos: 2,
+                    totalVisitados: 0
+                }],
+                ultimaConclusao: new Date(),
+                ultimaAlteracao: new Date(),
+                atualizadoEm: new Date(),
+                atualizadoPor: publicadorInfo.email
+            })
+        ));
+
         await toggleEnderecoVisitadoGrupo(publicadorClient.db, {
             grupoId: grupo.id,
             enderecoId: enderecoA.id,

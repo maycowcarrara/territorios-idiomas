@@ -45,6 +45,14 @@ export function formatEnderecoCodigo(sequence) {
     return `E-${String(safeSequence).padStart(ENDERECO_CODE_WIDTH, '0')}`;
 }
 
+export function formatEnderecoCodigoExibicao(value) {
+    const codigo = String(value || '').trim();
+    const match = codigo.match(/^(?:E-|e_)?0*(\d+)$/i);
+    if (!match) return codigo;
+
+    return `E-${Number.parseInt(match[1], 10)}`;
+}
+
 export function getEnderecoDocIdFromSequence(sequence) {
     const safeSequence = Math.max(1, Number.parseInt(sequence, 10) || 1);
     return `e_${String(safeSequence).padStart(ENDERECO_CODE_WIDTH, '0')}`;
@@ -151,7 +159,7 @@ function buildHistoricoGrupoEndereco({ grupo, responsavelNome, agora }) {
 
 export function getGrupoEnderecoProgresso(grupo) {
     const totalSeguro = Math.max(Number(grupo?.totalEnderecos) || 0, 0);
-    const visitadosReais = ensureArray(grupo?.enderecos_visitados).length;
+    const visitadosReais = new Set(ensureArray(grupo?.enderecos_visitados).filter(Boolean)).size;
     const visitadosExibicao = Math.min(visitadosReais, totalSeguro || visitadosReais);
     const percentualExibicao = totalSeguro > 0
         ? Math.round((visitadosExibicao / totalSeguro) * 100)
@@ -419,11 +427,11 @@ export async function createGrupoEnderecoManual(db, { enderecos, nome, user }) {
 
         enderecosAtuais.forEach((endereco) => {
             if (endereco.status !== ENDERECO_STATUS.ATIVO) {
-                throw new Error(`${endereco.codigo || 'Endereço'} não está ativo.`);
+                throw new Error(`${formatEnderecoCodigoExibicao(endereco.codigo) || 'Endereço'} não está ativo.`);
             }
 
-            if (endereco.grupoId) {
-                throw new Error(`${endereco.codigo || 'Endereço'} já pertence a um território.`);
+            if (endereco.grupoId || endereco.grupoCodigo) {
+                throw new Error(`${formatEnderecoCodigoExibicao(endereco.codigo) || 'Endereço'} já pertence a um território.`);
             }
         });
 
@@ -566,7 +574,7 @@ export async function toggleEnderecoVisitadoGrupo(db, { grupoId, enderecoId, use
         }
 
         const grupo = grupoSnapshot.data();
-        if (grupo.status !== GRUPO_ENDERECO_STATUS.ATIVO) {
+        if ((grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) !== GRUPO_ENDERECO_STATUS.ATIVO) {
             throw new Error('Este território não está ativo para execução.');
         }
 

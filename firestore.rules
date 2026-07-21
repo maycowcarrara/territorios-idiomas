@@ -260,6 +260,7 @@ service cloud.firestore {
              textoOpcionalValido(request.resource.data.designacaoId, 120) &&
              (request.resource.data.cicloAtual == null || request.resource.data.cicloAtual is map) &&
              request.resource.data.enderecos_visitados is list &&
+             request.resource.data.enderecos_visitados.size() <= request.resource.data.enderecoIds.size() &&
              request.resource.data.historico is list &&
              (request.resource.data.ultimaConclusao == null || request.resource.data.ultimaConclusao is timestamp) &&
              (request.resource.data.ultimaAlteracao == null || request.resource.data.ultimaAlteracao is timestamp) &&
@@ -288,16 +289,40 @@ service cloud.firestore {
              request.resource.data.arquivadoPor == null;
     }
 
-    function podeAtualizarGrupoEndereco() {
-      return isAdmin() &&
-             grupoEnderecoDocumentoValido() &&
+    function atualizacaoAdminGrupoEnderecoValida() {
+      return grupoEnderecoDocumentoValido() &&
              request.resource.data.codigo == resource.data.codigo &&
              request.resource.data.criadoEm == resource.data.criadoEm &&
              request.resource.data.criadoPor == resource.data.criadoPor &&
              request.resource.data.atualizadoPor == meuEmail();
     }
 
-    function camposExecucaoGrupoEndereco() {
+    function enderecosVisitadosGrupoEnderecoValidos() {
+      return request.resource.data.enderecos_visitados is list &&
+             request.resource.data.enderecos_visitados.size() <= resource.data.enderecoIds.size() &&
+             request.resource.data.enderecos_visitados.hasOnly(resource.data.enderecoIds) &&
+             (
+               request.resource.data.enderecos_visitados.size() == resource.data.enderecos_visitados.size() + 1 ||
+               request.resource.data.enderecos_visitados.size() == resource.data.enderecos_visitados.size() - 1
+             );
+    }
+
+    function metadadosExecucaoGrupoEnderecoValidos() {
+      return request.resource.data.ultimaAlteracao is timestamp &&
+             request.resource.data.atualizadoEm is timestamp &&
+             request.resource.data.atualizadoPor == meuEmail();
+    }
+
+    function camposProgressoGrupoEndereco() {
+      return [
+        'enderecos_visitados',
+        'ultimaAlteracao',
+        'atualizadoEm',
+        'atualizadoPor'
+      ];
+    }
+
+    function camposFinalizacaoGrupoEndereco() {
       return [
         'enderecos_visitados',
         'status',
@@ -314,19 +339,20 @@ service cloud.firestore {
       ];
     }
 
-    function mantemOuLimpaDesignacaoGrupoPropria() {
-      return (
-               request.resource.data.designadoPara == resource.data.designadoPara &&
-               request.resource.data.designacaoId == resource.data.designacaoId
-             ) ||
-             (
-               resource.data.designadoPara == meuEmail() &&
-               request.resource.data.designadoPara == null &&
-               request.resource.data.designadoNome == null &&
-               request.resource.data.dataDesignacao == null &&
-               request.resource.data.designacaoId == null &&
-               request.resource.data.cicloAtual == null
-             );
+    function mantemDesignacaoGrupoEndereco() {
+      return request.resource.data.designadoPara == resource.data.designadoPara &&
+             request.resource.data.designadoNome == resource.data.designadoNome &&
+             request.resource.data.dataDesignacao == resource.data.dataDesignacao &&
+             request.resource.data.designacaoId == resource.data.designacaoId &&
+             request.resource.data.cicloAtual == resource.data.cicloAtual;
+    }
+
+    function limpaDesignacaoGrupoEndereco() {
+      return request.resource.data.designadoPara == null &&
+             request.resource.data.designadoNome == null &&
+             request.resource.data.dataDesignacao == null &&
+             request.resource.data.designacaoId == null &&
+             request.resource.data.cicloAtual == null;
     }
 
     function mantemEstruturaGrupoEndereco() {
@@ -343,16 +369,44 @@ service cloud.firestore {
              request.resource.data.arquivadoPor == resource.data.arquivadoPor;
     }
 
+    function grupoEnderecoCompletoAntesDaFinalizacao() {
+      return resource.data.enderecoIds is list &&
+             resource.data.enderecoIds.size() > 0 &&
+             resource.data.enderecos_visitados is list &&
+             resource.data.enderecos_visitados.size() == resource.data.enderecoIds.size() &&
+             resource.data.enderecos_visitados.hasAll(resource.data.enderecoIds);
+    }
+
+    function podeAtualizarProgressoGrupoEnderecoDesignado() {
+      return camposAlteradosApenas(camposProgressoGrupoEndereco()) &&
+             enderecosVisitadosGrupoEnderecoValidos() &&
+             metadadosExecucaoGrupoEnderecoValidos() &&
+             request.resource.data.status == 'ativo' &&
+             mantemDesignacaoGrupoEndereco() &&
+             request.resource.data.historico == resource.data.historico &&
+             request.resource.data.ultimaConclusao == resource.data.ultimaConclusao;
+    }
+
+    function podeFinalizarGrupoEnderecoDesignado() {
+      return camposAlteradosApenas(camposFinalizacaoGrupoEndereco()) &&
+             grupoEnderecoCompletoAntesDaFinalizacao() &&
+             metadadosExecucaoGrupoEnderecoValidos() &&
+             request.resource.data.status == 'finalizado' &&
+             request.resource.data.enderecos_visitados.size() == 0 &&
+             request.resource.data.historico.size() == resource.data.historico.size() + 1 &&
+             request.resource.data.ultimaConclusao is timestamp &&
+             limpaDesignacaoGrupoEndereco();
+    }
+
     function podeAtualizarGrupoEnderecoDesignado() {
       return isAprovado() &&
              resource.data.designadoPara == meuEmail() &&
              resource.data.status == 'ativo' &&
-             grupoEnderecoDocumentoValido() &&
-             camposAlteradosApenas(camposExecucaoGrupoEndereco()) &&
-             mantemOuLimpaDesignacaoGrupoPropria() &&
              mantemEstruturaGrupoEndereco() &&
-             request.resource.data.atualizadoPor == meuEmail() &&
-             request.resource.data.status in ['ativo', 'finalizado'];
+             (
+               podeAtualizarProgressoGrupoEnderecoDesignado() ||
+               podeFinalizarGrupoEnderecoDesignado()
+             );
     }
 
     function docIdTerritorioContexto(contextoId, territorioBaseId) {
@@ -562,7 +616,8 @@ service cloud.firestore {
     match /grupos_enderecos/{grupoId} {
       allow read: if isAprovado();
       allow create: if podeCriarGrupoEndereco();
-      allow update: if podeAtualizarGrupoEndereco() || podeAtualizarGrupoEnderecoDesignado();
+      allow update: if isAdmin() && atualizacaoAdminGrupoEnderecoValida();
+      allow update: if !isAdmin() && podeAtualizarGrupoEnderecoDesignado();
       allow delete: if false;
     }
 

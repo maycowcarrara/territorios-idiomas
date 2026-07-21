@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MapContainer, TileLayer, Polygon, Popup, CircleMarker, Tooltip, useMapEvents, useMap, Marker, Polyline } from 'react-leaflet';
 import { onSnapshot, setDoc, deleteDoc, doc, arrayUnion, collection, getDocs } from 'firebase/firestore';
@@ -31,18 +31,21 @@ import { getGeoJsonBounds, getMapWarmProfile, scheduleTileWarm, warmMapTilesForB
 import { buildPublicAppRouteUrl } from './publicAppUrl';
 import { buildAppLocationUrl, buildGoogleMapsDirectionsUrl, buildGoogleMapsUrl, buildLocationShareText, buildWhatsAppShareUrl } from './shareLinks';
 import {
+    calculateGrupoEnderecoStats,
     createGrupoEnderecoManual,
     createEnderecoManual,
     devolverGrupoEndereco,
     designarGrupoEndereco,
     ENDERECO_STATUS,
     finalizarGrupoEnderecoDesignado,
+    formatEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoExibicao,
     formatGrupoEnderecoNomeExibicao,
     getGrupoEnderecoProgresso,
     GRUPO_ENDERECO_STATUS,
     getEnderecosCollectionRef,
     getGruposEnderecoCollectionRef,
+    getGrupoEnderecoDocIdFromSequence,
     removerEnderecoDoGrupo,
     setEnderecoArquivado,
     setGrupoEnderecoArquivado,
@@ -53,8 +56,124 @@ import { extractTerritorioCodigo, normalizeTerritorioNome } from './territorioNo
 import L from 'leaflet';
 import { useUiFeedback } from './uiFeedback';
 import { enviarEventoNotificacao } from './notificationRelay';
+import { MAP_COLORS, getTerritorioDisponivelColors } from './mapLegend';
 
 const normalizeEmailValue = (value) => String(value || '').trim().toLowerCase();
+
+const stopMapDomEvent = (event) => {
+    event?.stopPropagation?.();
+    if (event?.nativeEvent) {
+        L.DomEvent.stopPropagation(event.nativeEvent);
+    }
+};
+
+const useLeafletDomEventIsolation = () => {
+    return useCallback((element) => {
+        if (!element) return;
+        L.DomEvent.disableClickPropagation(element);
+        L.DomEvent.disableScrollPropagation(element);
+    }, []);
+};
+
+const getGrupoEnderecoCanonicalKey = (value) => {
+    const codigo = formatGrupoEnderecoCodigoExibicao(value);
+    return String(codigo || value || '').trim().toLowerCase();
+};
+
+const getGrupoEnderecoDocIdCandidate = (value) => {
+    const codigo = formatGrupoEnderecoCodigoExibicao(value);
+    const match = String(codigo || '').match(/^T-(\d+)$/i);
+    return match ? getGrupoEnderecoDocIdFromSequence(match[1]) : String(value || '').trim();
+};
+
+const isSameGrupoEndereco = (grupo, grupoId) => {
+    if (!grupo || !grupoId) return false;
+    const alvo = getGrupoEnderecoCanonicalKey(grupoId);
+    return [grupo.id, grupo.codigo]
+        .filter(Boolean)
+        .some((value) => getGrupoEnderecoCanonicalKey(value) === alvo);
+};
+
+const addEnderecoUnico = (destino, vistos, endereco) => {
+    if (!endereco?.id || vistos.has(endereco.id)) return;
+    vistos.add(endereco.id);
+    destino.push(endereco);
+};
+
+const resolveEnderecosGrupoFromMaps = (grupo, exactMap, canonicalMap, enderecosById) => {
+    if (!grupo) return [];
+
+    const resultado = [];
+    const vistos = new Set();
+
+    (grupo.enderecoIds || []).forEach((enderecoId) => {
+        const endereco = enderecosById?.get(enderecoId);
+        if (endereco) addEnderecoUnico(resultado, vistos, endereco);
+    });
+
+    const aliases = [
+        grupo.id,
+        grupo.codigo,
+        formatGrupoEnderecoCodigoExibicao(grupo.id),
+        formatGrupoEnderecoCodigoExibicao(grupo.codigo)
+    ].filter(Boolean);
+
+    aliases.forEach((alias) => {
+        (exactMap.get(alias) || []).forEach((endereco) => addEnderecoUnico(resultado, vistos, endereco));
+        (canonicalMap.get(getGrupoEnderecoCanonicalKey(alias)) || []).forEach((endereco) => addEnderecoUnico(resultado, vistos, endereco));
+    });
+
+    return resultado;
+};
+
+const buildSyntheticGrupoEndereco = (grupoId, enderecosGrupo) => {
+    const primeiroEndereco = enderecosGrupo[0] || {};
+    const codigo = primeiroEndereco.grupoCodigo || primeiroEndereco.grupoId || grupoId;
+    const codigoExibicao = formatGrupoEnderecoCodigoExibicao(codigo || grupoId);
+    const id = primeiroEndereco.grupoId || getGrupoEnderecoDocIdCandidate(codigo || grupoId) || grupoId;
+    const stats = calculateGrupoEnderecoStats(enderecosGrupo);
+
+    return {
+        id,
+        codigo,
+        nome: `${codigoExibicao || 'Território'} - Endereços de idioma`,
+        status: GRUPO_ENDERECO_STATUS.ATIVO,
+        enderecoIds: enderecosGrupo.map((endereco) => endereco.id).filter(Boolean),
+        ...stats,
+        designadoPara: null,
+        designadoNome: null,
+        dataDesignacao: null,
+        designacaoId: null,
+        cicloAtual: null,
+        enderecos_visitados: [],
+        historico: [],
+        ultimaConclusao: null,
+        sintetico: true
+    };
+};
+
+const mergeGrupoEnderecoRuntimeStats = (grupo, enderecosGrupo = []) => {
+    const stats = enderecosGrupo.length ? calculateGrupoEnderecoStats(enderecosGrupo) : null;
+    const enderecoIds = Array.isArray(grupo.enderecoIds) && grupo.enderecoIds.length
+        ? grupo.enderecoIds
+        : enderecosGrupo.map((endereco) => endereco.id).filter(Boolean);
+
+    return {
+        ...grupo,
+        status: grupo.status || GRUPO_ENDERECO_STATUS.ATIVO,
+        enderecoIds,
+        totalEnderecos: Math.max(
+            Math.trunc(Number(grupo.totalEnderecos) || 0),
+            Math.trunc(Number(stats?.totalEnderecos) || 0)
+        ),
+        totalEstrangeiros: Math.max(
+            Math.trunc(Number(grupo.totalEstrangeiros) || 0),
+            Math.trunc(Number(stats?.totalEstrangeiros) || 0)
+        ),
+        centro: grupo.centro || stats?.centro || null,
+        bounds: grupo.bounds || stats?.bounds || null
+    };
+};
 
 // --- CSS ---
 const cssTooltip = `
@@ -71,17 +190,19 @@ const cssTooltip = `
   .label-tempo-compacto { display: inline-block; font-size: 9px; font-weight: 800; color: #7c2d12; margin-top: 1px; padding: 1px 5px; border-radius: 999px; background: rgba(255,255,255,0.72); border: 1px solid rgba(194, 65, 12, 0.18); text-shadow: 1px 1px 0px rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.2px; }
   .sem-fundo { background: transparent; border: none; box-shadow: none; }
   .map-poi-marker { width: 26px; height: 26px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.94); border: 2px solid rgba(255,255,255,0.98); box-shadow: 0 3px 10px rgba(15,23,42,0.32), 0 0 0 1px rgba(15,23,42,0.08); font-size: 18px; line-height: 1; cursor: help; }
-  .map-poi-marker.ref { border-color: #f43f5e; }
-  .map-poi-marker.condo { border-color: #2563eb; }
-  .map-address-marker { width: 30px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: #0f766e; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(15,23,42,0.35); font-size: 15px; line-height: 1; font-weight: 900; }
-  .map-address-marker.grouped { background: #7c3aed; }
-  .map-address-marker.selected { background: #f59e0b; color: #111827; }
-  .map-address-marker.archived { background: #64748b; opacity: 0.82; }
-  .map-address-marker.focus-pending { background: #0f766e; transform: scale(1.08); }
-  .map-address-marker.focus-done { background: #16a34a; transform: scale(1.08); }
-  .map-group-marker { min-width: 44px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: #4338ca; color: white; border: 3px solid white; box-shadow: 0 4px 14px rgba(15,23,42,0.38); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 7px; white-space: nowrap; }
-  .map-group-marker.archived { background: #475569; opacity: 0.86; }
-  .map-click-marker { width: 28px; height: 28px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: #2563eb; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(37,99,235,0.35); font-size: 16px; line-height: 1; font-weight: 900; }
+  .map-poi-marker.ref { border-color: ${MAP_COLORS.apoio.referencia}; }
+  .map-poi-marker.condo { border-color: ${MAP_COLORS.apoio.condominio}; }
+  .map-address-marker { min-width: 30px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.endereco.ativo}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(15,23,42,0.35); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 6px; white-space: nowrap; }
+  .map-address-marker.grouped { background: ${MAP_COLORS.endereco.agrupado}; }
+  .map-address-marker.selected { background: ${MAP_COLORS.endereco.selecionado}; color: #111827; }
+  .map-address-marker.archived { background: ${MAP_COLORS.endereco.arquivado}; opacity: 0.82; }
+  .map-address-marker.focus-pending { background: ${MAP_COLORS.endereco.ativo}; transform: scale(1.08); }
+  .map-address-marker.focus-done { background: ${MAP_COLORS.endereco.visitado}; transform: scale(1.08); }
+  .map-group-marker { min-width: 44px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.grupoEndereco.ativo.marker}; color: white; border: 3px solid white; box-shadow: 0 4px 14px rgba(15,23,42,0.38); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 7px; white-space: nowrap; }
+  .map-group-marker.archived { background: ${MAP_COLORS.grupoEndereco.arquivado.marker}; opacity: 0.86; }
+  .map-group-marker.assigned { background: ${MAP_COLORS.grupoEndereco.designado.marker}; }
+  .map-group-marker.finished { background: ${MAP_COLORS.grupoEndereco.finalizado.marker}; }
+  .map-click-marker { width: 28px; height: 28px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.apoio.clique}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(37,99,235,0.35); font-size: 16px; line-height: 1; font-weight: 900; }
   .control-hint { position: absolute; z-index: 20; top: 50%; transform: translateY(-50%); white-space: nowrap; border-radius: 999px; background: rgba(15,23,42,0.72); color: white; font-size: 11px; font-weight: 700; line-height: 1; padding: 7px 10px; box-shadow: 0 6px 16px rgba(15,23,42,0.18); pointer-events: none; animation: control-hint-fade 4s ease-in-out forwards; }
   .control-hint.left-side { left: 58px; }
   .control-hint.right-side { right: 58px; }
@@ -94,7 +215,7 @@ const cssTooltip = `
   
   .map-layer-btn { width: 48px; height: 48px; border-radius: 8px; border: 2px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.3); cursor: pointer; transition: transform 0.1s, border-color 0.2s; overflow: hidden; position: relative; background-size: cover; }
   .map-layer-btn:active { transform: scale(0.95); }
-  .map-layer-btn.active { border-color: #2563eb; transform: scale(1.05); z-index: 10; }
+  .map-layer-btn.active { border-color: ${MAP_COLORS.apoio.clique}; transform: scale(1.05); z-index: 10; }
   
   .thumb-rua { background: #e5e7eb; } 
   .thumb-rua::after { content: '🗺️'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; }
@@ -234,6 +355,8 @@ const SeletorCamadas = ({
     hasReferencias,
     hasCondominios
 }) => {
+    const controlsRef = useLeafletDomEventIsolation();
+
     const alternarCamada = () => {
         if (tipoMapa === 'google') setTipoMapa('satelite');
         else if (tipoMapa === 'satelite') setTipoMapa('padrao');
@@ -255,7 +378,7 @@ const SeletorCamadas = ({
     }
 
     return (
-        <div className="absolute bottom-6 left-4 z-[400] flex flex-col gap-3">
+        <div ref={controlsRef} className="absolute bottom-6 left-4 z-[400] flex flex-col gap-3" onClick={stopMapDomEvent}>
             {hasReferencias && (
                 <div className="relative">
                     <button onClick={() => setShowRefs(!showRefs)} className={`w-12 h-12 rounded-lg bg-white shadow-lg flex items-center justify-center border-2 transition-all ${showRefs ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-400'}`} title="Mostrar/Ocultar Pontos de Referência">📍</button>
@@ -375,6 +498,7 @@ const ControlesNavegacao = ({
 }) => {
     const map = useMap();
     const { notify } = useUiFeedback();
+    const controlsRef = useLeafletDomEventIsolation();
     const [buscando, setBuscando] = useState(false);
     const isNativePlatform = Capacitor.isNativePlatform();
     const watchIdRef = useRef(null);
@@ -593,7 +717,7 @@ const ControlesNavegacao = ({
     };
 
     return (
-        <div className="absolute bottom-6 right-4 z-[400] flex flex-col gap-3">
+        <div ref={controlsRef} className="absolute bottom-6 right-4 z-[400] flex flex-col gap-3" onClick={stopMapDomEvent}>
             <button
                 onClick={alternarLocalizacao}
                 aria-pressed={rastreandoLocalizacao}
@@ -705,7 +829,7 @@ const MarcadorUsuario = ({ posicao, direcao }) => {
                 ${typeof direcao === 'number' ? `
                     <div style="position: absolute; top: 5px; left: 50%; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 16px solid #1d4ed8; transform: translateX(-50%) rotate(${direcao}deg); transform-origin: 50% 21px; filter: drop-shadow(0 2px 3px rgba(30, 64, 175, 0.3));"></div>
                 ` : ''}
-                <div style="position: relative; width: 18px; height: 18px; border-radius: 9999px; background: #2563eb; border: 3px solid #ffffff; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.45); z-index: 2;"></div>
+                <div style="position: relative; width: 18px; height: 18px; border-radius: 9999px; background: ${MAP_COLORS.apoio.clique}; border: 3px solid #ffffff; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.45); z-index: 2;"></div>
             </div>
         `,
         iconSize: [54, 54],
@@ -1047,7 +1171,7 @@ const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, loading, onClose, o
                     <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2">
                         {selectedEnderecos.map((endereco) => (
                             <div key={endereco.id} className="border-b border-slate-200 py-1 text-xs last:border-0">
-                                <span className="font-bold text-slate-700">{endereco.codigo}</span>
+                                <span className="font-bold text-slate-700">{formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}</span>
                                 <span className="text-slate-500"> · {endereco.endereco || 'Sem endereço'}</span>
                             </div>
                         ))}
@@ -1086,18 +1210,24 @@ const GrupoEnderecosModal = ({
     onClose,
     onToggleVisitado
 }) => {
+    const modalRef = useLeafletDomEventIsolation();
+
     if (!isOpen) return null;
 
     return (
         <div
+            ref={modalRef}
             className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/45 p-0 backdrop-blur-sm sm:items-center sm:p-4"
             style={{ zIndex: 9999 }}
-            onClick={onClose}
-            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+                stopMapDomEvent(event);
+                onClose();
+            }}
+            onMouseDown={stopMapDomEvent}
         >
             <div
                 className="max-h-[82vh] w-full max-w-md overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
-                onClick={(event) => event.stopPropagation()}
+                onClick={stopMapDomEvent}
             >
                 <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
                     <div>
@@ -1128,7 +1258,7 @@ const GrupoEnderecosModal = ({
                                 >
                                     <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-black ${feito ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-transparent'}`}>✓</span>
                                     <span className="min-w-0">
-                                        <span className="block font-extrabold leading-tight text-slate-800">{endereco.codigo}</span>
+                                        <span className="block font-extrabold leading-tight text-slate-800">{formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}</span>
                                         <span className="mt-0.5 block leading-snug">{endereco.endereco || 'Sem endereço'}</span>
                                         <span className="mt-1 block text-xs font-semibold text-slate-500">{endereco.quantidadeEstrangeiros || 0} estrangeiro(s)</span>
                                     </span>
@@ -1207,14 +1337,15 @@ const EnderecoMarker = ({
     onToggleVisited
 }) => {
     const arquivado = endereco.status === ENDERECO_STATUS.ARQUIVADO;
-    const agrupado = Boolean(endereco.grupoId);
+    const agrupado = Boolean(endereco.grupoId || endereco.grupoCodigo);
+    const codigoExibicao = formatEnderecoCodigoExibicao(endereco.codigo || endereco.id);
     const [menuAberto, setMenuAberto] = useState(false);
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
-        html: `<div class="map-address-marker ${focusMode ? isVisited ? 'focus-done' : 'focus-pending' : ''} ${!focusMode && agrupado ? 'grouped' : ''} ${isSelected ? 'selected' : ''} ${arquivado ? 'archived' : ''}">${arquivado ? 'A' : focusMode && isVisited ? '✓' : focusMode ? 'E' : agrupado ? 'T' : 'E'}</div>`,
-        iconSize: [30, 30],
-        iconAnchor: [15, 15]
-    }), [agrupado, arquivado, focusMode, isSelected, isVisited]);
+        html: `<div class="map-address-marker ${focusMode ? isVisited ? 'focus-done' : 'focus-pending' : ''} ${!focusMode && agrupado ? 'grouped' : ''} ${isSelected ? 'selected' : ''} ${arquivado ? 'archived' : ''}">${codigoExibicao || 'E'}</div>`,
+        iconSize: [44, 30],
+        iconAnchor: [22, 15]
+    }), [agrupado, arquivado, codigoExibicao, focusMode, isSelected, isVisited]);
 
     return (
         <Marker
@@ -1224,7 +1355,7 @@ const EnderecoMarker = ({
             eventHandlers={{ click: (event) => event.originalEvent && L.DomEvent.stopPropagation(event.originalEvent) }}
         >
             <Tooltip direction="top" offset={[0, -16]} className="font-bold text-xs">
-                {endereco.codigo}
+                {codigoExibicao}
             </Tooltip>
             <Popup>
                 <div className="flex min-w-[230px] flex-col gap-1.5 p-1">
@@ -1295,7 +1426,7 @@ const EnderecoMarker = ({
                             </div>
                         )}
                         <div className="flex items-center justify-center gap-1.5">
-                            <span className="text-base font-extrabold leading-none text-slate-800">{endereco.codigo}</span>
+                            <span className="text-base font-extrabold leading-none text-slate-800">{codigoExibicao}</span>
                             <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : focusMode && isVisited ? 'bg-emerald-50 text-emerald-700' : 'bg-teal-50 text-teal-700'}`}>
                                 {arquivado ? 'Arquivado' : focusMode ? isVisited ? 'Pregado' : 'Pendente' : 'Ativo'}
                             </span>
@@ -1359,6 +1490,43 @@ const buildGrupoBoundsPositions = (bounds) => {
     ];
 };
 
+const buildGrupoBoundsParam = (bounds) => {
+    if (!bounds) return '';
+    const { minLat, minLng, maxLat, maxLng } = bounds;
+    const values = [minLat, minLng, maxLat, maxLng].map(Number);
+    return values.every(Number.isFinite) ? values.join(',') : '';
+};
+
+const buildGrupoEnderecoAppLink = ({ grupo, centro }) => {
+    const boundsParam = buildGrupoBoundsParam(grupo?.bounds);
+    if (boundsParam) {
+        return buildPublicAppRouteUrl('/app', { bounds: boundsParam });
+    }
+
+    if (Number.isFinite(Number(centro?.lat)) && Number.isFinite(Number(centro?.lng))) {
+        return buildPublicAppRouteUrl('/app', { lat: centro.lat, lng: centro.lng, z: 17 });
+    }
+
+    return buildPublicAppRouteUrl('/app');
+};
+
+const buildMensagemDesignacaoGrupoEndereco = ({ grupo, usuario, centro, contextoSistema }) => {
+    const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo?.codigo || grupo?.id);
+    const nomeExibicao = formatGrupoEnderecoNomeExibicao(grupo?.nome, grupo?.codigo || grupo?.id);
+    const tituloTerritorio = nomeExibicao && nomeExibicao !== `Território ${codigoExibicao}`
+        ? `${codigoExibicao} - ${nomeExibicao}`
+        : codigoExibicao;
+    const nome = usuario?.nome || grupo?.designadoNome || grupo?.designadoPara || 'Publicador';
+    const link = buildGrupoEnderecoAppLink({ grupo, centro });
+    const contextoLinha = contextoSistema?.campanhaAtiva ? `\n *Modo:* ${contextoSistema.contextoAtivoTitulo}` : '';
+
+    return {
+        texto: `Olá *${nome}*! \nO território *${tituloTerritorio}* foi designado para você.${contextoLinha}\n\n *Acesse:* ${link}\n\nBom trabalho!`,
+        whatsapp: usuario?.whatsapp,
+        nome
+    };
+};
+
 const resolveGrupoEnderecoCentro = (grupo, enderecosGrupo = []) => {
     const latGrupo = Number(grupo?.centro?.lat);
     const lngGrupo = Number(grupo?.centro?.lng);
@@ -1370,12 +1538,25 @@ const resolveGrupoEnderecoCentro = (grupo, enderecosGrupo = []) => {
         Number.isFinite(Number(endereco.lat)) && Number.isFinite(Number(endereco.lng))
     ));
 
-    if (!enderecoCentro) return null;
+    if (enderecoCentro) {
+        return {
+            lat: Number(enderecoCentro.lat),
+            lng: Number(enderecoCentro.lng)
+        };
+    }
 
-    return {
-        lat: Number(enderecoCentro.lat),
-        lng: Number(enderecoCentro.lng)
-    };
+    const minLat = Number(grupo?.bounds?.minLat);
+    const minLng = Number(grupo?.bounds?.minLng);
+    const maxLat = Number(grupo?.bounds?.maxLat);
+    const maxLng = Number(grupo?.bounds?.maxLng);
+    if ([minLat, minLng, maxLat, maxLng].every(Number.isFinite)) {
+        return {
+            lat: (minLat + maxLat) / 2,
+            lng: (minLng + maxLng) / 2
+        };
+    }
+
+    return null;
 };
 
 const FocoGrupoEnderecoMapController = ({ grupoId, enderecos }) => {
@@ -1409,6 +1590,7 @@ const GrupoEnderecoLayer = ({
     user,
     isAdmin,
     isOnline,
+    contextoSistema,
     listaUsuarios,
     enderecosGrupo,
     onShare,
@@ -1422,6 +1604,8 @@ const GrupoEnderecoLayer = ({
 }) => {
     const map = useMap();
     const arquivado = grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO;
+    const finalizado = grupo.status === GRUPO_ENDERECO_STATUS.FINALIZADO;
+    const designado = Boolean(grupo.designadoPara);
     const progresso = getGrupoEnderecoProgresso(grupo);
     const visitados = new Set(grupo.enderecos_visitados || []);
     const userEmail = normalizeEmailValue(user?.email);
@@ -1431,6 +1615,7 @@ const GrupoEnderecoLayer = ({
     const [loadingAction, setLoadingAction] = useState(false);
     const [menuAberto, setMenuAberto] = useState(false);
     const [enderecosModalAberto, setEnderecosModalAberto] = useState(false);
+    const [mensagemDesignacaoPronta, setMensagemDesignacaoPronta] = useState(null);
     const codigoPreferencial = formatGrupoEnderecoCodigoExibicao(grupo.codigo);
     const codigoExibicao = /^T-\d+$/i.test(codigoPreferencial)
         ? codigoPreferencial
@@ -1451,16 +1636,21 @@ const GrupoEnderecoLayer = ({
     );
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
-        html: `<div class="map-group-marker ${arquivado ? 'archived' : ''}">${codigoExibicao}</div>`,
+        html: `<div class="map-group-marker ${arquivado ? 'archived' : ''} ${designado && !finalizado ? 'assigned' : ''} ${finalizado ? 'finished' : ''}">${codigoExibicao}</div>`,
         iconSize: [56, 30],
         iconAnchor: [28, 15]
-    }), [arquivado, codigoExibicao]);
+    }), [arquivado, codigoExibicao, designado, finalizado]);
+
+    useEffect(() => {
+        setUsuarioSelecionado('');
+    }, [grupo.designadoPara]);
 
     useEffect(() => {
         setUsuarioSelecionado('');
         setMenuAberto(false);
         setEnderecosModalAberto(false);
-    }, [grupo.id, grupo.designadoPara, grupo.status]);
+        setMensagemDesignacaoPronta(null);
+    }, [grupo.id, grupo.status]);
 
     if (!centroGrupo) return null;
 
@@ -1485,17 +1675,65 @@ const GrupoEnderecoLayer = ({
         onFocusMap(grupo);
     };
 
+    const designarTerritorio = async () => {
+        const mensagem = await onDesignar(grupo, usuarioSelecionado, { centro: centroGrupo });
+        if (mensagem) {
+            setMensagemDesignacaoPronta(mensagem);
+        }
+    };
+
+    const buildMensagemResponsavelAtual = () => {
+        const usuarioResponsavel = listaUsuarios.find((usuario) => (
+            normalizeEmailValue(usuario.email) === normalizeEmailValue(grupo.designadoPara)
+        ));
+        return buildMensagemDesignacaoGrupoEndereco({
+            grupo,
+            usuario: usuarioResponsavel || {
+                nome: grupo.designadoNome || grupo.designadoPara,
+                whatsapp: null
+            },
+            centro: centroGrupo,
+            contextoSistema
+        });
+    };
+
+    const abrirWhatsappDesignacao = () => {
+        if (!mensagemDesignacaoPronta) return;
+        window.open(
+            buildWhatsAppShareUrl(mensagemDesignacaoPronta.texto, mensagemDesignacaoPronta.whatsapp),
+            '_blank'
+        );
+        setMensagemDesignacaoPronta(null);
+    };
+
+    const enviarWhatsappResponsavelAtual = () => {
+        const mensagem = buildMensagemResponsavelAtual();
+        window.open(buildWhatsAppShareUrl(mensagem.texto, mensagem.whatsapp), '_blank');
+    };
+
     return (
         <>
             {hasArea && (
                 <Polygon
                     positions={boundsPositions}
                     pathOptions={{
-                        color: arquivado ? '#64748b' : '#4f46e5',
-                        fillColor: arquivado ? '#94a3b8' : '#818cf8',
+                        color: arquivado
+                            ? MAP_COLORS.grupoEndereco.arquivado.border
+                            : designado && !finalizado
+                                ? MAP_COLORS.grupoEndereco.designado.border
+                                : finalizado
+                                    ? MAP_COLORS.grupoEndereco.finalizado.border
+                                    : MAP_COLORS.grupoEndereco.ativo.border,
+                        fillColor: arquivado
+                            ? MAP_COLORS.grupoEndereco.arquivado.fill
+                            : designado && !finalizado
+                                ? MAP_COLORS.grupoEndereco.designado.fill
+                                : finalizado
+                                    ? MAP_COLORS.grupoEndereco.finalizado.fill
+                                    : MAP_COLORS.grupoEndereco.ativo.fill,
                         weight: 2,
                         opacity: 0.85,
-                        fillOpacity: 0.12,
+                        fillOpacity: designado && !finalizado ? 0.16 : 0.12,
                         dashArray: '5 6'
                     }}
                     eventHandlers={{ click: (event) => event.originalEvent && L.DomEvent.stopPropagation(event.originalEvent) }}
@@ -1505,6 +1743,7 @@ const GrupoEnderecoLayer = ({
                 <Marker
                     position={[centroGrupo.lat, centroGrupo.lng]}
                     icon={icon}
+                    zIndexOffset={1200}
                     eventHandlers={{ click: (event) => event.originalEvent && L.DomEvent.stopPropagation(event.originalEvent) }}
                 >
                     <Tooltip direction="top" offset={[0, -18]} className="font-bold text-xs">
@@ -1541,8 +1780,8 @@ const GrupoEnderecoLayer = ({
                                 )}
                                 <div className="flex items-center justify-center gap-1.5">
                                     <span className="text-base font-extrabold leading-none text-slate-800">{codigoExibicao}</span>
-                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : 'bg-indigo-50 text-indigo-700'}`}>
-                                        {arquivado ? 'Arquivado' : 'Ativo'}
+                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : finalizado ? 'bg-emerald-50 text-emerald-700' : designado ? 'bg-blue-50 text-blue-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                                        {arquivado ? 'Arquivado' : finalizado ? 'Finalizado' : designado ? 'Designado' : 'Ativo'}
                                     </span>
                                 </div>
                                 <div className="mt-1.5 text-center text-xs font-semibold leading-tight text-slate-600">{nomeExibicao}</div>
@@ -1571,37 +1810,78 @@ const GrupoEnderecoLayer = ({
                             </div>
                             {isAdmin && (
                                 <>
-                                    {!arquivado && !progresso.isFinalizado && (
+                                    {!arquivado && (
                                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                                            <div className="mb-2 text-center text-[11px] font-bold uppercase text-slate-500">
-                                                {grupo.designadoPara ? `Responsável: ${grupo.designadoNome || grupo.designadoPara}` : 'Sem responsável'}
-                                            </div>
-                                            <select
-                                                className="mb-2 w-full rounded-md border border-slate-300 bg-white p-2 text-xs outline-none disabled:bg-slate-100"
-                                                value={usuarioSelecionado}
-                                                onChange={(event) => setUsuarioSelecionado(event.target.value)}
-                                                disabled={loadingAction || !isOnline}
-                                            >
-                                                <option value="">-- escolher publicador --</option>
-                                                {listaUsuarios.map((usuario) => (
-                                                    <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
-                                                ))}
-                                            </select>
-                                            <button
-                                                onClick={() => executarAcaoGrupo(() => onDesignar(grupo, usuarioSelecionado))}
-                                                disabled={!usuarioSelecionado || loadingAction || !isOnline}
-                                                className="popup-btn-action bg-indigo-700 text-white hover:bg-indigo-800 disabled:opacity-50"
-                                            >
-                                                {loadingAction ? 'Salvando...' : 'Designar território'}
-                                            </button>
-                                            {grupo.designadoPara && (
-                                                <button
-                                                    onClick={() => executarAcaoGrupo(() => onDevolver(grupo))}
-                                                    disabled={loadingAction || !isOnline}
-                                                    className="popup-btn-action mt-2 border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50"
-                                                >
-                                                    Devolver território
-                                                </button>
+                                            {mensagemDesignacaoPronta ? (
+                                                <div className="flex flex-col gap-2">
+                                                    <div className="rounded-md bg-green-100 p-2 text-center text-xs font-bold text-green-700">
+                                                        Designado para {mensagemDesignacaoPronta.nome}
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={abrirWhatsappDesignacao}
+                                                        className="popup-btn-action bg-green-600 text-white hover:bg-green-700"
+                                                    >
+                                                        {mensagemDesignacaoPronta.whatsapp ? 'Enviar no WhatsApp' : 'Compartilhar link'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMensagemDesignacaoPronta(null)}
+                                                        className="text-center text-xs font-semibold text-slate-400 underline"
+                                                    >
+                                                        Voltar
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {designado ? (
+                                                        <div className="mb-2 rounded-md border border-blue-100 bg-blue-50 p-2 text-center">
+                                                            <div className="text-[10px] font-black uppercase text-blue-500">Território com</div>
+                                                            <div className="mt-0.5 text-xs font-extrabold text-blue-800">{grupo.designadoNome || grupo.designadoPara}</div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={enviarWhatsappResponsavelAtual}
+                                                                className="popup-btn-action mt-2 bg-green-600 text-white hover:bg-green-700"
+                                                            >
+                                                                {buildMensagemResponsavelAtual().whatsapp ? 'Enviar no WhatsApp' : 'Compartilhar link'}
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="mb-2 text-center text-[11px] font-bold uppercase text-slate-500">
+                                                            Sem responsável
+                                                        </div>
+                                                    )}
+                                                    <select
+                                                        className="mb-2 w-full rounded-md border border-slate-300 bg-white p-2 text-xs outline-none disabled:bg-slate-100"
+                                                        value={usuarioSelecionado}
+                                                        onChange={(event) => {
+                                                            setUsuarioSelecionado(event.target.value);
+                                                            setMensagemDesignacaoPronta(null);
+                                                        }}
+                                                        disabled={loadingAction || !isOnline}
+                                                    >
+                                                        <option value="">-- escolher publicador --</option>
+                                                        {listaUsuarios.map((usuario) => (
+                                                            <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
+                                                        ))}
+                                                    </select>
+                                                    <button
+                                                        onClick={() => executarAcaoGrupo(designarTerritorio)}
+                                                        disabled={!usuarioSelecionado || loadingAction || !isOnline}
+                                                        className="popup-btn-action bg-indigo-700 text-white hover:bg-indigo-800 disabled:opacity-50"
+                                                    >
+                                                        {loadingAction ? 'Salvando...' : 'Designar território'}
+                                                    </button>
+                                                    {grupo.designadoPara && (
+                                                        <button
+                                                            onClick={() => executarAcaoGrupo(() => onDevolver(grupo))}
+                                                            disabled={loadingAction || !isOnline}
+                                                            className="popup-btn-action mt-2 border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                                        >
+                                                            Devolver território
+                                                        </button>
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                     )}
@@ -1721,8 +2001,8 @@ const QuadraMarker = ({ quadra, isFeita, podeMarcar, podeAnotar, nota, onAbrirNo
         <CircleMarker
             center={[quadra.lat, quadra.lng]}
             pathOptions={{
-                color: isFeita ? '#166534' : '#b91c1c',
-                fillColor: isFeita ? '#22c55e' : '#ef4444',
+                color: isFeita ? MAP_COLORS.territorio.finalizado.border : '#b91c1c',
+                fillColor: isFeita ? MAP_COLORS.territorio.finalizado.fill : MAP_COLORS.endereco.pendente,
                 fillOpacity: 1, weight: 2
             }}
             radius={16}
@@ -2083,35 +2363,25 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
         textoTempoCompacto = diasSemTrabalhar > 60 ? `${Math.floor(diasSemTrabalhar / 30)}m` : `${diasSemTrabalhar}d`;
     }
 
-    // --- CORES ATUALIZADAS (TONS DE LARANJA) ---
-    let corPreenchimento = '#fed7aa'; // Padrão
-    let corBorda = '#c2410c';
+    const coresDisponivel = getTerritorioDisponivelColors(diasSemTrabalhar, Boolean(dadosBanco.ultimaConclusao));
+
+    let corPreenchimento = coresDisponivel.fill;
+    let corBorda = coresDisponivel.border;
     let pesoBorda = 1;
     let opacidade = 0.5;
     let opacidadeBorda = 1;
 
     if (isFinalizado) {
-        corPreenchimento = '#22c55e'; corBorda = '#15803d'; opacidade = 0.6; if (isMeu) pesoBorda = 3;
+        corPreenchimento = MAP_COLORS.territorio.finalizado.fill; corBorda = MAP_COLORS.territorio.finalizado.border; opacidade = 0.6; if (isMeu) pesoBorda = 3;
     }
     else if (isAguardandoFinalizacao) {
-        corPreenchimento = '#facc15'; corBorda = '#ca8a04'; opacidade = 0.65; if (isMeu) pesoBorda = 3;
+        corPreenchimento = MAP_COLORS.territorio.aguardandoFinalizacao.fill; corBorda = MAP_COLORS.territorio.aguardandoFinalizacao.border; opacidade = 0.65; if (isMeu) pesoBorda = 3;
     }
     else if (isMeu) {
-        corPreenchimento = '#3b82f6'; corBorda = '#1e40af'; pesoBorda = 3; if (isAdmin) { corPreenchimento = '#a855f7'; corBorda = '#6b21a8'; }
+        corPreenchimento = MAP_COLORS.territorio.meu.fill; corBorda = MAP_COLORS.territorio.meu.border; pesoBorda = 3; if (isAdmin) { corPreenchimento = MAP_COLORS.territorio.meuAdmin.fill; corBorda = MAP_COLORS.territorio.meuAdmin.border; }
     }
     else if (isOcupado) {
-        corPreenchimento = '#9ca3af'; corBorda = '#4b5563'; opacidade = 0.4;
-    }
-    else {
-        // --- ESCALA DE LARANJAS ---
-        if (!dadosBanco.ultimaConclusao) {
-            corPreenchimento = '#fed7aa'; // Padrão (Nunca trabalhado)
-        } else {
-            if (diasSemTrabalhar > 180) { corPreenchimento = '#c2410c'; } // +6 meses: Tijolo
-            else if (diasSemTrabalhar > 120) { corPreenchimento = '#ea580c'; } // 4-6 meses: Laranja Escuro
-            else if (diasSemTrabalhar > 60) { corPreenchimento = '#fb923c'; } // 2-4 meses: Laranja Médio
-            else { corPreenchimento = '#ffedd5'; } // < 2 meses: Laranja Muito Claro
-        }
+        corPreenchimento = MAP_COLORS.territorio.ocupado.fill; corBorda = MAP_COLORS.territorio.ocupado.border; opacidade = 0.4;
     }
 
     if (!isAdmin && !isMeu) { opacidade = 0.2; opacidadeBorda = 0.4; }
@@ -2132,7 +2402,7 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
                             className="label-status"
                             style={{
                                 color: '#fff',
-                                background: `linear-gradient(to right, #15803d ${pctInteira}%, #374151 ${pctInteira}%)`,
+                                background: `linear-gradient(to right, ${MAP_COLORS.territorio.finalizado.border} ${pctInteira}%, ${MAP_COLORS.apoio.barraProgressoBase} ${pctInteira}%)`,
                                 fontSize: '12px',
                                 textShadow: 'none',
                                 border: '1px solid white'
@@ -2546,6 +2816,8 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
 
 // --- MAPA PRINCIPAL ---
 const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
+    const adminControlsRef = useLeafletDomEventIsolation();
+    const focusSummaryRef = useLeafletDomEventIsolation();
     const [geoJsonData, setGeoJsonData] = useState(null);
     const [mapaErro, setMapaErro] = useState('');
     const [zoomLevel, setZoomLevel] = useState(MAP_INITIAL_ZOOM);
@@ -2716,13 +2988,57 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         return map;
     }, [enderecos]);
 
+    const enderecosPorId = useMemo(() => (
+        new Map(enderecos.map((endereco) => [endereco.id, endereco]))
+    ), [enderecos]);
+
+    const enderecosPorGrupoCanonico = useMemo(() => {
+        const map = new Map();
+        enderecos.forEach((endereco) => {
+            const grupoKey = getGrupoEnderecoCanonicalKey(endereco.grupoId || endereco.grupoCodigo);
+            if (!grupoKey) return;
+            if (!map.has(grupoKey)) {
+                map.set(grupoKey, []);
+            }
+            map.get(grupoKey).push(endereco);
+        });
+
+        map.forEach((lista) => lista.sort((a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id))));
+        return map;
+    }, [enderecos]);
+
+    const gruposEnderecoCompletos = useMemo(() => {
+        const grupos = gruposEndereco.map((grupo) => (
+            mergeGrupoEnderecoRuntimeStats(
+                grupo,
+                resolveEnderecosGrupoFromMaps(grupo, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId)
+            )
+        ));
+        const chavesReais = new Set();
+
+        grupos.forEach((grupo) => {
+            [grupo.id, grupo.codigo].filter(Boolean).forEach((value) => {
+                chavesReais.add(getGrupoEnderecoCanonicalKey(value));
+            });
+        });
+
+        enderecosPorGrupoCanonico.forEach((listaEnderecos, grupoKey) => {
+            if (chavesReais.has(grupoKey)) return;
+            grupos.push(buildSyntheticGrupoEndereco(grupoKey, listaEnderecos));
+        });
+
+        return grupos.sort((a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id)));
+    }, [enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId, gruposEndereco]);
+
     const grupoEnderecoFocado = useMemo(() => (
-        gruposEndereco.find((grupo) => grupo.id === grupoEnderecoFocadoId) || null
-    ), [grupoEnderecoFocadoId, gruposEndereco]);
+        gruposEnderecoCompletos.find((grupo) => isSameGrupoEndereco(grupo, grupoEnderecoFocadoId)) || null
+    ), [grupoEnderecoFocadoId, gruposEnderecoCompletos]);
 
     const enderecosGrupoFocado = useMemo(() => (
-        grupoEnderecoFocadoId ? (enderecosPorGrupo.get(grupoEnderecoFocadoId) || []) : []
-    ), [enderecosPorGrupo, grupoEnderecoFocadoId]);
+        grupoEnderecoFocado
+            ? resolveEnderecosGrupoFromMaps(grupoEnderecoFocado, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId)
+            : []
+    ), [enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId, grupoEnderecoFocado]);
 
     const visitadosGrupoFocado = useMemo(() => new Set(grupoEnderecoFocado?.enderecos_visitados || []), [grupoEnderecoFocado]);
 
@@ -2736,7 +3052,13 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
 
     const enderecosVisiveis = useMemo(() => enderecos.filter((endereco) => {
         if (grupoEnderecoFocadoId) {
-            return endereco.status === ENDERECO_STATUS.ATIVO && endereco.grupoId === grupoEnderecoFocadoId;
+            const chavesFoco = new Set(
+                (grupoEnderecoFocado ? [grupoEnderecoFocado.id, grupoEnderecoFocado.codigo] : [grupoEnderecoFocadoId])
+                    .filter(Boolean)
+                    .map(getGrupoEnderecoCanonicalKey)
+            );
+            const chaveEndereco = getGrupoEnderecoCanonicalKey(endereco.grupoId || endereco.grupoCodigo);
+            return endereco.status === ENDERECO_STATUS.ATIVO && chavesFoco.has(chaveEndereco);
         }
 
         if (isAdmin) {
@@ -2744,37 +3066,40 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                 return mostrarEnderecosArquivados;
             }
 
-            return endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId;
+            return endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo;
         }
 
         return false;
-    }), [enderecos, grupoEnderecoFocadoId, isAdmin, mostrarEnderecosArquivados]);
+    }), [enderecos, grupoEnderecoFocado, grupoEnderecoFocadoId, isAdmin, mostrarEnderecosArquivados]);
 
     const totalEnderecosArquivados = useMemo(() => enderecos.filter((endereco) => endereco.status === ENDERECO_STATUS.ARQUIVADO).length, [enderecos]);
-    const gruposEnderecoVisiveis = useMemo(() => gruposEndereco.filter((grupo) => {
+    const gruposEnderecoVisiveis = useMemo(() => gruposEnderecoCompletos.filter((grupo) => {
+        const statusGrupo = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
+
         if (grupoEnderecoFocadoId) {
-            return grupo.id === grupoEnderecoFocadoId;
+            return isSameGrupoEndereco(grupo, grupoEnderecoFocadoId);
         }
 
         if (isAdmin) {
-            return grupo.status === GRUPO_ENDERECO_STATUS.ATIVO ||
-                (mostrarGruposArquivados && grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO);
+            return statusGrupo === GRUPO_ENDERECO_STATUS.ATIVO ||
+                statusGrupo === GRUPO_ENDERECO_STATUS.FINALIZADO ||
+                (mostrarGruposArquivados && statusGrupo === GRUPO_ENDERECO_STATUS.ARQUIVADO);
         }
 
-        return grupo.status === GRUPO_ENDERECO_STATUS.ATIVO && normalizeEmailValue(grupo.designadoPara) === normalizeEmailValue(user?.email);
-    }), [grupoEnderecoFocadoId, gruposEndereco, isAdmin, mostrarGruposArquivados, user?.email]);
-    const totalGruposArquivados = useMemo(() => gruposEndereco.filter((grupo) => grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO).length, [gruposEndereco]);
+        return statusGrupo === GRUPO_ENDERECO_STATUS.ATIVO && normalizeEmailValue(grupo.designadoPara) === normalizeEmailValue(user?.email);
+    }), [grupoEnderecoFocadoId, gruposEnderecoCompletos, isAdmin, mostrarGruposArquivados, user?.email]);
+    const totalGruposArquivados = useMemo(() => gruposEndereco.filter((grupo) => (grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) === GRUPO_ENDERECO_STATUS.ARQUIVADO).length, [gruposEndereco]);
     const enderecosSelecionadosDados = useMemo(() => {
         const porId = new Map(enderecos.map((endereco) => [endereco.id, endereco]));
         return enderecosSelecionadosGrupo
             .map((enderecoId) => porId.get(enderecoId))
-            .filter((endereco) => endereco && endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId);
+            .filter((endereco) => endereco && endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo);
     }, [enderecos, enderecosSelecionadosGrupo]);
 
     useEffect(() => {
         setEnderecosSelecionadosGrupo((selecionadosAtuais) => {
             const selecionaveis = new Set(enderecos
-                .filter((endereco) => endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId)
+                .filter((endereco) => endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo)
                 .map((endereco) => endereco.id));
             return selecionadosAtuais.filter((enderecoId) => selecionaveis.has(enderecoId));
         });
@@ -2824,7 +3149,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         const appUrl = buildAppLocationUrl(endereco.lat, endereco.lng, 18);
         const mapsUrl = buildGoogleMapsUrl(endereco.lat, endereco.lng);
         const detalhes = [
-            `Código: *${endereco.codigo || endereco.id}*`,
+            `Código: *${formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}*`,
             endereco.endereco ? `Endereço: ${endereco.endereco}` : '',
             `Estrangeiros: ${endereco.quantidadeEstrangeiros || 0}`
         ].filter(Boolean).join('\n');
@@ -2937,7 +3262,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                 setPontoMapaSelecionado(null);
                 notify({
                     title: 'Endereço cadastrado',
-                    message: `Código gerado: ${resultado.codigo}.`,
+                    message: `Código gerado: ${formatEnderecoCodigoExibicao(resultado.codigo)}.`,
                     variant: 'success'
                 });
             }
@@ -2958,11 +3283,12 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
 
     const alternarArquivoEndereco = async (endereco) => {
         const arquivado = endereco.status === ENDERECO_STATUS.ARQUIVADO;
+        const codigoExibicao = formatEnderecoCodigoExibicao(endereco.codigo || endereco.id);
         const confirmar = await confirm({
             title: arquivado ? 'Reativar endereço' : 'Arquivar endereço',
             message: arquivado
-                ? `Reativar ${endereco.codigo || 'este endereço'} e voltar a mostrá-lo no mapa padrão?`
-                : `Arquivar ${endereco.codigo || 'este endereço'} sem excluir o cadastro?`,
+                ? `Reativar ${codigoExibicao || 'este endereço'} e voltar a mostrá-lo no mapa padrão?`
+                : `Arquivar ${codigoExibicao || 'este endereço'} sem excluir o cadastro?`,
             tone: arquivado ? 'info' : 'warning',
             confirmLabel: arquivado ? 'Reativar' : 'Arquivar'
         });
@@ -2987,7 +3313,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
     };
 
     const alternarSelecaoEnderecoGrupo = (endereco) => {
-        if (!endereco || endereco.grupoId || endereco.status !== ENDERECO_STATUS.ATIVO) return;
+        if (!endereco || endereco.grupoId || endereco.grupoCodigo || endereco.status !== ENDERECO_STATUS.ATIVO) return;
         setEnderecosSelecionadosGrupo((selecionadosAtuais) => (
             selecionadosAtuais.includes(endereco.id)
                 ? selecionadosAtuais.filter((enderecoId) => enderecoId !== endereco.id)
@@ -3088,7 +3414,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         }
     };
 
-    const salvarDesignacaoGrupoEndereco = async (grupo, usuarioEmail) => {
+    const salvarDesignacaoGrupoEndereco = async (grupo, usuarioEmail, opcoes = {}) => {
         if (!isOnline) {
             notify({
                 title: 'Designação bloqueada offline',
@@ -3109,18 +3435,33 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
             return;
         }
 
+        const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id);
+
         try {
             await designarGrupoEndereco(db, {
                 grupoId: grupo.id,
                 usuario,
                 user
             });
-            const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id);
+
+            const mensagemDesignacao = buildMensagemDesignacaoGrupoEndereco({
+                grupo,
+                usuario,
+                centro: opcoes?.centro || grupo.centro || null,
+                contextoSistema
+            });
+
             notify({
                 title: 'Território designado',
                 message: `${codigoExibicao} designado para ${usuario.nome}.`,
                 variant: 'success'
             });
+
+            return {
+                texto: mensagemDesignacao.texto,
+                whatsapp: mensagemDesignacao.whatsapp,
+                nome: mensagemDesignacao.nome
+            };
         } catch (error) {
             console.error('Erro ao designar grupo:', error);
             notify({
@@ -3269,9 +3610,10 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
     const removerEnderecoSelecionadoDoGrupo = async (endereco) => {
         if (!endereco?.grupoId) return;
         const codigoExibicao = formatGrupoEnderecoCodigoExibicao(endereco.grupoCodigo || '');
+        const enderecoCodigoExibicao = formatEnderecoCodigoExibicao(endereco.codigo || endereco.id);
         const confirmar = await confirm({
             title: 'Remover do território',
-            message: `Remover ${endereco.codigo || 'este endereço'} do território ${codigoExibicao || ''}?`,
+            message: `Remover ${enderecoCodigoExibicao || 'este endereço'} do território ${codigoExibicao || ''}?`,
             tone: 'warning',
             confirmLabel: 'Remover'
         });
@@ -3338,7 +3680,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                         hasCondominios={tiposPontosDisponiveis.hasCondominios}
                     />
                     {isAdmin && (
-                        <div className="absolute top-20 right-4 z-[400] flex max-w-[150px] flex-col gap-2">
+                        <div ref={adminControlsRef} className="absolute top-20 right-4 z-[400] flex max-w-[150px] flex-col gap-2" onClick={stopMapDomEvent}>
                             {enderecosSelecionadosDados.length > 0 && (
                                 <div className="rounded-lg border border-indigo-200 bg-white p-2 shadow-xl">
                                     <div className="mb-2 text-center text-xs font-extrabold text-indigo-700">
@@ -3392,7 +3734,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                         mostrarDicas={mostrarDicasControles}
                     />
                     {trilhaUsuario.length > 1 && (
-                        <Polyline positions={trilhaUsuario} pathOptions={{ color: '#94a3b8', weight: 4, opacity: 0.38, lineCap: 'round', lineJoin: 'round' }} />
+                        <Polyline positions={trilhaUsuario} pathOptions={{ color: MAP_COLORS.apoio.trilha, weight: 4, opacity: 0.38, lineCap: 'round', lineJoin: 'round' }} />
                     )}
                     <MarcadorUsuario posicao={posicaoUsuario} direcao={direcaoUsuario} />
                     <PontoMapaClicado
@@ -3410,8 +3752,9 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                             user={user}
                             isAdmin={isAdmin}
                             isOnline={isOnline}
+                            contextoSistema={contextoSistema}
                             listaUsuarios={listaUsuarios}
-                            enderecosGrupo={enderecosPorGrupo.get(grupo.id) || []}
+                            enderecosGrupo={resolveEnderecosGrupoFromMaps(grupo, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId)}
                             onShare={compartilharGrupoEndereco}
                             onToggleArchive={alternarArquivoGrupoEndereco}
                             onDesignar={salvarDesignacaoGrupoEndereco}
@@ -3419,7 +3762,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                             onToggleVisitado={alternarEnderecoVisitadoGrupo}
                             onFinalizar={finalizarGrupoEndereco}
                             onFocusMap={ativarFocoGrupoEndereco}
-                            isMapFocused={grupoEnderecoFocadoId === grupo.id}
+                            isMapFocused={isSameGrupoEndereco(grupo, grupoEnderecoFocadoId)}
                         />
                     ))}
 
@@ -3430,7 +3773,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                             isAdmin={isAdmin}
                             isOnline={isOnline}
                             isSelected={enderecosSelecionadosGrupo.includes(endereco.id)}
-                            canSelect={isAdmin && isOnline && endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId}
+                            canSelect={isAdmin && isOnline && endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo}
                             focusMode={Boolean(grupoEnderecoFocadoId)}
                             isVisited={visitadosGrupoFocado.has(endereco.id)}
                             canMarkVisited={Boolean(grupoEnderecoFocadoId) && podeExecutarGrupoFocado}
@@ -3486,24 +3829,34 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                         onSubmit={criarGrupoEndereco}
                     />
                     {resumoFocoGrupoEndereco && (
-                        <div className="pointer-events-none absolute right-4 top-4 z-[500] flex justify-end">
-                            <div className="pointer-events-auto flex max-w-[260px] items-center justify-between gap-3 rounded-xl border border-teal-200 bg-white px-3 py-2 shadow-2xl">
-                                <div className="min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className="shrink-0 text-sm font-extrabold text-teal-800">{resumoFocoGrupoEndereco.codigo}</span>
-                                        <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-black text-teal-700">
-                                            {resumoFocoGrupoEndereco.pregados}/{resumoFocoGrupoEndereco.total} pregados
-                                        </span>
+                        <div className="pointer-events-none absolute left-3 right-3 top-4 z-[500] flex justify-center sm:left-auto sm:right-4 sm:w-full sm:max-w-[360px] sm:justify-end">
+                            <div ref={focusSummaryRef} className="pointer-events-auto flex w-full flex-col gap-2 rounded-xl border border-teal-200 bg-white px-2.5 py-2 shadow-2xl" onClick={stopMapDomEvent}>
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <div className="flex min-w-12 shrink-0 items-center justify-center rounded-lg bg-teal-50 px-2 py-2 text-base font-black text-teal-800">
+                                        {resumoFocoGrupoEndereco.codigo}
                                     </div>
-                                    <p className="truncate text-xs font-semibold text-slate-500">{resumoFocoGrupoEndereco.nome}</p>
+                                    <p className="min-w-0 flex-1 truncate text-sm font-medium leading-tight text-slate-700">{resumoFocoGrupoEndereco.nome}</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setGrupoEnderecoFocadoId(null)}
+                                        className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs font-extrabold text-slate-600 transition hover:bg-slate-50"
+                                    >
+                                        Sair
+                                    </button>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setGrupoEnderecoFocadoId(null)}
-                                    className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-extrabold text-slate-600 transition hover:bg-slate-50"
-                                >
-                                    Sair
-                                </button>
+                                <div className="flex w-full items-center gap-2">
+                                    <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-teal-50">
+                                        <div
+                                            className="h-full rounded-full bg-teal-600"
+                                            style={{
+                                                width: `${Math.min(100, Math.max(0, resumoFocoGrupoEndereco.total ? (resumoFocoGrupoEndereco.pregados / resumoFocoGrupoEndereco.total) * 100 : 0))}%`
+                                            }}
+                                        />
+                                    </div>
+                                    <span className="shrink-0 text-[10px] font-black leading-none text-teal-700">
+                                        {resumoFocoGrupoEndereco.pregados}/{resumoFocoGrupoEndereco.total} pregados
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     )}
