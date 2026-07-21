@@ -1,0 +1,19 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "enderecos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "quantidadeEstrangeiros",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

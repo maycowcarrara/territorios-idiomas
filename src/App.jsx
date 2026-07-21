@@ -1157,6 +1157,38 @@ const formatInfoNumber = (value) => (
   new Intl.NumberFormat('pt-BR').format(Math.max(0, Math.trunc(Number(value) || 0)))
 );
 
+const INFORMACOES_GERAIS_CACHE_KEY = 'territorios-informacoes-gerais-v1';
+const INFORMACOES_GERAIS_CACHE_TTL_MS = 2 * 60 * 1000;
+
+const readInformacoesGeraisCache = () => {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(INFORMACOES_GERAIS_CACHE_KEY);
+    if (!raw) return null;
+
+    const cached = JSON.parse(raw);
+    if (!cached?.resumo || !Number.isFinite(Number(cached.cachedAt))) return null;
+
+    return cached;
+  } catch {
+    return null;
+  }
+};
+
+const writeInformacoesGeraisCache = (resumo) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.sessionStorage.setItem(INFORMACOES_GERAIS_CACHE_KEY, JSON.stringify({
+      cachedAt: Date.now(),
+      resumo
+    }));
+  } catch {
+    // Session cache is only an optimization; ignore storage failures.
+  }
+};
+
 const InformacoesGeraisModal = ({ isOpen, onClose }) => {
   const [resumo, setResumo] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1168,6 +1200,19 @@ const InformacoesGeraisModal = ({ isOpen, onClose }) => {
     if (!isOpen) return undefined;
 
     const carregarResumo = async () => {
+      const cached = readInformacoesGeraisCache();
+      const cacheFresh = cached && Date.now() - Number(cached.cachedAt) < INFORMACOES_GERAIS_CACHE_TTL_MS;
+
+      if (cached?.resumo) {
+        setResumo(cached.resumo);
+      }
+
+      if (cacheFresh) {
+        setLoading(false);
+        setErro('');
+        return;
+      }
+
       setLoading(true);
       setErro('');
 
@@ -1214,16 +1259,20 @@ const InformacoesGeraisModal = ({ isOpen, onClose }) => {
         const gruposFinalizados = gruposFinalizadosSnapshot.data().total || 0;
         const gruposArquivados = gruposArquivadosSnapshot.data().total || 0;
 
-        setResumo({
+        const resumoAtualizado = {
           territorios: gruposAtivos,
           enderecos: enderecosAtivos,
           pessoas: pessoasAtivas,
+          atualizadoEm: Date.now(),
           detalhes: [
             { label: 'Territórios finalizados', value: gruposFinalizados },
             { label: 'Territórios arquivados', value: gruposArquivados },
             { label: 'Endereços arquivados', value: enderecosArquivados }
           ]
-        });
+        };
+
+        setResumo(resumoAtualizado);
+        writeInformacoesGeraisCache(resumoAtualizado);
       } catch (error) {
         console.error('Erro ao carregar informações gerais:', error);
         if (!ativo) return;
@@ -1270,6 +1319,10 @@ const InformacoesGeraisModal = ({ isOpen, onClose }) => {
       textClass: 'text-amber-700'
     }
   ];
+
+  const atualizadoEmLabel = resumo?.atualizadoEm
+    ? new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(resumo.atualizadoEm))
+    : null;
 
   return (
     <ModalFrame
@@ -1326,6 +1379,7 @@ const InformacoesGeraisModal = ({ isOpen, onClose }) => {
 
           <p className="text-xs font-medium leading-5 text-slate-500">
             Os totais principais consideram apenas endereços e territórios ativos. Arquivados e finalizados aparecem separados para conferência.
+            {atualizadoEmLabel ? ` Atualizado às ${atualizadoEmLabel}.` : ''}
           </p>
         </div>
       )}
