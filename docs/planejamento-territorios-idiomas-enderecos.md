@@ -41,6 +41,7 @@ Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, 
 - grupos finalizados aparecem para admin com status visual proprio, e a execucao de enderecos fica bloqueada quando o grupo nao esta ativo;
 - botao de informacoes gerais no header com totais de territorios ativos, enderecos ativos e pessoas cadastradas, usando agregacoes `count`/`sum` do Firestore e cache curto em `sessionStorage`;
 - indice de agregacao versionado em `firestore.indexes.json` e publicado com `firebase deploy --project idiomas --only firestore:indexes`;
+- camada local de bairros urbanos de Sao Bento do Sul a partir do GeoJSON oficial GeoBensul/Prefeitura (`public/bairros-sbs.geojson`), com agrupamento visual dos territorios `T` por bairro e resumo de cobertos/faltantes;
 - `npm.cmd run lint`, `npm.cmd run build`, `firebase deploy --project idiomas --only firestore:indexes` e `npm.cmd run web:deploy` passaram em 2026-07-21.
 
 Ainda pendente para fechar o plano completo:
@@ -52,7 +53,6 @@ Ainda pendente para fechar o plano completo:
 - importador de enderecos idempotente para semear enderecos/grupos futuramente;
 - offline robusto para execucao de grupos, equivalente ao fluxo de territorios/quadras;
 - ajuda/manual do usuario para o novo fluxo.
-- evolucao futura de areas/bairros por poligonos, agrupando varios territorios de idioma para acompanhar quando a area inteira foi pregada.
 
 ## Decisao de modelo
 
@@ -233,7 +233,7 @@ Fluxos do admin/dirigente:
 - arquivar/reactivar endereco;
 - arquivar/reactivar grupo.
 
-Status: implementados selecionar enderecos sem grupo, criar grupo, remover endereco de grupo e arquivar/reativar endereco/grupo. O mapa ja trata `grupoId` e `grupoCodigo` como sinais de vinculo, inclusive para evitar selecao duplicada. Adicionar a grupo existente e mover entre grupos continuam pendentes.
+Status: implementados selecionar enderecos sem grupo, criar grupo, adicionar a grupo existente, remover endereco de grupo e arquivar/reativar endereco/grupo. O mapa ja trata `grupoId` e `grupoCodigo` como sinais de vinculo, inclusive para evitar selecao duplicada. Mover diretamente entre grupos continua pendente.
 
 No mapa:
 
@@ -386,7 +386,7 @@ Arquivos principais:
 - [x] Criar `grupos_enderecos`.
 - [x] Criar contador transacional `T-00X`.
 - [x] Criar grupo a partir de enderecos selecionados.
-- [ ] Parcial: vincular/remover/mover endereco entre grupos. Remover foi implementado; adicionar a grupo existente e mover continuam pendentes.
+- [ ] Parcial: vincular/remover/mover endereco entre grupos. Criar vinculo com grupo existente e remover foram implementados; mover diretamente entre grupos continua pendente.
 - [x] Calcular `totalEnderecos`, `totalEstrangeiros`, `centro`, `bounds`.
 - [x] Mostrar grupo no mapa.
 - [x] Exibir grupo por `grupoCodigo`/grupo sintetico quando o documento do grupo nao estiver carregado.
@@ -413,27 +413,22 @@ Arquivos principais:
 - [ ] Importador JSON idempotente.
 - [ ] Ajustar Ajuda/manual.
 
-### Evolucao futura - areas/bairros por poligonos
+### Camada local de bairros urbanos
 
-Depois do MVP de enderecos e grupos `T`, uma fase futura pode desenhar poligonos de bairros ou areas maiores no mapa. Esses poligonos nao substituem `grupos_enderecos`; eles funcionam como uma camada de gestao acima dos grupos, reunindo varios territorios de idioma dentro de uma mesma area.
+A camada de bairros urbanos de Sao Bento do Sul foi implementada como apoio visual acima dos territorios `T`, sem substituir `grupos_enderecos`.
 
-Objetivos dessa camada:
+Decisoes atuais:
 
-- agrupar visualmente varios territorios `T` por bairro/area;
-- calcular progresso consolidado da area a partir dos territorios ou enderecos vinculados;
-- indicar se o bairro esta disponivel, em andamento, aguardando finalizacao, finalizado ou parado ha muito tempo;
-- permitir que admin/dirigente veja rapidamente quais bairros precisam de prioridade;
-- reaproveitar a legenda de "Areas e bairros" do mapa, onde tons mais quentes indicam area disponivel com maior tempo parada.
+- usar o asset estatico `public/bairros-sbs.geojson`, baixado da camada oficial GeoBensul/Prefeitura `Limite de Bairros 2022`;
+- manter apenas os 21 bairros urbanos esperados, sem criar macro rural;
+- carregar/desenhar os poligonos no mapa atras dos territorios;
+- permitir mostrar/ocultar bairros pelos controles do mapa;
+- calcular resumo local por bairro a partir dos territorios nao arquivados;
+- contar territorio finalizado como coberto, territorio designado ou parcialmente visitado como em andamento, e os demais como faltantes;
+- vincular territorio ao bairro por `grupo.bairroId`/`grupo.bairroNome` quando existir, ou pelo `grupo.centro`/centro calculado dos enderecos;
+- manter a geometria e os vinculos somente em runtime por enquanto, sem criar colecao `areas_bairros`.
 
-Modelo a definir nessa fase:
-
-- colecao propria para areas/bairros, por exemplo `areas_bairros`;
-- geometria do poligono, preferencialmente GeoJSON;
-- vinculo automatico ou manual entre area e territorios `T`;
-- regras para considerar uma area inteira pregada: todos os grupos ativos finalizados, todos os enderecos visitados no ciclo, ou outro criterio definido pela congregacao;
-- historico por ciclo da area, separado do historico operacional de cada `grupo_enderecos`.
-
-Fora dessa fase futura, os marcadores atuais continuam sendo a verdade operacional em Idiomas: `E` para endereco e `T` para territorio de enderecos.
+Como nao houve persistencia nova no Firestore, esta camada nao exige deploy de `firestore.rules`. Para uma fase futura com ciclo/historico proprio de bairro, ai sim seria necessario definir colecao, rules e criterio oficial de conclusao da area.
 
 ## Fora do MVP
 

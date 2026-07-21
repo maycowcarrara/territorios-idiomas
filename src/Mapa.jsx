@@ -8,6 +8,13 @@ import { db } from './firebase';
 import { clearMapaDataCache, loadMapaData } from './mapData';
 import { getFeatureId } from './mapaUtils';
 import {
+    buildBairroId,
+    findBairroFeatureForPoint,
+    getBairroLeafletPositions,
+    loadBairrosSbsData,
+    normalizeBairroNome
+} from './bairrosSbs';
+import {
     buildBaseTerritorioDefaults,
     buildTerritorioStateMergeSeed,
     buildTerritorioStateSeed,
@@ -31,6 +38,7 @@ import { getGeoJsonBounds, getMapWarmProfile, scheduleTileWarm, warmMapTilesForB
 import { buildPublicAppRouteUrl } from './publicAppUrl';
 import { buildAppLocationUrl, buildGoogleMapsDirectionsUrl, buildGoogleMapsUrl, buildLocationShareText, buildWhatsAppShareUrl } from './shareLinks';
 import {
+    adicionarEnderecosAoGrupo,
     calculateGrupoEnderecoStats,
     createGrupoEnderecoManual,
     createEnderecoManual,
@@ -175,6 +183,46 @@ const mergeGrupoEnderecoRuntimeStats = (grupo, enderecosGrupo = []) => {
     };
 };
 
+const createEmptyBairroResumo = () => ({
+    total: 0,
+    cobertos: 0,
+    faltando: 0,
+    emAndamento: 0
+});
+
+const BAIRRO_SBS_COLOR_PALETTE = [
+    { fill: '#fecaca', border: '#dc2626', text: '#991b1b' },
+    { fill: '#fed7aa', border: '#ea580c', text: '#9a3412' },
+    { fill: '#fde68a', border: '#d97706', text: '#92400e' },
+    { fill: '#d9f99d', border: '#65a30d', text: '#3f6212' },
+    { fill: '#bbf7d0', border: '#16a34a', text: '#166534' },
+    { fill: '#99f6e4', border: '#0d9488', text: '#115e59' },
+    { fill: '#a7f3d0', border: '#059669', text: '#065f46' },
+    { fill: '#bae6fd', border: '#0284c7', text: '#075985' },
+    { fill: '#bfdbfe', border: '#2563eb', text: '#1d4ed8' },
+    { fill: '#c7d2fe', border: '#4f46e5', text: '#3730a3' },
+    { fill: '#ddd6fe', border: '#7c3aed', text: '#5b21b6' },
+    { fill: '#f5d0fe', border: '#c026d3', text: '#86198f' },
+    { fill: '#fbcfe8', border: '#db2777', text: '#9d174d' },
+    { fill: '#e9d5ff', border: '#9333ea', text: '#6b21a8' },
+    { fill: '#ccfbf1', border: '#0f766e', text: '#134e4a' },
+    { fill: '#cffafe', border: '#0891b2', text: '#155e75' },
+    { fill: '#e0f2fe', border: '#0369a1', text: '#075985' },
+    { fill: '#fef3c7', border: '#b45309', text: '#78350f' },
+    { fill: '#dcfce7', border: '#15803d', text: '#14532d' },
+    { fill: '#fae8ff', border: '#a21caf', text: '#701a75' },
+    { fill: '#ffe4e6', border: '#e11d48', text: '#9f1239' }
+];
+
+const getBairroSbsColor = (index) => (
+    BAIRRO_SBS_COLOR_PALETTE[index % BAIRRO_SBS_COLOR_PALETTE.length]
+);
+
+const formatPessoasCadastradasLabel = (total) => {
+    const totalSeguro = Math.max(0, Math.trunc(Number(total) || 0));
+    return `${totalSeguro} ${totalSeguro === 1 ? 'pessoa cadastrada' : 'pessoas cadastradas'}`;
+};
+
 // --- CSS ---
 const cssTooltip = `
   @keyframes gps-pulse {
@@ -203,6 +251,14 @@ const cssTooltip = `
   .map-group-marker.assigned { background: ${MAP_COLORS.grupoEndereco.designado.marker}; }
   .map-group-marker.finished { background: ${MAP_COLORS.grupoEndereco.finalizado.marker}; }
   .map-click-marker { width: 28px; height: 28px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.apoio.clique}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(37,99,235,0.35); font-size: 16px; line-height: 1; font-weight: 900; }
+  .leaflet-popup.bairro-sbs-popup .leaflet-popup-content-wrapper { padding: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 30px rgba(15,23,42,0.22); }
+  .leaflet-popup.bairro-sbs-popup .leaflet-popup-content { margin: 0; width: auto !important; }
+  .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button { top: 7px; right: 7px; width: 22px; height: 22px; border-radius: 999px; color: #64748b; font-size: 16px; line-height: 21px; transition: background-color 0.2s, color 0.2s; }
+  .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button:hover { background: rgba(15,23,42,0.08); color: #0f172a; }
+  .leaflet-popup.bairro-sbs-popup .leaflet-popup-tip { box-shadow: 0 8px 18px rgba(15,23,42,0.16); }
+  .address-admin-actions { display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); transition: grid-template-rows 180ms ease, opacity 160ms ease, transform 180ms ease; }
+  .address-admin-actions.open { grid-template-rows: 1fr; opacity: 1; transform: translateY(0); }
+  .address-admin-actions-inner { min-height: 0; overflow: hidden; }
   .control-hint { position: absolute; z-index: 20; top: 50%; transform: translateY(-50%); white-space: nowrap; border-radius: 999px; background: rgba(15,23,42,0.72); color: white; font-size: 11px; font-weight: 700; line-height: 1; padding: 7px 10px; box-shadow: 0 6px 16px rgba(15,23,42,0.18); pointer-events: none; animation: control-hint-fade 4s ease-in-out forwards; }
   .control-hint.left-side { left: 58px; }
   .control-hint.right-side { right: 58px; }
@@ -275,6 +331,16 @@ const calcularDistanciaMetros = (origem, destino) => {
     return 2 * raioTerra * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+const formatarDistanciaMetros = (metros) => {
+    const valor = Number(metros);
+    if (!Number.isFinite(valor)) return '';
+    if (valor < 1000) return `${Math.round(valor)} m`;
+
+    const quilometros = valor / 1000;
+    const casas = quilometros < 10 ? 1 : 0;
+    return `${quilometros.toFixed(casas).replace('.', ',')} km`;
+};
+
 const calcularRumo = (origem, destino) => {
     if (!origem || !destino) return null;
 
@@ -310,6 +376,12 @@ const MAP_INITIAL_CENTER = [
 ];
 const MAP_INITIAL_ZOOM = getEnvNumber('VITE_MAP_INITIAL_ZOOM', 14);
 const ADMIN_OFFLINE_MESSAGE = 'Você está offline. Ações administrativas precisam de conexão para evitar conflito de designações. Conecte-se para continuar.';
+const MAP_LONG_PRESS_DURATION_MS = 650;
+const MAP_LONG_PRESS_CLICK_SUPPRESSION_MS = 900;
+const MAPA_VISUALIZACAO = Object.freeze({
+    TERRITORIOS: 'territorios',
+    ENDERECOS: 'enderecos'
+});
 
 // --- DEEP LINK HANDLER ---
 const DeepLinkHandler = () => {
@@ -347,13 +419,19 @@ const DeepLinkHandler = () => {
 const SeletorCamadas = ({
     tipoMapa,
     setTipoMapa,
+    isAdmin,
+    modoVisualizacao,
+    onChangeModoVisualizacao,
     showRefs,
     setShowRefs,
     showCondos,
     setShowCondos,
+    showBairros,
+    setShowBairros,
     mostrarDicas,
     hasReferencias,
-    hasCondominios
+    hasCondominios,
+    hasBairros
 }) => {
     const controlsRef = useLeafletDomEventIsolation();
 
@@ -379,6 +457,31 @@ const SeletorCamadas = ({
 
     return (
         <div ref={controlsRef} className="absolute bottom-6 left-4 z-[400] flex flex-col gap-3" onClick={stopMapDomEvent}>
+            {isAdmin && (
+                <div className="relative">
+                    <div className="flex w-12 flex-col overflow-hidden rounded-lg border-2 border-white bg-white shadow-lg">
+                        <button
+                            type="button"
+                            onClick={() => onChangeModoVisualizacao(MAPA_VISUALIZACAO.TERRITORIOS)}
+                            className={`flex h-8 items-center justify-center text-xs font-black transition ${modoVisualizacao === MAPA_VISUALIZACAO.TERRITORIOS ? 'bg-indigo-700 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                            title="Ver territórios"
+                            aria-label="Ver territórios"
+                        >
+                            T
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onChangeModoVisualizacao(MAPA_VISUALIZACAO.ENDERECOS)}
+                            className={`flex h-8 items-center justify-center border-t border-slate-100 text-xs font-black transition ${modoVisualizacao === MAPA_VISUALIZACAO.ENDERECOS ? 'bg-teal-700 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                            title="Ver endereços"
+                            aria-label="Ver endereços"
+                        >
+                            E
+                        </button>
+                    </div>
+                    {mostrarDicas && <span className="control-hint left-side">Visão do mapa</span>}
+                </div>
+            )}
             {hasReferencias && (
                 <div className="relative">
                     <button onClick={() => setShowRefs(!showRefs)} className={`w-12 h-12 rounded-lg bg-white shadow-lg flex items-center justify-center border-2 transition-all ${showRefs ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-400'}`} title="Mostrar/Ocultar Pontos de Referência">📍</button>
@@ -389,6 +492,12 @@ const SeletorCamadas = ({
                 <div className="relative">
                     <button onClick={() => setShowCondos(!showCondos)} className={`w-12 h-12 rounded-lg bg-white shadow-lg flex items-center justify-center border-2 transition-all ${showCondos ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-400'}`} title="Mostrar/Ocultar Condomínios">🏢</button>
                     {mostrarDicas && <span className="control-hint left-side">Condomínios</span>}
+                </div>
+            )}
+            {hasBairros && (
+                <div className="relative">
+                    <button onClick={() => setShowBairros(!showBairros)} className={`w-12 h-12 rounded-lg bg-white shadow-lg flex items-center justify-center border-2 text-lg font-black transition-all ${showBairros ? 'border-teal-500 text-teal-700' : 'border-transparent text-gray-400'}`} title="Mostrar/Ocultar bairros urbanos">▦</button>
+                    {mostrarDicas && <span className="control-hint left-side">Bairros urbanos</span>}
                 </div>
             )}
             <div className="relative">
@@ -752,7 +861,7 @@ const ControlesNavegacao = ({
     );
 };
 
-const MarcadorUsuario = ({ posicao, direcao }) => {
+const MarcadorUsuario = ({ posicao, direcao, canCreate = false, onCreate }) => {
     const [posicaoAnimada, setPosicaoAnimada] = useState(posicao);
     const frameAnimacaoRef = useRef(null);
     const posicaoAnimadaRef = useRef(posicao);
@@ -850,15 +959,27 @@ const MarcadorUsuario = ({ posicao, direcao }) => {
         window.open(buildWhatsAppShareUrl(text), '_blank');
     };
 
+    const cadastrarEnderecoAqui = () => {
+        onCreate?.({
+            lat: posicaoExibida.lat,
+            lng: posicaoExibida.lng
+        });
+    };
+
     return (
         <Marker position={posicaoExibida} icon={iconeGPS}>
             <Popup>
-                <div className="text-center p-1">
+                <div className="flex min-w-[190px] flex-col gap-2 p-1 text-center">
                     <p className="font-bold text-sm mb-2 text-gray-700">Você está aqui</p>
                     <button onClick={compartilharLocalizacao} className="popup-btn-action bg-blue-600 text-white hover:bg-blue-700 text-xs py-1 px-3 shadow-md">
                         <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z" /></svg>
                         Compartilhar Local
                     </button>
+                    {canCreate && (
+                        <button onClick={cadastrarEnderecoAqui} className="popup-btn-action bg-teal-700 text-white hover:bg-teal-800 text-xs py-1 px-3 shadow-md">
+                            Cadastrar endereço
+                        </button>
+                    )}
                 </div>
             </Popup>
         </Marker>
@@ -1028,10 +1149,13 @@ const getEnderecoInitialForm = (endereco, ponto) => ({
     quantidadeEstrangeiros: String(endereco?.quantidadeEstrangeiros ?? 1),
     observacao: endereco?.observacao || '',
     lat: endereco?.lat ?? ponto?.lat ?? '',
-    lng: endereco?.lng ?? ponto?.lng ?? ''
+    lng: endereco?.lng ?? ponto?.lng ?? '',
+    grupoEscolha: '',
+    grupoNome: ''
 });
 
-const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, loading, onClose, onSubmit }) => {
+const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = [], loading, onClose, onSubmit }) => {
+    const modalRef = useLeafletDomEventIsolation();
     const [form, setForm] = useState(getEnderecoInitialForm(endereco, ponto));
 
     useEffect(() => {
@@ -1062,8 +1186,15 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, loading, onClose, on
     };
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{ zIndex: 9999 }}>
-            <form onSubmit={handleSubmit} className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div
+            ref={modalRef}
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+            style={{ zIndex: 9999 }}
+            onClick={stopMapDomEvent}
+            onMouseDown={stopMapDomEvent}
+            onTouchStart={stopMapDomEvent}
+        >
+            <form onSubmit={handleSubmit} className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl" onClick={stopMapDomEvent}>
                 <div className="bg-teal-700 px-4 py-3">
                     <h3 className="text-lg font-bold text-white">{titulo}</h3>
                 </div>
@@ -1071,6 +1202,38 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, loading, onClose, on
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
                         Lat {Number(form.lat).toFixed(6)} · Lng {Number(form.lng).toFixed(6)}
                     </div>
+                    {!isEdit && (
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Território</span>
+                            <select
+                                value={form.grupoEscolha}
+                                onChange={handleChange('grupoEscolha')}
+                                disabled={loading}
+                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                            >
+                                <option value="">Sem território por enquanto</option>
+                                <option value="__novo__">Criar novo território com este endereço</option>
+                                {gruposDisponiveis.map((grupo) => (
+                                    <option key={grupo.id} value={grupo.id}>
+                                        {grupo.codigoExibicao}{grupo.distanciaExibicao ? ` · ${grupo.distanciaExibicao}` : ''} · {grupo.totalEnderecos} endereço(s) · {grupo.nomeExibicao}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
+                    {!isEdit && form.grupoEscolha === '__novo__' && (
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
+                            <input
+                                value={form.grupoNome}
+                                onChange={handleChange('grupoNome')}
+                                maxLength={120}
+                                disabled={loading}
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                placeholder="Ex.: Jardim São João"
+                            />
+                        </label>
+                    )}
                     <label className="block">
                         <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Endereço</span>
                         <input
@@ -1130,13 +1293,17 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, loading, onClose, on
     );
 };
 
-const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, loading, onClose, onSubmit }) => {
+const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, gruposDisponiveis, loading, onClose, onSubmit }) => {
     const [nome, setNome] = useState('');
+    const [modo, setModo] = useState('novo');
+    const [grupoIdSelecionado, setGrupoIdSelecionado] = useState('');
 
     useEffect(() => {
         if (!isOpen) return;
         setNome('');
-    }, [isOpen]);
+        setModo(gruposDisponiveis.length ? 'existente' : 'novo');
+        setGrupoIdSelecionado(gruposDisponiveis[0]?.id || '');
+    }, [gruposDisponiveis, isOpen]);
 
     if (!isOpen) return null;
 
@@ -1144,30 +1311,66 @@ const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, loading, onClose, o
 
     const handleSubmit = (event) => {
         event.preventDefault();
-        onSubmit({ nome });
+        onSubmit({ modo, nome, grupoId: grupoIdSelecionado });
     };
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{ zIndex: 9999 }}>
             <form onSubmit={handleSubmit} className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl">
                 <div className="bg-indigo-700 px-4 py-3">
-                    <h3 className="text-lg font-bold text-white">Criar território</h3>
+                    <h3 className="text-lg font-bold text-white">Vincular a território</h3>
                 </div>
                 <div className="space-y-3 p-4">
                     <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800">
                         {selectedEnderecos.length} endereço(s) · {totalEstrangeiros} estrangeiro(s)
                     </div>
-                    <label className="block">
-                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
-                        <input
-                            value={nome}
-                            onChange={(event) => setNome(event.target.value)}
-                            maxLength={120}
+                    <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-1">
+                        <button
+                            type="button"
+                            onClick={() => setModo('existente')}
+                            disabled={loading || !gruposDisponiveis.length}
+                            className={`rounded-md px-3 py-2 text-xs font-extrabold transition disabled:cursor-not-allowed disabled:opacity-45 ${modo === 'existente' ? 'bg-white text-indigo-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Existente
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setModo('novo')}
                             disabled={loading}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
-                            placeholder="Ex.: Jardim São João"
-                        />
-                    </label>
+                            className={`rounded-md px-3 py-2 text-xs font-extrabold transition disabled:opacity-45 ${modo === 'novo' ? 'bg-white text-indigo-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Novo
+                        </button>
+                    </div>
+                    {modo === 'existente' ? (
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Território existente</span>
+                            <select
+                                value={grupoIdSelecionado}
+                                onChange={(event) => setGrupoIdSelecionado(event.target.value)}
+                                disabled={loading || !gruposDisponiveis.length}
+                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
+                            >
+                                {gruposDisponiveis.map((grupo) => (
+                                    <option key={grupo.id} value={grupo.id}>
+                                        {grupo.codigoExibicao} · {grupo.totalEnderecos} endereço(s) · {grupo.nomeExibicao}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    ) : (
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
+                            <input
+                                value={nome}
+                                onChange={(event) => setNome(event.target.value)}
+                                maxLength={120}
+                                disabled={loading}
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
+                                placeholder="Ex.: Jardim São João"
+                            />
+                        </label>
+                    )}
                     <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2">
                         {selectedEnderecos.map((endereco) => (
                             <div key={endereco.id} className="border-b border-slate-200 py-1 text-xs last:border-0">
@@ -1188,10 +1391,10 @@ const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, loading, onClose, o
                     </button>
                     <button
                         type="submit"
-                        disabled={loading || selectedEnderecos.length === 0}
+                        disabled={loading || selectedEnderecos.length === 0 || (modo === 'existente' && !grupoIdSelecionado)}
                         className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800 disabled:cursor-wait disabled:opacity-70"
                     >
-                        {loading ? 'Criando...' : 'Criar território'}
+                        {loading ? 'Salvando...' : modo === 'existente' ? 'Vincular' : 'Criar território'}
                     </button>
                 </div>
             </form>
@@ -1339,6 +1542,10 @@ const EnderecoMarker = ({
     const arquivado = endereco.status === ENDERECO_STATUS.ARQUIVADO;
     const agrupado = Boolean(endereco.grupoId || endereco.grupoCodigo);
     const codigoExibicao = formatEnderecoCodigoExibicao(endereco.codigo || endereco.id);
+    const grupoCodigoExibicao = endereco.grupoCodigo ? formatGrupoEnderecoCodigoExibicao(endereco.grupoCodigo) : '';
+    const statusLabel = arquivado ? 'Arquivado' : focusMode ? isVisited ? 'Pregado' : 'Pendente' : 'Ativo';
+    const isPublicadorEmExecucao = !isAdmin && focusMode;
+    const toggleVisitadoLabel = isVisited ? 'Desmarcar' : 'Marcar pregado';
     const [menuAberto, setMenuAberto] = useState(false);
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
@@ -1358,117 +1565,143 @@ const EnderecoMarker = ({
                 {codigoExibicao}
             </Tooltip>
             <Popup>
-                <div className="flex min-w-[230px] flex-col gap-1.5 p-1">
-                    <div className="relative border-b border-slate-200 pb-1.5 text-center">
-                        {isAdmin && (
-                            <div className="absolute right-0 top-0">
-                                <button
-                                    type="button"
-                                    onClick={() => setMenuAberto((aberto) => !aberto)}
-                                    className="flex h-6 w-6 items-center justify-center rounded-full text-sm font-black leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                                    title="Mais opções"
-                                    aria-label="Mais opções do endereço"
-                                >
-                                    ...
-                                </button>
-                                {menuAberto && (
-                                    <div className="absolute right-0 top-7 z-[10000] w-44 rounded-lg border border-slate-200 bg-white p-1 text-left shadow-xl">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setMenuAberto(false);
-                                                onEdit(endereco);
-                                            }}
-                                            disabled={!isOnline}
-                                            className="w-full rounded-md px-2 py-1.5 text-left text-xs font-bold text-teal-700 transition hover:bg-teal-50 disabled:opacity-50"
-                                        >
-                                            Editar dados
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setMenuAberto(false);
-                                                onToggleArchive(endereco);
-                                            }}
-                                            disabled={!isOnline}
-                                            className={`w-full rounded-md px-2 py-1.5 text-left text-xs font-bold transition disabled:opacity-50 ${arquivado ? 'text-emerald-700 hover:bg-emerald-50' : 'text-amber-700 hover:bg-amber-50'}`}
-                                        >
-                                            {arquivado ? 'Reativar endereço' : 'Arquivar endereço'}
-                                        </button>
-                                        {!arquivado && canSelect && (
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setMenuAberto(false);
-                                                    onToggleSelect(endereco);
-                                                }}
-                                                disabled={!isOnline}
-                                                className={`w-full rounded-md px-2 py-1.5 text-left text-xs font-bold transition disabled:opacity-50 ${isSelected ? 'text-amber-700 hover:bg-amber-50' : 'text-indigo-700 hover:bg-indigo-50'}`}
-                                            >
-                                                {isSelected ? 'Remover da seleção' : 'Selecionar para território'}
-                                            </button>
-                                        )}
-                                        {!arquivado && endereco.grupoId && (
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setMenuAberto(false);
-                                                    onRemoveFromGroup(endereco);
-                                                }}
-                                                disabled={!isOnline}
-                                                className="w-full rounded-md px-2 py-1.5 text-left text-xs font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-                                            >
-                                                Remover do território
-                                            </button>
-                                        )}
+                <div className="flex min-w-[250px] max-w-[270px] flex-col gap-2 p-1">
+                    <div className="border-b border-slate-200 pb-2">
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-lg font-black leading-none text-slate-800">{codigoExibicao}</span>
+                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : focusMode && isVisited ? 'bg-emerald-50 text-emerald-700' : 'bg-teal-50 text-teal-700'}`}>
+                                        {statusLabel}
+                                    </span>
+                                </div>
+                                {grupoCodigoExibicao && (
+                                    <div className="mt-1.5 inline-flex max-w-full items-center rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-black leading-none text-indigo-700">
+                                        Território {grupoCodigoExibicao}
                                     </div>
                                 )}
                             </div>
-                        )}
-                        <div className="flex items-center justify-center gap-1.5">
-                            <span className="text-base font-extrabold leading-none text-slate-800">{codigoExibicao}</span>
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : focusMode && isVisited ? 'bg-emerald-50 text-emerald-700' : 'bg-teal-50 text-teal-700'}`}>
-                                {arquivado ? 'Arquivado' : focusMode ? isVisited ? 'Pregado' : 'Pendente' : 'Ativo'}
-                            </span>
+                            {isAdmin && (
+                                <button
+                                    type="button"
+                                    onClick={() => setMenuAberto((aberto) => !aberto)}
+                                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-black leading-none transition ${menuAberto ? 'border-slate-400 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800'}`}
+                                    title="Mais opções"
+                                    aria-label="Mais opções do endereço"
+                                    aria-expanded={menuAberto}
+                                >
+                                    ...
+                                </button>
+                            )}
                         </div>
-                        {endereco.grupoCodigo && (
-                            <div className="mt-1 text-[11px] font-bold leading-tight text-indigo-700">Território {formatGrupoEnderecoCodigoExibicao(endereco.grupoCodigo)}</div>
-                        )}
                     </div>
-                    <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                        <div className="font-semibold leading-snug">{endereco.endereco || 'Sem endereço informado'}</div>
-                        <div className="mt-1 text-xs font-semibold text-slate-500">{endereco.quantidadeEstrangeiros || 0} estrangeiro(s)</div>
-                        {endereco.observacao && (
-                            <div className="mt-1.5 whitespace-pre-line rounded-md bg-white px-2 py-1.5 text-xs leading-snug text-slate-600">{endereco.observacao}</div>
-                        )}
+
+                    {isAdmin && (
+                        <div className={`address-admin-actions ${menuAberto ? 'open' : ''}`} aria-hidden={!menuAberto}>
+                            <div className="address-admin-actions-inner">
+                                <div className="rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setMenuAberto(false);
+                                            onEdit(endereco);
+                                        }}
+                                        disabled={!isOnline || !menuAberto}
+                                        className="w-full rounded-md px-3 py-2 text-left text-xs font-extrabold text-teal-700 transition hover:bg-teal-50 disabled:opacity-50"
+                                    >
+                                        Editar dados
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setMenuAberto(false);
+                                            onToggleArchive(endereco);
+                                        }}
+                                        disabled={!isOnline || !menuAberto}
+                                        className={`w-full rounded-md px-3 py-2 text-left text-xs font-extrabold transition disabled:opacity-50 ${arquivado ? 'text-emerald-700 hover:bg-emerald-50' : 'text-amber-700 hover:bg-amber-50'}`}
+                                    >
+                                        {arquivado ? 'Reativar endereço' : 'Arquivar endereço'}
+                                    </button>
+                                    {!arquivado && canSelect && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setMenuAberto(false);
+                                                onToggleSelect(endereco);
+                                            }}
+                                            disabled={!isOnline || !menuAberto}
+                                            className={`w-full rounded-md px-3 py-2 text-left text-xs font-extrabold transition disabled:opacity-50 ${isSelected ? 'text-amber-700 hover:bg-amber-50' : 'text-indigo-700 hover:bg-indigo-50'}`}
+                                        >
+                                            {isSelected ? 'Remover da seleção' : 'Selecionar para território'}
+                                        </button>
+                                    )}
+                                    {!arquivado && endereco.grupoId && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setMenuAberto(false);
+                                                onRemoveFromGroup(endereco);
+                                            }}
+                                            disabled={!isOnline || !menuAberto}
+                                            className="w-full rounded-md px-3 py-2 text-left text-xs font-extrabold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                                        >
+                                            Remover do território
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                        <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Endereço</div>
+                        <div className="mt-1 font-semibold leading-snug">{endereco.endereco || 'Sem endereço informado'}</div>
+                        <div className="mt-1.5 text-xs font-semibold text-slate-500">{formatPessoasCadastradasLabel(endereco.quantidadeEstrangeiros)}</div>
                     </div>
+                    {endereco.observacao && (
+                        <div className="rounded-lg border border-slate-100 bg-white px-3 py-2">
+                            <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Observação</div>
+                            <div className="mt-1 whitespace-pre-line text-xs font-medium leading-snug text-slate-600">{endereco.observacao}</div>
+                        </div>
+                    )}
                     {focusMode ? (
-                        <div className="grid grid-cols-2 gap-1.5">
+                        <div className={`grid gap-1.5 ${isPublicadorEmExecucao ? 'grid-cols-[1.35fr_1fr]' : 'grid-cols-2'}`}>
+                            {isPublicadorEmExecucao && (
+                                <button
+                                    onClick={() => onToggleVisited(endereco)}
+                                    disabled={!canMarkVisited}
+                                    className={`rounded-lg px-3 py-2 text-xs font-extrabold transition disabled:opacity-50 ${isVisited ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                                >
+                                    {toggleVisitadoLabel}
+                                </button>
+                            )}
                             <button
                                 onClick={() => onNavigate(endereco)}
-                                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-blue-700"
+                                className={`rounded-lg px-3 py-2 text-xs font-extrabold transition ${isPublicadorEmExecucao ? 'border border-blue-200 bg-white text-blue-700 hover:bg-blue-50' : 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
                             >
                                 Navegar
                             </button>
-                            <button
-                                onClick={() => onToggleVisited(endereco)}
-                                disabled={!canMarkVisited}
-                                className={`rounded-lg px-3 py-2 text-xs font-extrabold transition disabled:opacity-50 ${isVisited ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
-                            >
-                                {isVisited ? 'Desmarcar' : 'Marcar pregado'}
-                            </button>
+                            {!isPublicadorEmExecucao && (
+                                <button
+                                    onClick={() => onToggleVisited(endereco)}
+                                    disabled={!canMarkVisited}
+                                    className={`rounded-lg px-3 py-2 text-xs font-extrabold transition disabled:opacity-50 ${isVisited ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                                >
+                                    {toggleVisitadoLabel}
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <button
                             onClick={() => onNavigate(endereco)}
-                            className="popup-btn-action bg-blue-600 text-white hover:bg-blue-700"
+                            className={`rounded-lg px-3 py-2 text-xs font-extrabold transition ${isAdmin ? 'border border-blue-200 bg-white text-blue-700 hover:bg-blue-50' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
                         >
                             Navegar
                         </button>
                     )}
                     <button
                         onClick={() => onShare(endereco)}
-                        className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-400 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-600"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
                     >
                         Compartilhar localização
                     </button>
@@ -1604,6 +1837,111 @@ const FocoGrupoEnderecoMapController = ({ grupoId, enderecos }) => {
     return null;
 };
 
+const BairroSbsLayer = ({ bairrosGeoJson, resumoPorBairro, onLongPressStart, onLongPressEnd, shouldIgnoreClick }) => {
+    const features = bairrosGeoJson?.features || [];
+
+    return (
+        <>
+            {features.map((feature, index) => {
+                const bairroId = feature.properties.bairroId;
+                const nome = feature.properties.bairroNome;
+                const resumo = resumoPorBairro.get(bairroId) || createEmptyBairroResumo();
+                const positions = getBairroLeafletPositions(feature);
+                const colors = getBairroSbsColor(index);
+                const completo = resumo.total > 0 && resumo.faltando === 0;
+                const temAndamento = resumo.emAndamento > 0;
+                const percentual = resumo.total > 0
+                    ? Math.round((resumo.cobertos / resumo.total) * 100)
+                    : 0;
+                const pathOptions = {
+                    color: colors.border,
+                    fillColor: colors.fill,
+                    weight: completo ? 2.6 : temAndamento ? 2.2 : 1.6,
+                    opacity: resumo.total > 0 ? 0.88 : 0.62,
+                    fillOpacity: resumo.total > 0 ? 0.24 : 0.11,
+                    dashArray: resumo.total > 0 ? undefined : '7 8'
+                };
+
+                return (
+                    <Polygon
+                        key={bairroId}
+                        positions={positions}
+                        pathOptions={pathOptions}
+                        eventHandlers={{
+                            mousedown: onLongPressStart,
+                            touchstart: onLongPressStart,
+                            mouseup: onLongPressEnd,
+                            touchend: onLongPressEnd,
+                            touchcancel: onLongPressEnd,
+                            click: (event) => {
+                                if (shouldIgnoreClick?.()) {
+                                    if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
+                                    event.target?.closePopup?.();
+                                    return;
+                                }
+
+                                if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
+                            }
+                        }}
+                    >
+                        <Popup className="bairro-sbs-popup">
+                            <div className="min-w-[220px] max-w-[235px] bg-white">
+                                <div className="h-1" style={{ backgroundColor: colors.border }} />
+                                <div className="px-3 pb-3 pt-2.5">
+                                    <div className="flex items-start gap-2 pr-6">
+                                        <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colors.border }} />
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-black leading-tight text-slate-800">{nome}</div>
+                                            <div className="mt-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Bairro urbano</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-2">
+                                        <div className="flex items-center justify-between gap-3 text-xs font-extrabold">
+                                            <span style={{ color: colors.text }}>{resumo.cobertos}/{resumo.total} cobertos</span>
+                                            <span className="text-slate-500">{percentual}%</span>
+                                        </div>
+                                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                            <div
+                                                className="h-full rounded-full transition-all duration-500"
+                                                style={{
+                                                    width: `${percentual}%`,
+                                                    backgroundColor: colors.border
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-2 grid grid-cols-3 overflow-hidden rounded-lg border border-slate-100 text-center">
+                                        <div className="bg-white px-2 py-1.5">
+                                            <div className="text-[9px] font-black uppercase leading-none text-slate-400">Total</div>
+                                            <div className="mt-1 text-base font-black leading-none text-slate-800">{resumo.total}</div>
+                                        </div>
+                                        <div className="border-x border-slate-100 bg-white px-2 py-1.5">
+                                            <div className="text-[9px] font-black uppercase leading-none text-emerald-600">Cobertos</div>
+                                            <div className="mt-1 text-base font-black leading-none text-emerald-700">{resumo.cobertos}</div>
+                                        </div>
+                                        <div className="bg-white px-2 py-1.5">
+                                            <div className="text-[9px] font-black uppercase leading-none text-amber-600">Faltam</div>
+                                            <div className="mt-1 text-base font-black leading-none text-amber-700">{resumo.faltando}</div>
+                                        </div>
+                                    </div>
+
+                                    {resumo.emAndamento > 0 && (
+                                        <div className="mt-2 rounded-md bg-blue-50 px-2 py-1.5 text-center text-xs font-extrabold text-blue-700">
+                                            {resumo.emAndamento} em andamento
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </Popup>
+                    </Polygon>
+                );
+            })}
+        </>
+    );
+};
+
 const GrupoEnderecoLayer = ({
     grupo,
     user,
@@ -1626,6 +1964,7 @@ const GrupoEnderecoLayer = ({
     const finalizado = grupo.status === GRUPO_ENDERECO_STATUS.FINALIZADO;
     const designado = Boolean(grupo.designadoPara);
     const progresso = getGrupoEnderecoProgresso(grupo);
+    const statusLabel = arquivado ? 'Arquivado' : finalizado ? 'Finalizado' : designado ? 'Designado' : 'Ativo';
     const visitados = new Set(grupo.enderecos_visitados || []);
     const userEmail = normalizeEmailValue(user?.email);
     const isMeu = normalizeEmailValue(grupo.designadoPara) === userEmail;
@@ -1769,149 +2108,152 @@ const GrupoEnderecoLayer = ({
                         {codigoExibicao}
                     </Tooltip>
                     <Popup>
-                        <div className="flex min-w-[230px] flex-col gap-1.5 p-1">
-                            <div className="relative border-b border-slate-200 pb-1.5">
-                                {isAdmin && (
-                                    <div className="absolute right-0 top-0">
+                        <div className="flex min-w-[260px] max-w-[285px] flex-col gap-2 p-1">
+                            <div className="border-b border-slate-200 pb-2">
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className="text-lg font-black leading-none text-slate-800">{codigoExibicao}</span>
+                                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : finalizado ? 'bg-emerald-50 text-emerald-700' : designado ? 'bg-blue-50 text-blue-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                                                {statusLabel}
+                                            </span>
+                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black leading-none text-slate-600">
+                                                {totalEnderecosResumo} end.
+                                            </span>
+                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black leading-none text-slate-600">
+                                                {totalEstrangeirosResumo} pess.
+                                            </span>
+                                        </div>
+                                        <div className="mt-1.5 text-xs font-semibold leading-tight text-slate-600">{nomeExibicao}</div>
+                                    </div>
+                                    {isAdmin && (
                                         <button
                                             type="button"
                                             onClick={() => setMenuAberto((aberto) => !aberto)}
                                             disabled={loadingAction}
-                                            className="flex h-6 w-6 items-center justify-center rounded-full text-sm font-black leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-black leading-none transition disabled:opacity-50 ${menuAberto ? 'border-slate-400 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800'}`}
                                             title="Mais opções"
                                             aria-label="Mais opções do território"
+                                            aria-expanded={menuAberto}
                                         >
                                             ...
                                         </button>
-                                        {menuAberto && (
-                                            <div className="absolute right-0 top-7 z-[10000] w-36 rounded-lg border border-slate-200 bg-white p-1 text-left shadow-xl">
-                                                <button
-                                                    type="button"
-                                                    onClick={alternarArquivoPeloMenu}
-                                                    disabled={!isOnline || loadingAction}
-                                                    className={`w-full rounded-md px-2 py-1.5 text-left text-xs font-bold transition disabled:opacity-50 ${arquivado ? 'text-emerald-700 hover:bg-emerald-50' : 'text-amber-700 hover:bg-amber-50'}`}
-                                                >
-                                                    {arquivado ? 'Reativar território' : 'Arquivar território'}
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                                <div className="flex items-center justify-center gap-1.5">
-                                    <span className="text-base font-extrabold leading-none text-slate-800">{codigoExibicao}</span>
-                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : finalizado ? 'bg-emerald-50 text-emerald-700' : designado ? 'bg-blue-50 text-blue-700' : 'bg-indigo-50 text-indigo-700'}`}>
-                                        {arquivado ? 'Arquivado' : finalizado ? 'Finalizado' : designado ? 'Designado' : 'Ativo'}
-                                    </span>
-                                </div>
-                                <div className="mt-1.5 text-center text-xs font-semibold leading-tight text-slate-600">{nomeExibicao}</div>
-                                <div className="mt-1 grid grid-cols-2 gap-1">
-                                    <div className="rounded-md bg-slate-50 px-2 py-0.5 text-center">
-                                        <span className="block text-[10px] font-bold uppercase leading-tight text-slate-400">Endereços</span>
-                                        <span className="text-sm font-extrabold leading-tight text-slate-700">{totalEnderecosResumo}</span>
-                                    </div>
-                                    <div className="rounded-md bg-slate-50 px-2 py-0.5 text-center">
-                                        <span className="block text-[10px] font-bold uppercase leading-tight text-slate-400">Estrangeiros</span>
-                                        <span className="text-sm font-extrabold leading-tight text-slate-700">{totalEstrangeirosResumo}</span>
-                                    </div>
+                                    )}
                                 </div>
                             </div>
-                            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                                <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-gray-600">
-                                    <span>{progresso.visitadosExibicao} de {progresso.totalEnderecos} visitados</span>
+
+                            {isAdmin && (
+                                <div className={`address-admin-actions ${menuAberto ? 'open' : ''}`} aria-hidden={!menuAberto}>
+                                    <div className="address-admin-actions-inner">
+                                        <div className="rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                                            <button
+                                                type="button"
+                                                onClick={alternarArquivoPeloMenu}
+                                                disabled={!isOnline || loadingAction || !menuAberto}
+                                                className={`w-full rounded-md px-3 py-2 text-left text-xs font-extrabold transition disabled:opacity-50 ${arquivado ? 'text-emerald-700 hover:bg-emerald-50' : 'text-amber-700 hover:bg-amber-50'}`}
+                                            >
+                                                {arquivado ? 'Reativar território' : 'Arquivar território'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-1.5">
+                                <div className="flex items-center justify-between gap-3 text-xs font-extrabold text-slate-600">
+                                    <span>{progresso.visitadosExibicao}/{progresso.totalEnderecos} endereços pregados</span>
                                     <span>{progresso.percentualExibicao}%</span>
                                 </div>
-                                <div className="h-2 overflow-hidden rounded-full bg-gray-200">
+                                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white shadow-inner">
                                     <div
-                                        className={`h-full rounded-full transition-all duration-500 ${progresso.isFinalizado ? 'bg-green-500' : 'bg-indigo-600'}`}
+                                        className={`h-full rounded-full transition-all duration-500 ${progresso.isFinalizado ? 'bg-emerald-500' : 'bg-indigo-600'}`}
                                         style={{ width: `${progresso.percentualExibicao}%` }}
-                                    ></div>
+                                    />
                                 </div>
                             </div>
-                            {isAdmin && (
-                                <>
-                                    {!arquivado && (
-                                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                                            {mensagemDesignacaoPronta ? (
-                                                <div className="flex flex-col gap-2">
-                                                    <div className="rounded-md bg-green-100 p-2 text-center text-xs font-bold text-green-700">
-                                                        Designado para {mensagemDesignacaoPronta.nome}
-                                                    </div>
+
+                            {isAdmin && !arquivado && (
+                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                                    <div className="mb-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Designação</div>
+                                    {mensagemDesignacaoPronta ? (
+                                        <div className="flex flex-col gap-2">
+                                            <div className="rounded-md bg-green-100 px-2 py-1.5 text-center text-xs font-bold text-green-700">
+                                                Designado para {mensagemDesignacaoPronta.nome}
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={abrirWhatsappDesignacao}
+                                                className="rounded-lg bg-green-600 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-green-700"
+                                            >
+                                                {mensagemDesignacaoPronta.whatsapp ? 'Enviar no WhatsApp' : 'Compartilhar link'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setMensagemDesignacaoPronta(null)}
+                                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-500 transition hover:bg-slate-50"
+                                            >
+                                                Voltar
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {designado ? (
+                                                <div className="mb-2 rounded-md border border-blue-100 bg-blue-50 px-2 py-1.5">
+                                                    <div className="text-[10px] font-black uppercase text-blue-500">Com responsável</div>
+                                                    <div className="mt-0.5 truncate text-xs font-extrabold text-blue-800">{grupo.designadoNome || grupo.designadoPara}</div>
                                                     <button
                                                         type="button"
-                                                        onClick={abrirWhatsappDesignacao}
-                                                        className="popup-btn-action bg-green-600 text-white hover:bg-green-700"
+                                                        onClick={enviarWhatsappResponsavelAtual}
+                                                        className="mt-2 w-full rounded-lg bg-green-600 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-green-700"
                                                     >
-                                                        {mensagemDesignacaoPronta.whatsapp ? 'Enviar no WhatsApp' : 'Compartilhar link'}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setMensagemDesignacaoPronta(null)}
-                                                        className="text-center text-xs font-semibold text-slate-400 underline"
-                                                    >
-                                                        Voltar
+                                                        {buildMensagemResponsavelAtual().whatsapp ? 'Enviar no WhatsApp' : 'Compartilhar link'}
                                                     </button>
                                                 </div>
                                             ) : (
-                                                <>
-                                                    {designado ? (
-                                                        <div className="mb-2 rounded-md border border-blue-100 bg-blue-50 p-2 text-center">
-                                                            <div className="text-[10px] font-black uppercase text-blue-500">Território com</div>
-                                                            <div className="mt-0.5 text-xs font-extrabold text-blue-800">{grupo.designadoNome || grupo.designadoPara}</div>
-                                                            <button
-                                                                type="button"
-                                                                onClick={enviarWhatsappResponsavelAtual}
-                                                                className="popup-btn-action mt-2 bg-green-600 text-white hover:bg-green-700"
-                                                            >
-                                                                {buildMensagemResponsavelAtual().whatsapp ? 'Enviar no WhatsApp' : 'Compartilhar link'}
-                                                            </button>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="mb-2 text-center text-[11px] font-bold uppercase text-slate-500">
-                                                            Sem responsável
-                                                        </div>
-                                                    )}
-                                                    <select
-                                                        className="mb-2 w-full rounded-md border border-slate-300 bg-white p-2 text-xs outline-none disabled:bg-slate-100"
-                                                        value={usuarioSelecionado}
-                                                        onChange={(event) => {
-                                                            setUsuarioSelecionado(event.target.value);
-                                                            setMensagemDesignacaoPronta(null);
-                                                        }}
-                                                        disabled={loadingAction || !isOnline}
-                                                    >
-                                                        <option value="">-- escolher publicador --</option>
-                                                        {listaUsuarios.map((usuario) => (
-                                                            <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
-                                                        ))}
-                                                    </select>
-                                                    <button
-                                                        onClick={() => executarAcaoGrupo(designarTerritorio)}
-                                                        disabled={!usuarioSelecionado || loadingAction || !isOnline}
-                                                        className="popup-btn-action bg-indigo-700 text-white hover:bg-indigo-800 disabled:opacity-50"
-                                                    >
-                                                        {loadingAction ? 'Salvando...' : 'Designar território'}
-                                                    </button>
-                                                    {grupo.designadoPara && (
-                                                        <button
-                                                            onClick={() => executarAcaoGrupo(() => onDevolver(grupo))}
-                                                            disabled={loadingAction || !isOnline}
-                                                            className="popup-btn-action mt-2 border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50"
-                                                        >
-                                                            Devolver território
-                                                        </button>
-                                                    )}
-                                                </>
+                                                <div className="mb-2 rounded-md border border-slate-100 bg-white px-2 py-1.5 text-center text-xs font-extrabold text-slate-500">
+                                                    Sem responsável
+                                                </div>
                                             )}
-                                        </div>
+                                            <select
+                                                className="mb-2 w-full rounded-lg border border-slate-300 bg-white p-2 text-xs font-semibold outline-none disabled:bg-slate-100"
+                                                value={usuarioSelecionado}
+                                                onChange={(event) => {
+                                                    setUsuarioSelecionado(event.target.value);
+                                                    setMensagemDesignacaoPronta(null);
+                                                }}
+                                                disabled={loadingAction || !isOnline}
+                                            >
+                                                <option value="">Escolher publicador</option>
+                                                {listaUsuarios.map((usuario) => (
+                                                    <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={() => executarAcaoGrupo(designarTerritorio)}
+                                                disabled={!usuarioSelecionado || loadingAction || !isOnline}
+                                                className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
+                                            >
+                                                {loadingAction ? 'Salvando...' : 'Designar território'}
+                                            </button>
+                                            {grupo.designadoPara && (
+                                                <button
+                                                    onClick={() => executarAcaoGrupo(() => onDevolver(grupo))}
+                                                    disabled={loadingAction || !isOnline}
+                                                    className="mt-2 w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-extrabold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                                                >
+                                                    Devolver território
+                                                </button>
+                                            )}
+                                        </>
                                     )}
-                                </>
+                                </div>
                             )}
                             {(isMeu || isAdmin) && enderecosGrupo.length > 0 && (
                                 <div className="grid grid-cols-2 gap-1.5">
                                     <button
                                         type="button"
                                         onClick={() => setEnderecosModalAberto(true)}
-                                        className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+                                        className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-extrabold text-slate-600 transition hover:bg-slate-50"
                                     >
                                         <span>Lista</span>
                                         <span className="flex items-center gap-1 text-slate-400">
@@ -1932,14 +2274,14 @@ const GrupoEnderecoLayer = ({
                                 <button
                                     onClick={() => executarAcaoGrupo(() => onFinalizar(grupo))}
                                     disabled={loadingAction}
-                                    className="popup-btn-action bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-emerald-700 disabled:opacity-50"
                                 >
                                     {loadingAction ? 'Finalizando...' : 'Finalizar território'}
                                 </button>
                             )}
                             <button
                                 onClick={() => onShare({ ...grupo, centro: centroGrupo })}
-                                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-400 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-600"
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
                             >
                                 Compartilhar localização
                             </button>
@@ -2838,6 +3180,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
     const adminControlsRef = useLeafletDomEventIsolation();
     const focusSummaryRef = useLeafletDomEventIsolation();
     const [geoJsonData, setGeoJsonData] = useState(null);
+    const [bairrosGeoJson, setBairrosGeoJson] = useState(null);
     const [mapaErro, setMapaErro] = useState('');
     const [zoomLevel, setZoomLevel] = useState(MAP_INITIAL_ZOOM);
     const [listaUsuarios, setListaUsuarios] = useState([]);
@@ -2857,10 +3200,14 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
     const [direcaoUsuario, setDirecaoUsuario] = useState(null);
     const [rastreandoLocalizacao, setRastreandoLocalizacao] = useState(false);
     const [tipoMapa, setTipoMapa] = useState('google');
+    const [modoVisualizacaoMapa, setModoVisualizacaoMapa] = useState(MAPA_VISUALIZACAO.TERRITORIOS);
     const [showRefs, setShowRefs] = useState(false);
     const [showCondos, setShowCondos] = useState(true);
+    const [showBairros, setShowBairros] = useState(true);
     const [mostrarDicasControles, setMostrarDicasControles] = useState(true);
     const [tentativaMapa, setTentativaMapa] = useState(0);
+    const mapLongPressTimerRef = useRef(null);
+    const mapLongPressSuppressClickUntilRef = useRef(0);
     const { notify, confirm } = useUiFeedback();
 
     const tiposPontosDisponiveis = useMemo(() => {
@@ -2959,22 +3306,90 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
     }, [isAdmin, tentativaMapa]);
 
     useEffect(() => {
+        let ativo = true;
+
+        loadBairrosSbsData()
+            .then((data) => {
+                if (!ativo) return;
+                setBairrosGeoJson(data);
+                setShowBairros((current) => current && data.features.length > 0);
+            })
+            .catch((error) => {
+                console.error('Erro ao carregar bairros de São Bento do Sul:', error);
+                if (!ativo) return;
+                setBairrosGeoJson(null);
+                setShowBairros(false);
+                notify({
+                    title: 'Bairros indisponíveis',
+                    message: 'Não foi possível carregar a camada de bairros urbanos agora.',
+                    variant: 'warning'
+                });
+            });
+
+        return () => {
+            ativo = false;
+        };
+    }, [notify]);
+
+    useEffect(() => {
         const timer = window.setTimeout(() => setMostrarDicasControles(false), 4000);
         return () => window.clearTimeout(timer);
     }, []);
 
+    const cancelarToqueLongoMapa = useCallback(() => {
+        if (mapLongPressTimerRef.current) {
+            window.clearTimeout(mapLongPressTimerRef.current);
+            mapLongPressTimerRef.current = null;
+        }
+    }, []);
+
+    const iniciarToqueLongoMapa = useCallback((event) => {
+        const latlng = event?.latlng;
+        if (!latlng) return;
+
+        cancelarToqueLongoMapa();
+        mapLongPressTimerRef.current = window.setTimeout(() => {
+            mapLongPressTimerRef.current = null;
+            mapLongPressSuppressClickUntilRef.current = Date.now() + MAP_LONG_PRESS_CLICK_SUPPRESSION_MS;
+            setPontoMapaSelecionado({
+                lat: latlng.lat,
+                lng: latlng.lng
+            });
+        }, MAP_LONG_PRESS_DURATION_MS);
+    }, [cancelarToqueLongoMapa]);
+
+    const ignorarCliqueAposToqueLongoMapa = useCallback(() => (
+        Date.now() < mapLongPressSuppressClickUntilRef.current
+    ), []);
+
+    useEffect(() => cancelarToqueLongoMapa, [cancelarToqueLongoMapa]);
+
     const MapEvents = () => {
         const map = useMapEvents({
             click: (event) => {
-                setPontoMapaSelecionado({
-                    lat: event.latlng.lat,
-                    lng: event.latlng.lng
-                });
+                if (ignorarCliqueAposToqueLongoMapa()) {
+                    if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
+                    return;
+                }
+
+                setPontoMapaSelecionado(null);
+            },
+            mousedown: iniciarToqueLongoMapa,
+            touchstart: iniciarToqueLongoMapa,
+            mouseup: cancelarToqueLongoMapa,
+            touchend: cancelarToqueLongoMapa,
+            touchcancel: cancelarToqueLongoMapa,
+            contextmenu: (event) => {
+                if (ignorarCliqueAposToqueLongoMapa() && event.originalEvent) {
+                    L.DomEvent.stop(event.originalEvent);
+                }
             },
             zoomstart: () => {
+                cancelarToqueLongoMapa();
                 setPontoMapaSelecionado(null);
             },
             dragstart: () => {
+                cancelarToqueLongoMapa();
                 setPontoMapaSelecionado(null);
             },
             zoomend: () => {
@@ -2989,6 +3404,37 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         useEffect(() => {
             writeOfflineMapViewportBounds(map.getBounds());
         }, [map]);
+
+        useEffect(() => {
+            const container = map.getContainer();
+            const resolveTouchLatLng = (event) => {
+                const touch = event.touches?.[0] || event.changedTouches?.[0];
+                if (!touch) return null;
+
+                const bounds = container.getBoundingClientRect();
+                return map.containerPointToLatLng(L.point(
+                    touch.clientX - bounds.left,
+                    touch.clientY - bounds.top
+                ));
+            };
+            const handleTouchStart = (event) => {
+                if (event.touches?.length > 1) {
+                    cancelarToqueLongoMapa();
+                    return;
+                }
+
+                const latlng = resolveTouchLatLng(event);
+                if (latlng) iniciarToqueLongoMapa({ latlng });
+            };
+
+            L.DomEvent.on(container, 'touchstart', handleTouchStart);
+            L.DomEvent.on(container, 'touchend touchcancel', cancelarToqueLongoMapa);
+
+            return () => {
+                L.DomEvent.off(container, 'touchstart', handleTouchStart);
+                L.DomEvent.off(container, 'touchend touchcancel', cancelarToqueLongoMapa);
+            };
+        });
 
         return null;
     };
@@ -3069,6 +3515,16 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         return isAdmin || normalizeEmailValue(grupoEnderecoFocado.designadoPara) === normalizeEmailValue(user?.email);
     }, [grupoEnderecoFocado, isAdmin, isOnline, user?.email]);
 
+    const alterarModoVisualizacaoMapa = (modo) => {
+        setModoVisualizacaoMapa(modo);
+        setPontoMapaSelecionado(null);
+
+        if (modo === MAPA_VISUALIZACAO.ENDERECOS) {
+            setGrupoEnderecoFocadoId(null);
+            setEnderecosSelecionadosGrupo([]);
+        }
+    };
+
     const enderecosVisiveis = useMemo(() => enderecos.filter((endereco) => {
         if (grupoEnderecoFocadoId) {
             const chavesFoco = new Set(
@@ -3085,11 +3541,14 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                 return mostrarEnderecosArquivados;
             }
 
-            return endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo;
+            const semTerritorio = !endereco.grupoId && !endereco.grupoCodigo;
+            if (semTerritorio) return endereco.status === ENDERECO_STATUS.ATIVO;
+
+            return modoVisualizacaoMapa === MAPA_VISUALIZACAO.ENDERECOS && endereco.status === ENDERECO_STATUS.ATIVO;
         }
 
         return false;
-    }), [enderecos, grupoEnderecoFocado, grupoEnderecoFocadoId, isAdmin, mostrarEnderecosArquivados]);
+    }), [enderecos, grupoEnderecoFocado, grupoEnderecoFocadoId, isAdmin, modoVisualizacaoMapa, mostrarEnderecosArquivados]);
 
     const totalEnderecosArquivados = useMemo(() => enderecos.filter((endereco) => endereco.status === ENDERECO_STATUS.ARQUIVADO).length, [enderecos]);
     const gruposEnderecoVisiveis = useMemo(() => gruposEnderecoCompletos.filter((grupo) => {
@@ -3100,20 +3559,110 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         }
 
         if (isAdmin) {
+            if (modoVisualizacaoMapa === MAPA_VISUALIZACAO.ENDERECOS) {
+                return false;
+            }
+
             return statusGrupo === GRUPO_ENDERECO_STATUS.ATIVO ||
                 statusGrupo === GRUPO_ENDERECO_STATUS.FINALIZADO ||
                 (mostrarGruposArquivados && statusGrupo === GRUPO_ENDERECO_STATUS.ARQUIVADO);
         }
 
         return statusGrupo === GRUPO_ENDERECO_STATUS.ATIVO && normalizeEmailValue(grupo.designadoPara) === normalizeEmailValue(user?.email);
-    }), [grupoEnderecoFocadoId, gruposEnderecoCompletos, isAdmin, mostrarGruposArquivados, user?.email]);
+    }), [grupoEnderecoFocadoId, gruposEnderecoCompletos, isAdmin, modoVisualizacaoMapa, mostrarGruposArquivados, user?.email]);
     const totalGruposArquivados = useMemo(() => gruposEndereco.filter((grupo) => (grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) === GRUPO_ENDERECO_STATUS.ARQUIVADO).length, [gruposEndereco]);
+    const resumoBairros = useMemo(() => {
+        const features = bairrosGeoJson?.features || [];
+        const resumo = new Map(features.map((feature) => [
+            feature.properties.bairroId,
+            createEmptyBairroResumo()
+        ]));
+
+        if (!features.length) return resumo;
+
+        const featuresById = new Map(features.map((feature) => [feature.properties.bairroId, feature]));
+        const featuresByName = new Map(features.map((feature) => [feature.properties.bairroNomeNormalizado, feature]));
+
+        gruposEnderecoCompletos.forEach((grupo) => {
+            const statusGrupo = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
+            if (statusGrupo === GRUPO_ENDERECO_STATUS.ARQUIVADO) return;
+
+            const bairroIdSalvo = grupo.bairroId ? buildBairroId(grupo.bairroId) : '';
+            const bairroNomeNormalizado = normalizeBairroNome(grupo.bairroNome || grupo.bairro || '');
+            let bairroFeature = featuresById.get(bairroIdSalvo) || featuresByName.get(bairroNomeNormalizado);
+
+            if (!bairroFeature) {
+                const enderecosGrupo = resolveEnderecosGrupoFromMaps(grupo, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId);
+                const centroGrupo = resolveGrupoEnderecoCentro(grupo, enderecosGrupo);
+                bairroFeature = findBairroFeatureForPoint(features, centroGrupo);
+            }
+
+            if (!bairroFeature) return;
+
+            const bairroResumo = resumo.get(bairroFeature.properties.bairroId) || createEmptyBairroResumo();
+            const progresso = getGrupoEnderecoProgresso(grupo);
+            const coberto = progresso.isFinalizado || progresso.completo || statusGrupo === GRUPO_ENDERECO_STATUS.FINALIZADO;
+            const emAndamento = !coberto && (
+                Boolean(grupo.designadoPara) ||
+                progresso.visitadosExibicao > 0
+            );
+
+            bairroResumo.total += 1;
+            if (coberto) bairroResumo.cobertos += 1;
+            if (emAndamento) bairroResumo.emAndamento += 1;
+            bairroResumo.faltando = Math.max(bairroResumo.total - bairroResumo.cobertos, 0);
+            resumo.set(bairroFeature.properties.bairroId, bairroResumo);
+        });
+
+        return resumo;
+    }, [bairrosGeoJson, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId, gruposEnderecoCompletos]);
     const enderecosSelecionadosDados = useMemo(() => {
         const porId = new Map(enderecos.map((endereco) => [endereco.id, endereco]));
         return enderecosSelecionadosGrupo
             .map((enderecoId) => porId.get(enderecoId))
             .filter((endereco) => endereco && endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo);
     }, [enderecos, enderecosSelecionadosGrupo]);
+    const gruposEnderecoParaVinculo = useMemo(() => (
+        gruposEnderecoCompletos
+            .filter((grupo) => !grupo.sintetico && (grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) === GRUPO_ENDERECO_STATUS.ATIVO)
+            .map((grupo) => ({
+                id: grupo.id,
+                codigo: grupo.codigo,
+                codigoExibicao: formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id),
+                nomeExibicao: formatGrupoEnderecoNomeExibicao(grupo.nome, grupo.codigo || grupo.id),
+                totalEnderecos: Math.max(0, Math.trunc(Number(grupo.totalEnderecos) || 0))
+            }))
+    ), [gruposEnderecoCompletos]);
+    const pontoCadastroEnderecoLat = enderecoModal.mode === 'create' ? Number(enderecoModal.ponto?.lat) : Number.NaN;
+    const pontoCadastroEnderecoLng = enderecoModal.mode === 'create' ? Number(enderecoModal.ponto?.lng) : Number.NaN;
+    const temPontoCadastroEndereco = Number.isFinite(pontoCadastroEnderecoLat) && Number.isFinite(pontoCadastroEnderecoLng);
+    const gruposEnderecoParaCadastroEndereco = useMemo(() => (
+        gruposEnderecoCompletos
+            .filter((grupo) => !grupo.sintetico && (grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) === GRUPO_ENDERECO_STATUS.ATIVO)
+            .map((grupo) => {
+                const centroGrupo = resolveGrupoEnderecoCentro(grupo);
+                const distanciaMetros = temPontoCadastroEndereco && centroGrupo
+                    ? calcularDistanciaMetros({ lat: pontoCadastroEnderecoLat, lng: pontoCadastroEnderecoLng }, centroGrupo)
+                    : Number.POSITIVE_INFINITY;
+
+                return {
+                    id: grupo.id,
+                    codigo: grupo.codigo,
+                    codigoExibicao: formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id),
+                    nomeExibicao: formatGrupoEnderecoNomeExibicao(grupo.nome, grupo.codigo || grupo.id),
+                    totalEnderecos: Math.max(0, Math.trunc(Number(grupo.totalEnderecos) || 0)),
+                    distanciaMetros,
+                    distanciaExibicao: Number.isFinite(distanciaMetros) ? formatarDistanciaMetros(distanciaMetros) : ''
+                };
+            })
+            .sort((a, b) => {
+                const distanciaA = Number.isFinite(a.distanciaMetros) ? a.distanciaMetros : Number.POSITIVE_INFINITY;
+                const distanciaB = Number.isFinite(b.distanciaMetros) ? b.distanciaMetros : Number.POSITIVE_INFINITY;
+                if (distanciaA !== distanciaB) return distanciaA - distanciaB;
+
+                return String(a.codigo || a.id).localeCompare(String(b.codigo || b.id));
+            })
+    ), [gruposEnderecoCompletos, pontoCadastroEnderecoLat, pontoCadastroEnderecoLng, temPontoCadastroEndereco]);
 
     useEffect(() => {
         setEnderecosSelecionadosGrupo((selecionadosAtuais) => {
@@ -3210,7 +3759,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         window.open(buildWhatsAppShareUrl(text), '_blank');
     };
 
-    const abrirCadastroEndereco = () => {
+    const abrirCadastroEndereco = (ponto = pontoMapaSelecionado) => {
         if (!isOnline) {
             notify({
                 title: 'Cadastro bloqueado offline',
@@ -3221,11 +3770,20 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
             return;
         }
 
+        if (!ponto) {
+            notify({
+                title: 'Local não selecionado',
+                message: 'Selecione um ponto no mapa para cadastrar o endereço.',
+                variant: 'warning'
+            });
+            return;
+        }
+
         setEnderecoModal({
             open: true,
             mode: 'create',
             endereco: null,
-            ponto: pontoMapaSelecionado
+            ponto
         });
     };
 
@@ -3274,14 +3832,54 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                     variant: 'success'
                 });
             } else {
+                const {
+                    grupoEscolha = '',
+                    grupoNome = '',
+                    ...enderecoFields
+                } = form;
                 const resultado = await createEnderecoManual(db, {
-                    ...form,
+                    ...enderecoFields,
                     user
                 });
+                let vinculoResultado = null;
+
+                if (grupoEscolha) {
+                    try {
+                        vinculoResultado = grupoEscolha === '__novo__'
+                            ? await createGrupoEnderecoManual(db, {
+                                enderecos: [{ id: resultado.id }],
+                                nome: grupoNome,
+                                user
+                            })
+                            : await adicionarEnderecosAoGrupo(db, {
+                                enderecoIds: [resultado.id],
+                                grupoId: grupoEscolha,
+                                user
+                            });
+                    } catch (vinculoError) {
+                        console.error('Erro ao salvar território do endereço:', vinculoError);
+                        setPontoMapaSelecionado(null);
+                        notify({
+                            title: 'Endereço cadastrado',
+                            message: `Código gerado: ${formatEnderecoCodigoExibicao(resultado.codigo)}, mas o território não foi salvo.`,
+                            variant: 'warning',
+                            durationMs: 8000
+                        });
+                        setEnderecoModal({ open: false, mode: 'create', endereco: null, ponto: null });
+                        return;
+                    }
+                }
+
                 setPontoMapaSelecionado(null);
+                if (vinculoResultado?.id) {
+                    setModoVisualizacaoMapa(MAPA_VISUALIZACAO.TERRITORIOS);
+                    setGrupoEnderecoFocadoId(vinculoResultado.id);
+                }
                 notify({
-                    title: 'Endereço cadastrado',
-                    message: `Código gerado: ${formatEnderecoCodigoExibicao(resultado.codigo)}.`,
+                    title: vinculoResultado ? (grupoEscolha === '__novo__' ? 'Endereço e território criados' : 'Endereço cadastrado e vinculado') : 'Endereço cadastrado',
+                    message: vinculoResultado
+                        ? `${formatEnderecoCodigoExibicao(resultado.codigo)} no ${formatGrupoEnderecoCodigoExibicao(vinculoResultado.codigo)}.`
+                        : `Código gerado: ${formatEnderecoCodigoExibicao(resultado.codigo)}.`,
                     variant: 'success'
                 });
             }
@@ -3354,7 +3952,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         if (!enderecosSelecionadosDados.length) {
             notify({
                 title: 'Selecione endereços',
-                message: 'Escolha pelo menos um endereço ativo e sem território para criar o território.',
+                message: 'Escolha pelo menos um endereço ativo e sem território para vincular a um território.',
                 variant: 'warning'
             });
             return;
@@ -3363,7 +3961,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         setGrupoEnderecoModalAberto(true);
     };
 
-    const criarGrupoEndereco = async ({ nome }) => {
+    const salvarVinculoGrupoEndereco = async ({ modo, nome, grupoId }) => {
         if (!isOnline) {
             notify({
                 title: 'Agrupamento bloqueado offline',
@@ -3376,24 +3974,36 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
 
         setSalvandoGrupoEndereco(true);
         try {
-            const resultado = await createGrupoEnderecoManual(db, {
-                enderecos: enderecosSelecionadosDados,
-                nome,
-                user
-            });
+            const resultado = modo === 'existente'
+                ? await adicionarEnderecosAoGrupo(db, {
+                    enderecoIds: enderecosSelecionadosDados.map((endereco) => endereco.id),
+                    grupoId,
+                    user
+                })
+                : await createGrupoEnderecoManual(db, {
+                    enderecos: enderecosSelecionadosDados,
+                    nome,
+                    user
+                });
             setEnderecosSelecionadosGrupo([]);
             setGrupoEnderecoModalAberto(false);
+            setModoVisualizacaoMapa(MAPA_VISUALIZACAO.TERRITORIOS);
+            if (resultado.id) {
+                setGrupoEnderecoFocadoId(resultado.id);
+            }
             const codigoExibicao = formatGrupoEnderecoCodigoExibicao(resultado.codigo);
             notify({
-                title: 'Território criado',
-                message: `Código gerado: ${codigoExibicao}.`,
+                title: modo === 'existente' ? 'Endereço vinculado' : 'Território criado',
+                message: modo === 'existente'
+                    ? `Endereço(s) vinculado(s) ao ${codigoExibicao}.`
+                    : `Código gerado: ${codigoExibicao}.`,
                 variant: 'success'
             });
         } catch (error) {
-            console.error('Erro ao criar grupo de endereços:', error);
+            console.error('Erro ao salvar vínculo de território:', error);
             notify({
-                title: 'Território não criado',
-                message: String(error?.message || 'Não foi possível criar o território agora.'),
+                title: 'Território não alterado',
+                message: String(error?.message || 'Não foi possível salvar o vínculo agora.'),
                 variant: 'error',
                 durationMs: 7000
             });
@@ -3690,13 +4300,19 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                     <SeletorCamadas
                         tipoMapa={tipoMapa}
                         setTipoMapa={setTipoMapa}
+                        isAdmin={isAdmin}
+                        modoVisualizacao={modoVisualizacaoMapa}
+                        onChangeModoVisualizacao={alterarModoVisualizacaoMapa}
                         showRefs={showRefs}
                         setShowRefs={setShowRefs}
                         showCondos={showCondos}
                         setShowCondos={setShowCondos}
+                        showBairros={showBairros}
+                        setShowBairros={setShowBairros}
                         mostrarDicas={mostrarDicasControles}
                         hasReferencias={tiposPontosDisponiveis.hasReferencias}
                         hasCondominios={tiposPontosDisponiveis.hasCondominios}
+                        hasBairros={Boolean(bairrosGeoJson?.features?.length)}
                     />
                     {isAdmin && (
                         <div ref={adminControlsRef} className="absolute top-20 right-4 z-[400] flex max-w-[150px] flex-col gap-2" onClick={stopMapDomEvent}>
@@ -3711,7 +4327,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                                         disabled={!isOnline}
                                         className="w-full rounded-md bg-indigo-700 px-2 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
                                     >
-                                        Criar território
+                                        Vincular território
                                     </button>
                                     <button
                                         type="button"
@@ -3755,7 +4371,12 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                     {trilhaUsuario.length > 1 && (
                         <Polyline positions={trilhaUsuario} pathOptions={{ color: MAP_COLORS.apoio.trilha, weight: 4, opacity: 0.38, lineCap: 'round', lineJoin: 'round' }} />
                     )}
-                    <MarcadorUsuario posicao={posicaoUsuario} direcao={direcaoUsuario} />
+                    <MarcadorUsuario
+                        posicao={posicaoUsuario}
+                        direcao={direcaoUsuario}
+                        canCreate={isAdmin && isOnline}
+                        onCreate={abrirCadastroEndereco}
+                    />
                     <PontoMapaClicado
                         ponto={pontoMapaSelecionado}
                         canCreate={isAdmin && isOnline}
@@ -3763,6 +4384,15 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                         onShare={() => compartilharPontoMapa(pontoMapaSelecionado)}
                         onClose={() => setPontoMapaSelecionado(null)}
                     />
+                    {showBairros && bairrosGeoJson?.features?.length > 0 && (
+                        <BairroSbsLayer
+                            bairrosGeoJson={bairrosGeoJson}
+                            resumoPorBairro={resumoBairros}
+                            onLongPressStart={iniciarToqueLongoMapa}
+                            onLongPressEnd={cancelarToqueLongoMapa}
+                            shouldIgnoreClick={ignorarCliqueAposToqueLongoMapa}
+                        />
+                    )}
 
                     {gruposEnderecoVisiveis.map((grupo) => (
                         <GrupoEnderecoLayer
@@ -3834,6 +4464,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                         mode={enderecoModal.mode}
                         endereco={enderecoModal.endereco}
                         ponto={enderecoModal.ponto}
+                        gruposDisponiveis={gruposEnderecoParaCadastroEndereco}
                         loading={salvandoEndereco}
                         onClose={fecharEnderecoModal}
                         onSubmit={salvarEndereco}
@@ -3841,11 +4472,12 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                     <GrupoEnderecoFormModal
                         isOpen={grupoEnderecoModalAberto}
                         selectedEnderecos={enderecosSelecionadosDados}
+                        gruposDisponiveis={gruposEnderecoParaVinculo}
                         loading={salvandoGrupoEndereco}
                         onClose={() => {
                             if (!salvandoGrupoEndereco) setGrupoEnderecoModalAberto(false);
                         }}
-                        onSubmit={criarGrupoEndereco}
+                        onSubmit={salvarVinculoGrupoEndereco}
                     />
                     {resumoFocoGrupoEndereco && (
                         <div className="pointer-events-none absolute left-3 right-3 top-4 z-[500] flex justify-center sm:left-auto sm:right-4 sm:w-full sm:max-w-[360px] sm:justify-end">

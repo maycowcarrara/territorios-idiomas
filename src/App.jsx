@@ -2133,7 +2133,7 @@ const LegendaModal = ({ isOpen, onClose, isAdmin }) => {
             <div>
               <h4 className="text-xs font-black uppercase tracking-[0.14em] text-slate-600">Áreas e bairros</h4>
               <p className="mt-1 text-xs font-medium leading-snug text-slate-500">
-                Referência para quando os polígonos de bairros agruparem territórios e mostrarem o progresso da área.
+                Referência para polígonos de bairros e áreas maiores que agrupam territórios e mostram o progresso consolidado.
               </p>
             </div>
 
@@ -2179,7 +2179,7 @@ const LegendaModal = ({ isOpen, onClose, isAdmin }) => {
 // --- MENU LATERAL (ATUALIZADO - ORDEM REAJUSTADA) ---
 const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, abrirAjuda, abrirLegenda, abrirSobre, abrirMapaOffline, mapaOfflineNeedsRefresh, contextoSistema, coberturaCampanha, carregandoCobertura }) => {
   const isNativePlatform = Capacitor.isNativePlatform();
-  const [deferredPrompt, setDeferredPrompt] = useState(() => (isNativePlatform ? null : deferredPromptGlobal));
+  const deferredPromptRef = useRef(isNativePlatform ? null : deferredPromptGlobal);
   const [photoUrlComErro, setPhotoUrlComErro] = useState(null);
   const temaSistema = getSistemaTheme(contextoSistema);
   const { notify } = useUiFeedback();
@@ -2195,7 +2195,7 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
 
     const handleBeforeInstallPrompt = (e) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      deferredPromptRef.current = e;
       deferredPromptGlobal = e;
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -2205,11 +2205,12 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
   }, [isNativePlatform]);
 
   const instalarApp = async () => {
+    const deferredPrompt = deferredPromptRef.current;
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === 'accepted') {
-        setDeferredPrompt(null);
+        deferredPromptRef.current = null;
         deferredPromptGlobal = null;
       }
     } else {

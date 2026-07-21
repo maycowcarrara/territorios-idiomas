@@ -483,6 +483,96 @@ export async function createGrupoEnderecoManual(db, { enderecos, nome, user }) {
     });
 }
 
+export async function adicionarEnderecosAoGrupo(db, { enderecoIds, grupoId, user }) {
+    const idsSelecionados = [...new Set((enderecoIds || []).filter(Boolean))];
+    const actorEmail = buildActorEmail(user);
+    const agora = new Date();
+
+    if (!grupoId) {
+        throw new Error('Escolha um território existente.');
+    }
+
+    if (!idsSelecionados.length) {
+        throw new Error('Selecione pelo menos um endereço para vincular ao território.');
+    }
+
+    return runTransaction(db, async (transaction) => {
+        const grupoRef = getGrupoEnderecoRef(db, grupoId);
+        const grupoSnapshot = await transaction.get(grupoRef);
+
+        if (!grupoSnapshot.exists()) {
+            throw new Error('Território não encontrado.');
+        }
+
+        const grupo = grupoSnapshot.data();
+        if ((grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) !== GRUPO_ENDERECO_STATUS.ATIVO) {
+            throw new Error('Só é possível vincular endereços a territórios ativos.');
+        }
+
+        const enderecoIdsAtuais = ensureArray(grupo.enderecoIds).filter(Boolean);
+        const proximosEnderecoIds = [...new Set([...enderecoIdsAtuais, ...idsSelecionados])];
+
+        if (proximosEnderecoIds.length === enderecoIdsAtuais.length) {
+            throw new Error('Os endereços selecionados já pertencem a este território.');
+        }
+
+        const enderecoSnapshots = await Promise.all(proximosEnderecoIds.map((enderecoId) => (
+            transaction.get(getEnderecoRef(db, enderecoId))
+        )));
+        const enderecosAtualizados = enderecoSnapshots.map((snapshot) => {
+            if (!snapshot.exists()) {
+                throw new Error('Um dos endereços selecionados não existe mais.');
+            }
+
+            return {
+                id: snapshot.id,
+                ...snapshot.data()
+            };
+        });
+
+        const idsSelecionadosSet = new Set(idsSelecionados);
+        enderecosAtualizados.forEach((endereco) => {
+            if (!idsSelecionadosSet.has(endereco.id)) return;
+
+            if (endereco.status !== ENDERECO_STATUS.ATIVO) {
+                throw new Error(`${formatEnderecoCodigoExibicao(endereco.codigo) || 'Endereço'} não está ativo.`);
+            }
+
+            if (endereco.grupoId || endereco.grupoCodigo) {
+                throw new Error(`${formatEnderecoCodigoExibicao(endereco.codigo) || 'Endereço'} já pertence a um território.`);
+            }
+        });
+
+        const stats = calculateGrupoEnderecoStats(enderecosAtualizados);
+        const proximosVisitados = ensureArray(grupo.enderecos_visitados).filter((id) => proximosEnderecoIds.includes(id));
+
+        transaction.set(grupoRef, {
+            enderecoIds: proximosEnderecoIds,
+            enderecos_visitados: proximosVisitados,
+            ...stats,
+            status: GRUPO_ENDERECO_STATUS.ATIVO,
+            ultimaAlteracao: agora,
+            atualizadoEm: agora,
+            atualizadoPor: actorEmail
+        }, { merge: true });
+
+        idsSelecionados.forEach((enderecoId) => {
+            transaction.set(getEnderecoRef(db, enderecoId), {
+                grupoId,
+                grupoCodigo: grupo.codigo,
+                atualizadoEm: agora,
+                atualizadoPor: actorEmail
+            }, { merge: true });
+        });
+
+        return {
+            id: grupoId,
+            codigo: grupo.codigo,
+            totalEnderecos: proximosEnderecoIds.length
+        };
+    });
+}
+
 export async function setGrupoEnderecoArquivado(db, grupoId, arquivar, user) {
     const agora = new Date();
 
@@ -678,6 +768,13 @@ export async function removerEnderecoDoGrupo(db, { enderecoId, grupoId, user }) 
                 ...snapshot.data()
             }));
         const stats = calculateGrupoEnderecoStats(enderecosRestantes);
+        const statsPersistidos = stats.totalEnderecos > 0
+            ? stats
+            : {
+                ...stats,
+                centro: grupo.centro || null,
+                bounds: grupo.bounds || null
+            };
 
         transaction.set(enderecoRef, {
             grupoId: null,
@@ -689,7 +786,7 @@ export async function removerEnderecoDoGrupo(db, { enderecoId, grupoId, user }) 
         transaction.set(grupoRef, {
             enderecoIds: proximosEnderecoIds,
             enderecos_visitados: proximosVisitados,
-            ...stats,
+            ...statsPersistidos,
             ultimaAlteracao: agora,
             atualizadoEm: agora,
             atualizadoPor: actorEmail
