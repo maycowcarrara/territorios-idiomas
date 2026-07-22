@@ -8,3 +8,6 @@ account_id = "36da09115c87cfafc31e545ca5633d53"
 [vars]
 FIREBASE_PROJECT_ID = "territ-es-sul-sbs"
 PUBLIC_APP_URL = "https://territ-es-sbs.web.app"
+EMAILJS_SERVICE_ID = "service_kn1wvmo"
+EMAILJS_PUBLIC_KEY = "zgu17m_3vnsfylfdh"
+EMAILJS_TEMPLATE_ID = "template_17eqr45"

@@ -10,6 +10,7 @@ import { enviarComunicadoPeloRelay, relayDisponivel } from './notificationRelay'
 import { useOnlineStatus } from './useOnlineStatus';
 import { AppPage, PageHeader } from './uiPrimitives';
 import { buttonClass } from './uiClasses';
+import { ensureUsuarioAprovado, formatWhatsappDigits, isValidUsuarioEmail, isValidWhatsappDigits } from './usuariosModel';
 
 const ADMIN_OFFLINE_MESSAGE = 'Você está offline. Ações administrativas precisam de conexão para evitar conflito de designações. Conecte-se para continuar.';
 const ADMIN_OFFLINE_ACTION_CLASS = 'disabled:cursor-not-allowed disabled:opacity-50';
@@ -151,8 +152,7 @@ const AdminPanel = () => {
         if (!ensureOnlineAdminAction()) return;
         if (!novoEmail) return;
 
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(novoEmail)) {
+        if (!isValidUsuarioEmail(novoEmail)) {
             notify({
                 title: 'E-mail inválido',
                 message: 'Por favor, verifique o formato informado.',
@@ -161,8 +161,8 @@ const AdminPanel = () => {
             return;
         }
 
-        const whatsLimpo = novoWhats.replace(/\D/g, '');
-        if (novoWhats && (whatsLimpo.length < 10 || whatsLimpo.length > 11)) {
+        const whatsLimpo = formatWhatsappDigits(novoWhats);
+        if (!isValidWhatsappDigits(novoWhats)) {
             notify({
                 title: 'WhatsApp inválido',
                 message: 'O número deve ter DDD + 8 ou 9 dígitos.',
@@ -175,11 +175,11 @@ const AdminPanel = () => {
         const emailFormatado = novoEmail.trim().toLowerCase();
 
         try {
-            await setDoc(doc(db, "usuarios", emailFormatado), {
-                role: 'comum',
+            await ensureUsuarioAprovado(db, {
+                email: emailFormatado,
                 nome: novoNome || 'Novo Dirigente',
                 whatsapp: whatsLimpo,
-                criadoEm: new Date()
+                origem: 'admin-panel'
             });
             setNovoEmail('');
             setNovoNome('');

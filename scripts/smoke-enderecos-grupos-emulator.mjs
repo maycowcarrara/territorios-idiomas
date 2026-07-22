@@ -17,7 +17,7 @@ import {
 } from 'firebase/firestore';
 import { initializeApp as initializeAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
-import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import {
     createEnderecoManual,
     createGrupoEnderecoManual,
@@ -251,6 +251,11 @@ async function main() {
             user: publicadorUser
         });
 
+        await getAdminFirestore()
+            .collection('enderecos')
+            .doc(enderecoA.id)
+            .update({ grupoDesignadoPara: FieldValue.delete() });
+
         await expectPermissionDenied('publicador editar endereço básico', () => (
             updateEnderecoBasico(publicadorClient.db, enderecoA.id, {
                 lat: -10.1841,
@@ -261,13 +266,13 @@ async function main() {
             }, publicadorUser)
         ));
 
-        await expectDomainBlocked('helper impede usuário não designado no grupo', () => (
+        await expectPermissionDenied('rule impede usuário não designado ler grupo para marcar endereço', () => (
             toggleEnderecoVisitadoGrupo(outroClient.db, {
                 grupoId: grupo.id,
                 enderecoId: enderecoA.id,
                 user: outroUser
             })
-        ), 'não está designado');
+        ));
 
         await expectPermissionDenied('rule impede usuário não designado atualizar grupo', () => (
             updateDoc(getGrupoEnderecoRef(outroClient.db, grupo.id), {
@@ -287,6 +292,17 @@ async function main() {
         assert(grupoFinal.data().status === 'finalizado', 'Grupo deveria ficar finalizado.');
         assert(grupoFinal.data().designadoPara === null, 'Grupo finalizado deveria limpar responsável.');
         assert(Array.isArray(grupoFinal.data().historico) && grupoFinal.data().historico.length === 1, 'Histórico deveria receber um ciclo.');
+
+        const enderecoAFinal = await getDoc(getEnderecoRef(adminClient.db, enderecoA.id));
+        const enderecoBFinal = await getDoc(getEnderecoRef(adminClient.db, enderecoB.id));
+        assert(enderecoAFinal.data().grupoDesignadoPara === null, 'Finalização deveria limpar endereço legado sem grupoDesignadoPara.');
+        assert(enderecoBFinal.data().grupoDesignadoPara === null, 'Finalização deveria limpar endereço com grupoDesignadoPara.');
+
+        const enderecosAposFinalizacao = await getDocs(query(
+            collection(publicadorClient.db, 'enderecos'),
+            where('grupoDesignadoPara', '==', publicadorInfo.email)
+        ));
+        assert(enderecosAposFinalizacao.size === 0, 'Finalização deveria limpar a leitura de endereços do publicador.');
 
         console.log('ok - fluxo endereços/grupos validado no emulador');
     } finally {

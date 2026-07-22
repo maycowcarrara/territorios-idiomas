@@ -12,6 +12,7 @@ const MAGIC_LINK_EMAIL_STORAGE_KEY = 'territorios.magicLink.email';
 const MAGIC_LINK_URL_STORAGE_KEY = 'territorios.magicLink.url';
 export const MAGIC_LINK_STATE_EVENT = 'territorios:magic-link-state-change';
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const magicLinkRelayUrl = String(import.meta.env.VITE_NOTIFICATIONS_RELAY_URL || '').trim().replace(/\/+$/, '');
 
 const canUseBrowserStorage = () => typeof window !== 'undefined' && Boolean(window.localStorage);
 
@@ -91,12 +92,30 @@ export const getMagicLinkFromCurrentUrl = () => {
     return isMagicLinkSignInUrl(currentUrl) ? currentUrl : '';
 };
 
-const buildActionCodeSettings = async () => {
+const normalizeRedirectPath = (value) => {
+    const path = String(value || '').trim();
+    if (!path || !path.startsWith('/') || path.startsWith('//')) return '';
+    return path;
+};
+
+const buildContinueUrl = (redirectPath) => {
     const publicUrl = getPublicAppBaseUrl();
 
     if (!publicUrl) {
         throw new Error('Configuração ausente: defina VITE_PUBLIC_APP_URL para enviar o link mágico.');
     }
+
+    const redirect = normalizeRedirectPath(redirectPath);
+    if (!redirect) return publicUrl;
+
+    const [urlSemHash, hash = ''] = publicUrl.split('#');
+    const separador = urlSemHash.includes('?') ? '&' : '?';
+    const urlComRedirect = `${urlSemHash}${separador}redirect=${encodeURIComponent(redirect)}`;
+    return hash ? `${urlComRedirect}#${hash}` : urlComRedirect;
+};
+
+const buildActionCodeSettings = async ({ redirectPath } = {}) => {
+    const publicUrl = buildContinueUrl(redirectPath);
 
     const settings = {
         url: publicUrl,
@@ -116,12 +135,35 @@ const buildActionCodeSettings = async () => {
     return settings;
 };
 
-export const sendMagicLink = async (email) => {
-    const normalized = normalizeAuthEmail(email);
-    const settings = await buildActionCodeSettings();
+const sendMagicLinkViaRelay = async (email, { redirectPath } = {}) => {
+    const response = await fetch(`${magicLinkRelayUrl}/auth/magic-link`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            email,
+            redirectPath: normalizeRedirectPath(redirectPath)
+        })
+    });
 
-    auth.languageCode = 'pt-BR';
-    await sendSignInLinkToEmail(auth, normalized, settings);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || 'Não foi possível enviar o link mágico por e-mail.');
+    }
+};
+
+export const sendMagicLink = async (email, opcoes = {}) => {
+    const normalized = normalizeAuthEmail(email);
+
+    if (magicLinkRelayUrl) {
+        await sendMagicLinkViaRelay(normalized, opcoes);
+    } else {
+        const settings = await buildActionCodeSettings(opcoes);
+
+        auth.languageCode = 'pt-BR';
+        await sendSignInLinkToEmail(auth, normalized, settings);
+    }
 
     writeStorage(MAGIC_LINK_EMAIL_STORAGE_KEY, normalized);
 

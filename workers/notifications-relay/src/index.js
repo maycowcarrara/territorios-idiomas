@@ -1,6 +1,8 @@
 const GOOGLE_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const FIREBASE_JWKS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const ONESIGNAL_NOTIFICATIONS_URL = 'https://api.onesignal.com/notifications';
+const EMAILJS_SEND_URL = 'https://api.emailjs.com/api/v1.0/email/send';
+const AUTH_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 let cachedAccessToken = null;
 let cachedAccessTokenExpiry = 0;
@@ -28,6 +30,34 @@ const parseJsonBody = async (request) => {
     } catch {
         throw new Error('Corpo JSON inválido.');
     }
+};
+
+class HttpError extends Error {
+    constructor(message, status = 400) {
+        super(message);
+        this.status = status;
+    }
+}
+
+const normalizeAuthEmail = (value) => String(value || '').trim().toLowerCase();
+
+const isValidAuthEmail = (value) => AUTH_EMAIL_REGEX.test(normalizeAuthEmail(value));
+
+const normalizeRedirectPath = (value) => {
+    const path = String(value || '').trim();
+    if (!path || !path.startsWith('/') || path.startsWith('//')) return '';
+    return path;
+};
+
+const buildContinueUrl = (env, redirectPath) => {
+    const publicUrl = getPublicAppUrl(env);
+    const redirect = normalizeRedirectPath(redirectPath);
+    if (!redirect || redirect === '/app') return publicUrl;
+
+    const [urlSemHash, hash = ''] = publicUrl.split('#');
+    const separador = urlSemHash.includes('?') ? '&' : '?';
+    const urlComRedirect = `${urlSemHash}${separador}redirect=${encodeURIComponent(redirect)}`;
+    return hash ? `${urlComRedirect}#${hash}` : urlComRedirect;
 };
 
 const encodeBase64Url = (input) =>
@@ -281,6 +311,25 @@ const firestoreCommitUrl = (env) =>
 
 const getPublicAppUrl = (env) => String(env.PUBLIC_APP_URL || 'https://territ-es-sbs.web.app').replace(/\/$/, '');
 
+const getEmailJsConfig = (env) => {
+    const config = {
+        serviceId: String(env.EMAILJS_SERVICE_ID || '').trim(),
+        publicKey: String(env.EMAILJS_PUBLIC_KEY || '').trim(),
+        privateKey: String(env.EMAILJS_PRIVATE_KEY || '').trim(),
+        templateId: String(env.EMAILJS_TEMPLATE_ID || '').trim()
+    };
+
+    const missing = Object.entries(config)
+        .filter(([key, value]) => key !== 'privateKey' && !value)
+        .map(([key]) => key);
+
+    if (missing.length) {
+        throw new Error(`EmailJS não configurado no Worker: ${missing.join(', ')}.`);
+    }
+
+    return config;
+};
+
 const getFirestoreDocument = async (env, accessToken, path) => {
     const response = await fetch(firestoreDocumentUrl(env, path), {
         headers: {
@@ -300,6 +349,88 @@ const getFirestoreDocument = async (env, accessToken, path) => {
         id: data.name.split('/').pop(),
         ...parseFirestoreFields(data.fields || {})
     };
+};
+
+const generateEmailSignInLink = async (env, accessToken, { email, redirectPath }) => {
+    const response = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/accounts:sendOobCode`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            requestType: 'EMAIL_SIGNIN',
+            email,
+            continueUrl: buildContinueUrl(env, redirectPath),
+            canHandleCodeInApp: true,
+            returnOobLink: true
+        })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.oobLink) {
+        throw new Error(`Falha ao gerar link mágico: ${JSON.stringify(data)}`);
+    }
+
+    return data.oobLink;
+};
+
+const sendMagicLinkEmail = async (env, { email, magicLink }) => {
+    const config = getEmailJsConfig(env);
+    const payload = {
+        service_id: config.serviceId,
+        template_id: config.templateId,
+        user_id: config.publicKey,
+        template_params: {
+            to_email: email,
+            email,
+            magic_link: magicLink,
+            link: magicLink,
+            app_name: 'Territórios Idiomas'
+        }
+    };
+
+    if (config.privateKey) {
+        payload.accessToken = config.privateKey;
+    }
+
+    const response = await fetch(EMAILJS_SEND_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Falha ao enviar e-mail pelo EmailJS (${response.status}): ${text || 'sem detalhes'}`);
+    }
+};
+
+const handleMagicLinkRequest = async (request, env, headers) => {
+    const body = await parseJsonBody(request);
+    const email = normalizeAuthEmail(body?.email);
+    const redirectPath = normalizeRedirectPath(body?.redirectPath);
+
+    if (!isValidAuthEmail(email)) {
+        throw new HttpError('Informe um e-mail válido.', 400);
+    }
+
+    const accessToken = await getGoogleAccessToken(env);
+    const usuario = await getFirestoreDocument(env, accessToken, `usuarios/${encodeURIComponent(email)}`);
+    if (!usuario || !['admin', 'comum'].includes(usuario.role)) {
+        throw new HttpError('Acesso ainda não liberado para este e-mail.', 403);
+    }
+
+    const magicLink = await generateEmailSignInLink(env, accessToken, { email, redirectPath });
+    await sendMagicLinkEmail(env, { email, magicLink });
+
+    return json({
+        ok: true,
+        channel: 'emailjs',
+        email
+    }, 200, headers);
 };
 
 const listUsuarios = async (env, accessToken) => {
@@ -795,12 +926,16 @@ export default {
                 return await handleNotificationRelayRequest(request, env, headers);
             }
 
+            if (pathname === '/auth/magic-link') {
+                return await handleMagicLinkRequest(request, env, headers);
+            }
+
             return json({ error: 'Rota do relay inválida.' }, 404, headers);
         } catch (error) {
             console.error('Erro no notifications relay:', error);
             return json({
                 error: error instanceof Error ? error.message : 'Falha inesperada no relay.'
-            }, 500, headers);
+            }, error?.status || 500, headers);
         }
     }
 };

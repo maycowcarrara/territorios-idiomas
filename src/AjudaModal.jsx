@@ -1,50 +1,127 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ModalFrame } from './uiPrimitives';
 import { buttonClass } from './uiClasses';
 
 const TABS_BASE = [
     { id: 'primeiros-passos', label: 'Primeiros passos' },
-    { id: 'offline', label: 'Offline' },
+    { id: 'publicador', label: 'Publicador' },
+    { id: 'admin', label: 'Admin' },
+    { id: 'online', label: 'Conexão' },
     { id: 'ferramentas', label: 'Ferramentas' },
     { id: 'documentos', label: 'Documentos' }
 ];
 
-const FLOW_STEPS = [
+const PUBLICADOR_OVERVIEW_STEPS = [
     {
-        title: 'Abra seu território',
-        description: 'Entre no mapa, localize a área designada e use "Meus" para achar rapidamente os territórios que estão com você.'
+        title: 'Abra seus territórios',
+        description: 'Use "Meus" para ver os territórios designados para você, conferir o progresso e entrar direto no mapa do grupo.'
     },
     {
-        title: 'Marque o andamento',
-        description: 'Toque na bolinha com o número da quadra para alternar entre não feito e feito.'
+        title: 'Veja os endereços do grupo',
+        description: 'Abra o território T e use "Lista" ou "Ver no mapa" para consultar somente os endereços daquele trabalho.'
     },
     {
-        title: 'Anote e compartilhe',
-        description: 'Registre observações por quadra e use "Ponto de Encontro" quando precisar enviar um local no WhatsApp.'
+        title: 'Pregue e marque o progresso',
+        description: 'Em cada endereço, use "Navegar" quando precisar de rota e marque como pregado depois da visita.'
+    },
+    {
+        title: 'Finalize quando completar',
+        description: 'Quando todos os endereços ativos estiverem pregados, finalize o território para avisar que o trabalho terminou.'
     }
 ];
 
-const QUADRA_STATUS = [
-    { label: 'Não feito', colors: 'bg-red-500 border-red-700' },
-    { label: 'Feito', colors: 'bg-green-500 border-green-700' }
+const ADMIN_OVERVIEW_STEPS = [
+    {
+        title: 'Cadastre os endereços',
+        description: 'No mapa, toque ou clique em um ponto vazio e use "Cadastrar endereço". O app gera o código E automaticamente e salva endereço, quantidade de pessoas e observações.'
+    },
+    {
+        title: 'Forme territórios de idioma',
+        description: 'Um território é um grupo de endereços próximos. Cadastre já em um território, crie um novo ou selecione endereços sem território e toque em "Vincular território".'
+    },
+    {
+        title: 'Designe para um publicador',
+        description: 'Abra o marcador T, escolha um publicador aprovado ou use "Enviar para nova pessoa". Depois envie a mensagem pronta pelo WhatsApp ou compartilhe o link.'
+    },
+    {
+        title: 'Acompanhe a pregação',
+        description: 'O publicador abre "Meus Territórios", entra no mapa do grupo, marca cada endereço como pregado e finaliza quando todos estiverem concluídos.'
+    }
+];
+
+const ADDRESS_STATUS = [
+    { label: 'E ativo', colors: 'bg-teal-500 border-teal-700', description: 'Endereço individual disponível para agrupamento.' },
+    { label: 'E agrupado', colors: 'bg-indigo-500 border-indigo-700', description: 'Endereço já ligado a um território T.' },
+    { label: 'E selecionado', colors: 'bg-amber-400 border-amber-600', description: 'Endereço escolhido para criar ou alimentar um território.' },
+    { label: 'E pregado', colors: 'bg-emerald-500 border-emerald-700', description: 'Endereço marcado como feito durante a execução.' }
+];
+
+const TERRITORY_STATUS = [
+    { label: 'Ativo', description: 'Território disponível para designação.' },
+    { label: 'Designado', description: 'Território em andamento com responsável.' },
+    { label: 'Finalizado', description: 'Todos os endereços foram marcados como pregados.' },
+    { label: 'Arquivado', description: 'Oculto do mapa padrão, sem apagar o histórico.' }
+];
+
+const PUBLICADOR_STEPS = [
+    {
+        title: 'Achar o território',
+        description: 'Use "Meus" no topo. A lista mostra as designações em ordem, com progresso e o botão "Ir para o Mapa".'
+    },
+    {
+        title: 'Abrir lista ou foco no mapa',
+        description: 'No marcador do território, use "Lista" para ver os endereços ou "Ver no mapa" para focar somente naquele grupo.'
+    },
+    {
+        title: 'Pregar endereço por endereço',
+        description: 'Abra o endereço, toque em "Navegar" se precisar de rota e use "Marcar pregado". Se marcou errado, use "Desmarcar".'
+    },
+    {
+        title: 'Finalizar',
+        description: 'Quando todos os endereços ativos estiverem pregados, o botão "Finalizar território" fica disponível.'
+    }
+];
+
+const ADMIN_STEPS = [
+    {
+        title: 'Cadastrar endereço',
+        description: 'Toque em área vazia do mapa, informe endereço, quantidade de pessoas e observação. No cadastro, você pode deixar sem território, criar um novo ou vincular a um existente.'
+    },
+    {
+        title: 'Selecionar e vincular',
+        description: 'No menu "..." de um endereço sem território, use "Selecionar para território". Depois toque em "Vincular território" para criar um T ou adicionar a um T existente.'
+    },
+    {
+        title: 'Administrar território',
+        description: 'No marcador T, veja total de endereços, pessoas, progresso, lista, foco no mapa, designação, devolução, compartilhamento e arquivamento.'
+    },
+    {
+        title: 'Manter a base limpa',
+        description: 'Use arquivar/reativar para endereços e territórios. Arquivar oculta do mapa padrão, mas preserva dados e histórico.'
+    }
 ];
 
 const TOOL_ITEMS = [
     {
         badge: <div className="bg-blue-100 p-1.5 rounded text-blue-600 mt-0.5 font-bold text-xs w-7 h-7 flex items-center justify-center">Meus</div>,
-        title: 'Achar seus territórios mais rápido',
-        description: 'No topo da tela, toque em "Meus" para ver a lista rápida de todos os territórios que estão com você.'
+        title: 'Achar territórios designados',
+        description: 'Mostra os territórios que estão com você, o progresso de cada um e o atalho para abrir o mapa no grupo correto.'
     },
     {
         badge: (
-            <div className="bg-green-100 p-1.5 rounded text-green-600 mt-0.5">
+            <div className="bg-teal-100 p-1.5 rounded text-teal-600 mt-0.5">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 </svg>
             </div>
         ),
-        title: 'Compartilhar ponto de encontro',
-        description: 'Toque no local desejado dentro do território, abra o popup e use "Ponto de Encontro" para enviar aquele ponto no WhatsApp.'
+        title: 'GPS e navegação',
+        description: 'O GPS centraliza sua posição. Em um endereço, "Navegar" abre a rota para chegar ao ponto cadastrado.'
+    },
+    {
+        badge: <div className="bg-indigo-100 p-1.5 rounded text-indigo-600 mt-0.5 font-bold text-xs w-7 h-7 flex items-center justify-center">T</div>,
+        title: 'Foco no território',
+        description: 'Em um marcador T, "Ver no mapa" destaca somente os endereços daquele território e mostra o progresso no topo.'
     }
 ];
 
@@ -90,8 +167,20 @@ function InfoCard({ tone = 'gray', title, description, children }) {
 }
 
 const AjudaModal = ({ isOpen, onClose, isAdmin = false }) => {
-    const tabs = useMemo(() => TABS_BASE, []);
+    const tabs = useMemo(() => (
+        isAdmin ? TABS_BASE : TABS_BASE.filter((tab) => tab.id !== 'admin')
+    ), [isAdmin]);
+    const overviewSteps = isAdmin ? ADMIN_OVERVIEW_STEPS : PUBLICADOR_OVERVIEW_STEPS;
+    const addressStatusItems = isAdmin
+        ? ADDRESS_STATUS
+        : ADDRESS_STATUS.filter((status) => status.label !== 'E selecionado');
     const [activeTab, setActiveTab] = useState(tabs[0].id);
+
+    useEffect(() => {
+        if (!tabs.some((tab) => tab.id === activeTab)) {
+            setActiveTab(tabs[0].id);
+        }
+    }, [activeTab, tabs]);
 
     if (!isOpen) return null;
 
@@ -100,7 +189,7 @@ const AjudaModal = ({ isOpen, onClose, isAdmin = false }) => {
             isOpen={isOpen}
             onClose={onClose}
             title="Como usar o mapa"
-            subtitle="Tudo o que você precisa para trabalhar no território sem se perder na tela."
+            subtitle="Fluxo atual do Territórios Idiomas: endereços cadastrados, agrupados em territórios e designados para pregação."
             size="lg"
             accentClass="bg-blue-600"
             bodyClassName="flex min-h-0 flex-col overflow-hidden p-0"
@@ -138,11 +227,15 @@ const AjudaModal = ({ isOpen, onClose, isAdmin = false }) => {
                         <div className="space-y-4">
                             <InfoCard
                                 tone="blue"
-                                title="Fluxo rápido"
-                                description="Se estiver começando agora, faça assim."
+                                title="Fluxo do Idiomas"
+                                description={
+                                    isAdmin
+                                        ? 'A base operacional é o que foi cadastrado no Firestore. Endereço é E; território de idioma é T.'
+                                        : 'Para o publicador, o essencial é abrir o território designado, visitar os endereços e marcar o progresso.'
+                                }
                             >
                                 <div className="space-y-2.5">
-                                    {FLOW_STEPS.map((step, index) => (
+                                    {overviewSteps.map((step, index) => (
                                         <div key={step.title} className="flex items-start gap-3 rounded-xl bg-white p-3 border border-blue-100 shadow-sm">
                                             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
                                                 {index + 1}
@@ -159,116 +252,177 @@ const AjudaModal = ({ isOpen, onClose, isAdmin = false }) => {
                             <div className="grid gap-3 sm:grid-cols-2">
                                 <InfoCard
                                     tone="violet"
-                                    title="Modo campanha"
-                                    description="O topo muda de cor e mostra a cobertura da campanha separada da pregação normal."
+                                    title="Endereço"
+                                    description={
+                                        isAdmin
+                                            ? 'Cada casa ou local visitável recebe um código E automático, como E-1, com endereço, quantidade de pessoas e observação.'
+                                            : 'Cada ponto visitável aparece com código E, endereço, quantidade de pessoas e observação quando houver.'
+                                    }
                                 />
 
                                 <InfoCard
-                                    title="Marcar quadras"
-                                    description="Toque na bolinha da quadra para alternar o status."
+                                    title="Território"
+                                    description={
+                                        isAdmin
+                                            ? 'O território T é o grupo designável ao publicador. Ele reúne endereços próximos e calcula progresso por endereços pregados.'
+                                            : 'O território T é o grupo de endereços que foi designado para você trabalhar.'
+                                    }
                                 >
-                                    <div className="flex flex-wrap gap-4">
-                                        {QUADRA_STATUS.map((status) => (
-                                            <div key={status.label} className="flex items-center gap-2">
-                                                <div className={`w-4 h-4 rounded-full border ${status.colors}`}></div>
-                                                <span className="text-xs font-bold text-gray-600">{status.label}</span>
-                                            </div>
-                                        ))}
-                                    </div>
+                                    <p className="text-xs font-semibold text-gray-600">
+                                        Códigos salvos como T-001 aparecem na tela de forma curta, como T-1.
+                                    </p>
                                 </InfoCard>
                             </div>
 
                             <InfoCard
                                 tone="sky"
-                                title="Atalhos rápidos"
-                                description="Dois recursos que ajudam bastante no dia a dia."
+                                title="Marcadores do mapa"
+                                description="As cores ajudam a entender o estado dos endereços durante cadastro, agrupamento e execução."
                             >
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <div className="rounded-xl border border-sky-100 bg-white p-3 shadow-sm">
-                                        <p className="text-sm font-bold text-gray-900">GPS</p>
-                                        <p className="mt-1 text-sm text-gray-600">Centraliza sua posição no mapa.</p>
-                                    </div>
-                                    <div className="rounded-xl border border-sky-100 bg-white p-3 shadow-sm">
-                                        <p className="text-sm font-bold text-gray-900">Olho</p>
-                                        <p className="mt-1 text-sm text-gray-600">Esconde as cores do mapa para ler melhor os nomes das ruas.</p>
-                                    </div>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                    {addressStatusItems.map((status) => (
+                                        <div key={status.label} className="rounded-xl border border-sky-100 bg-white p-3 shadow-sm">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`h-4 w-4 rounded-full border ${status.colors}`}></div>
+                                                <p className="text-sm font-bold text-gray-900">{status.label}</p>
+                                            </div>
+                                            <p className="mt-1 text-xs font-medium text-gray-600">{status.description}</p>
+                                        </div>
+                                    ))}
                                 </div>
                             </InfoCard>
 
                             <InfoCard
                                 tone="amber"
-                                title="Observações nas quadras"
-                                description="Use para registrar alertas e recados importantes."
+                                title="Status dos territórios"
+                                description="O marcador T também mostra em que ponto o território está."
                             >
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <div className="rounded-xl border border-amber-100 bg-white p-3 shadow-sm">
-                                        <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Computador</p>
-                                        <p className="mt-1 text-sm font-semibold text-blue-600">Botão direito na quadra</p>
-                                    </div>
-                                    <div className="rounded-xl border border-amber-100 bg-white p-3 shadow-sm">
-                                        <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Celular</p>
-                                        <p className="mt-1 text-sm font-semibold text-blue-600">Segure o dedo na quadra</p>
-                                    </div>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                    {TERRITORY_STATUS.map((status) => (
+                                        <div key={status.label} className="rounded-xl border border-amber-100 bg-white p-3 shadow-sm">
+                                            <p className="text-sm font-bold text-gray-900">{status.label}</p>
+                                            <p className="mt-1 text-xs font-medium text-gray-600">{status.description}</p>
+                                        </div>
+                                    ))}
                                 </div>
-                                <p className="mt-3 text-xs text-gray-600">
-                                    A bolinha amarela indica que a quadra tem anotação, e isso continua visível mesmo em campanha.
-                                </p>
                             </InfoCard>
                         </div>
                     ) : null}
 
-                    {activeTab === 'offline' ? (
+                    {activeTab === 'publicador' ? (
                         <div className="space-y-4">
                             <InfoCard
-                                tone="sky"
-                                title="Se a internet cair"
-                                description="Você não precisa parar o trabalho no território por causa disso."
+                                tone="blue"
+                                title="Como trabalhar um território"
+                                description="Use este fluxo quando um território T estiver designado para você."
                             >
-                                <div className="mb-3 rounded-xl border border-blue-200 bg-blue-600 p-3 text-white shadow-sm">
-                                    <p className="text-xs font-bold uppercase tracking-wide text-blue-100">Antes de sair</p>
-                                    <p className="mt-1 text-sm font-semibold">Abra a tela <strong>Mapas Offline</strong> no menu lateral e baixe a sua área com antecedência.</p>
-                                    <p className="mt-1 text-sm text-blue-50">Isso deixa o mapa preparado para uso mesmo sem sinal.</p>
-                                </div>
-                                <div className="rounded-2xl bg-white/80 p-4 space-y-2">
-                                    <p className="text-sm text-gray-700"><strong>1.</strong> Continue trabalhando normalmente no território que está com você.</p>
-                                    <p className="text-sm text-gray-700"><strong>2.</strong> Ainda é possível marcar quadras, escrever observações e concluir o território.</p>
-                                    <p className="text-sm text-gray-700"><strong>3.</strong> Toque no chip de status no topo para ver se há alterações aguardando envio.</p>
-                                    <p className="text-sm text-gray-700"><strong>4.</strong> Quando a conexão voltar, o app sincroniza sozinho.</p>
+                                <div className="space-y-2.5">
+                                    {PUBLICADOR_STEPS.map((step, index) => (
+                                        <div key={step.title} className="flex items-start gap-3 rounded-xl bg-white p-3 border border-blue-100 shadow-sm">
+                                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+                                                {index + 1}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-bold text-gray-900">{step.title}</p>
+                                                <p className="mt-0.5 text-sm text-gray-600">{step.description}</p>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </InfoCard>
 
                             <div className="grid gap-4 md:grid-cols-2">
                                 <InfoCard
-                                    title="Como a sincronização se comporta"
-                                    description="O app protege os dados para evitar sobrescrever mudanças recentes."
+                                    tone="sky"
+                                    title="O que aparece no endereço"
+                                    description="O popup mostra código E, endereço, quantidade de pessoas cadastradas, observação, navegação e compartilhamento."
+                                />
+
+                                <InfoCard
+                                    tone="amber"
+                                    title="Precisa de internet"
+                                    description="A marcação de endereços e a finalização do território de idioma são online-first neste momento."
                                 >
-                                    <div className="space-y-2 text-sm text-gray-700">
-                                        <p>Se o território mudou de responsável enquanto você estava offline, a alteração antiga não sobrescreve a nova designação.</p>
-                                        <p>Nesse caso, o sistema mostra conflito para revisão antes de concluir o envio.</p>
-                                        <p>Se você finalizou o território offline, a conclusão entra assim que a conexão voltar, desde que a designação continue a mesma.</p>
-                                    </div>
+                                    <p className="text-sm text-gray-700">
+                                        Se a conexão falhar, aguarde voltar antes de marcar progresso para evitar conflito de designação.
+                                    </p>
                                 </InfoCard>
+                            </div>
+                        </div>
+                    ) : null}
+
+                    {activeTab === 'admin' ? (
+                        <div className="space-y-4">
+                            <InfoCard
+                                tone="violet"
+                                title="Rotina administrativa"
+                                description="Essas ações precisam de conexão e ficam bloqueadas quando o app está offline."
+                            >
+                                <div className="space-y-2.5">
+                                    {ADMIN_STEPS.map((step, index) => (
+                                        <div key={step.title} className="flex items-start gap-3 rounded-xl bg-white p-3 border border-violet-100 shadow-sm">
+                                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">
+                                                {index + 1}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-bold text-gray-900">{step.title}</p>
+                                                <p className="mt-0.5 text-sm text-gray-600">{step.description}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </InfoCard>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <InfoCard
+                                    title="Enviar para nova pessoa"
+                                    description="Se o publicador ainda não está na lista, informe nome, e-mail e WhatsApp. O app libera o acesso e prepara a mensagem de envio."
+                                />
+
+                                <InfoCard
+                                    tone="sky"
+                                    title="Informações gerais"
+                                    description="O botão de informações no header do admin mostra totais ativos de territórios, endereços e pessoas, além de separados para finalizados e arquivados."
+                                />
+                            </div>
+                        </div>
+                    ) : null}
+
+                    {activeTab === 'online' ? (
+                        <div className="space-y-4">
+                            <InfoCard
+                                tone="amber"
+                                title="Fluxo de endereços é online-first"
+                                description={
+                                    isAdmin
+                                        ? 'Cadastro, edição, arquivamento, agrupamento, designação, marcação de pregado e finalização de territórios T dependem de conexão.'
+                                        : 'Marcação de pregado e finalização de territórios T dependem de conexão.'
+                                }
+                            >
+                                <div className="space-y-2 text-sm text-gray-700">
+                                    <p>Isso evita que uma designação antiga sobrescreva outra mudança feita enquanto alguém estava sem internet.</p>
+                                    <p>Se alguma ação administrativa estiver desativada, verifique a conexão antes de tentar novamente.</p>
+                                </div>
+                            </InfoCard>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <InfoCard
+                                    title="Mapas Offline"
+                                    description="A tela ainda existe para o fluxo legado de territórios por quadras, mas o progresso dos territórios de idioma ainda não tem sincronização offline robusta."
+                                />
 
                                 <InfoCard
                                     tone="blue"
-                                    title="Mapa offline preparado"
-                                    description="Se você já baixou a área antes, a navegação fica muito mais estável quando a internet falhar."
+                                    title="Dados do Idiomas"
+                                    description="O app não usa mais mapa JSON como base inicial. O que aparece em Idiomas vem dos endereços e territórios cadastrados no Firestore."
                                 />
                             </div>
 
                             <InfoCard
-                                tone="amber"
-                                title="Limite para ações administrativas"
-                                description={
-                                    isAdmin
-                                        ? 'Sem conexão, ações administrativas ficam bloqueadas para evitar conflito de designações.'
-                                        : 'Se você também usa funções administrativas, saiba que elas ficam bloqueadas enquanto estiver sem conexão.'
-                                }
-                            >
-                                <p className="text-sm text-gray-700">
-                                    Offline, o admin ainda consegue consultar dados já armazenados e trabalhar normalmente apenas no território que estiver designado para ele.
-                                </p>
-                            </InfoCard>
+                                tone="gray"
+                                title="Quando algo não aparecer"
+                                description="Confirme se o usuário está aprovado, se o território está ativo e se o link abre a conta correta. Territórios arquivados ficam ocultos no mapa padrão."
+                            />
                         </div>
                     ) : null}
 
@@ -290,6 +444,24 @@ const AjudaModal = ({ isOpen, onClose, isAdmin = false }) => {
                                     ))}
                                 </div>
                             </InfoCard>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <InfoCard
+                                    tone="sky"
+                                    title="Camadas"
+                                    description={
+                                        isAdmin
+                                            ? 'Alterne mapa padrão, Google ou satélite. O admin também pode mostrar/ocultar bairros, referências e condomínios quando disponíveis.'
+                                            : 'Alterne mapa padrão, Google ou satélite para facilitar a leitura das ruas e pontos.'
+                                    }
+                                />
+
+                                <InfoCard
+                                    tone="violet"
+                                    title="Compartilhar"
+                                    description="Endereços, territórios e pontos clicados podem gerar link de localização para WhatsApp ou compartilhamento do aparelho."
+                                />
+                            </div>
                         </div>
                     ) : null}
 

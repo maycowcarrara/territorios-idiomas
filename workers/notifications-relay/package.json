@@ -10,6 +10,6 @@
     "tail:idiomas": "npm run tail"
   },
   "devDependencies": {
-    "wrangler": "^4.11.1"
+    "wrangler": "^4.113.0"
   }
 }

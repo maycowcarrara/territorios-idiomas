@@ -39,9 +39,10 @@ Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, 
 - mapa reconhece `grupoCodigo` como vinculo alem de `grupoId`, evitando que endereco ja agrupado volte a aparecer como selecionavel;
 - mapa monta grupos sinteticos a partir de enderecos vinculados quando o documento de `grupos_enderecos` nao estiver presente na leitura local, e recalcula contadores/centro/bounds em tempo de execucao para exibir dados mais completos;
 - grupos finalizados aparecem para admin com status visual proprio, e a execucao de enderecos fica bloqueada quando o grupo nao esta ativo;
-- botao de informacoes gerais no header com totais de territorios ativos, enderecos ativos e pessoas cadastradas, usando agregacoes `count`/`sum` do Firestore e cache curto em `sessionStorage`;
+- botao de informacoes gerais no header do admin com totais de territorios ativos, enderecos ativos e pessoas cadastradas, usando agregacoes `count`/`sum` do Firestore e cache curto em `sessionStorage`;
 - indice de agregacao versionado em `firestore.indexes.json` e publicado com `firebase deploy --project idiomas --only firestore:indexes`;
 - camada local de bairros urbanos de Sao Bento do Sul a partir do GeoJSON oficial GeoBensul/Prefeitura (`public/bairros-sbs.geojson`), com agrupamento visual dos territorios `T` por bairro e resumo de cobertos/faltantes;
+- ajuda "Como usar" atualizada para o fluxo de enderecos, territorios `T`, designacao e execucao online-first;
 - `npm.cmd run lint`, `npm.cmd run build`, `firebase deploy --project idiomas --only firestore:indexes` e `npm.cmd run web:deploy` passaram em 2026-07-21.
 
 Ainda pendente para fechar o plano completo:
@@ -52,7 +53,6 @@ Ainda pendente para fechar o plano completo:
 - relatorios de enderecos/grupos;
 - importador de enderecos idempotente para semear enderecos/grupos futuramente;
 - offline robusto para execucao de grupos, equivalente ao fluxo de territorios/quadras;
-- ajuda/manual do usuario para o novo fluxo.
 
 ## Decisao de modelo
 
@@ -338,7 +338,7 @@ Arquivos principais:
   - adaptar "Meus territorios" para incluir grupos de enderecos;
   - progresso deve poder ser por quadras ou por enderecos;
   - navegar por bounds ou por centro do grupo quando bounds nao estiverem disponiveis;
-  - exibir informacoes gerais no header por agregacoes do Firestore, sem listeners abertos nem leitura completa das colecoes.
+  - exibir informacoes gerais no header do admin por agregacoes do Firestore, sem listeners abertos nem leitura completa das colecoes.
 
 - `src/territorioContext.js`
   - sem alteracao principal para grupos no MVP; o progresso de grupos ficou em `src/enderecoModel.js`.
@@ -411,7 +411,7 @@ Arquivos principais:
 - [x] Resumo geral agregado no header para territorios, enderecos e pessoas.
 - [ ] Relatorios administrativos de grupos/endereco.
 - [ ] Importador JSON idempotente.
-- [ ] Ajustar Ajuda/manual.
+- [x] Ajustar Ajuda/manual.
 
 ### Camada local de bairros urbanos
 

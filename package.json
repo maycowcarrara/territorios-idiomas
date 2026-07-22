@@ -48,6 +48,7 @@
     "worker:deploy": "npm --prefix workers/notifications-relay run deploy",
     "worker:deploy:idiomas": "npm --prefix workers/notifications-relay run deploy:idiomas",
     "worker:tail": "npm --prefix workers/notifications-relay run tail",
+    "backfill:grupo-designado": "node scripts/backfill-grupo-designado-para.cjs",
     "firestore:export": "node scripts/firestore-migrate.cjs export",
     "firestore:import": "node scripts/firestore-migrate.cjs import",
     "git-push": "git add . && git commit -m \"Update\" && git push",

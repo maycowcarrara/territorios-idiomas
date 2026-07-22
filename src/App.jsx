@@ -355,6 +355,7 @@ const montarListaMeusGruposEndereco = ({ docs }) => {
 
 // --- CAPTURA GLOBAL DO EVENTO DE INSTALAÇÃO ---
 let deferredPromptGlobal = null;
+const POST_LOGIN_REDIRECT_KEY = 'territorios.postLoginRedirect';
 
 if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
   window.addEventListener('beforeinstallprompt', (e) => {
@@ -362,6 +363,64 @@ if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
     deferredPromptGlobal = e;
   });
 }
+
+const normalizePostLoginRedirect = (value) => {
+  const path = String(value || '').trim();
+  if (!path || !path.startsWith('/') || path.startsWith('//')) return '/app';
+  return path;
+};
+
+const rememberPostLoginRedirect = (value) => {
+  if (typeof window === 'undefined') return;
+
+  const path = normalizePostLoginRedirect(value);
+  if (path === '/') return;
+
+  try {
+    window.localStorage.setItem(POST_LOGIN_REDIRECT_KEY, path);
+  } catch {
+    // Ignora storage indisponível.
+  }
+};
+
+const consumePostLoginRedirect = () => {
+  if (typeof window === 'undefined') return '/app';
+
+  try {
+    const path = normalizePostLoginRedirect(window.localStorage.getItem(POST_LOGIN_REDIRECT_KEY));
+    window.localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+    return path;
+  } catch {
+    return '/app';
+  }
+};
+
+const peekPostLoginRedirect = () => {
+  if (typeof window === 'undefined') return '/app';
+
+  try {
+    return normalizePostLoginRedirect(window.localStorage.getItem(POST_LOGIN_REDIRECT_KEY));
+  } catch {
+    return '/app';
+  }
+};
+
+const getRedirectFromCurrentUrl = () => {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    return normalizePostLoginRedirect(new URL(window.location.href).searchParams.get('redirect'));
+  } catch {
+    return '';
+  }
+};
+
+const rememberRedirectFromCurrentUrl = () => {
+  const redirect = getRedirectFromCurrentUrl();
+  if (redirect && redirect !== '/app') {
+    rememberPostLoginRedirect(redirect);
+  }
+};
 
 // --- TELA DE LOGIN ---
 function Login() {
@@ -375,6 +434,10 @@ function Login() {
   const [emailConfirmacao, setEmailConfirmacao] = useState('');
   const [magicLinkUrl, setMagicLinkUrl] = useState('');
   const [aguardandoConfirmacaoEmail, setAguardandoConfirmacaoEmail] = useState(false);
+  const navegarAposLogin = useCallback(() => {
+    rememberRedirectFromCurrentUrl();
+    navigate(consumePostLoginRedirect(), { replace: true });
+  }, [navigate]);
 
   const extrairMensagemErroGoogle = (error) => {
     const partes = [
@@ -473,16 +536,18 @@ function Login() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        navigate('/app', { replace: true });
+        navegarAposLogin();
       } else {
         setVerificandoSessao(false);
       }
     });
     return () => unsubscribe();
-  }, [navigate]);
+  }, [navegarAposLogin]);
 
   const processarLinkPendente = useCallback(async () => {
     if (auth.currentUser) return;
+
+    rememberRedirectFromCurrentUrl();
 
     const linkAtual = getMagicLinkFromCurrentUrl();
     if (linkAtual) {
@@ -526,7 +591,7 @@ function Login() {
         emailLink: linkPendente
       });
 
-      navigate('/app', { replace: true });
+      navegarAposLogin();
     } catch (error) {
       console.error(error);
       const mensagem = String(error?.message || error || '');
@@ -545,7 +610,7 @@ function Login() {
     } finally {
       setLoadingMagicLink(false);
     }
-  }, [navigate]);
+  }, [navegarAposLogin]);
 
   useEffect(() => {
     void processarLinkPendente();
@@ -582,12 +647,12 @@ function Login() {
     try {
       if (Capacitor.isNativePlatform()) {
         await signInWithGoogleNative();
-        navigate('/app', { replace: true });
+        navegarAposLogin();
         return;
       }
 
       await signInWithPopup(auth, googleProvider);
-      navigate('/app', { replace: true });
+      navegarAposLogin();
     } catch (error) {
       console.error(error);
       setErro(extrairMensagemErroGoogle(error));
@@ -610,7 +675,9 @@ function Login() {
     setInfo('');
 
     try {
-      const normalized = await sendMagicLink(email);
+      const normalized = await sendMagicLink(email, {
+        redirectPath: peekPostLoginRedirect()
+      });
       setEmail(normalized);
       setEmailConfirmacao(normalized);
       setAguardandoConfirmacaoEmail(false);
@@ -647,7 +714,7 @@ function Login() {
         email: emailConfirmacao,
         emailLink: magicLinkUrl
       });
-      navigate('/app', { replace: true });
+      navegarAposLogin();
     } catch (error) {
       console.error(error);
       const mensagem = String(error?.message || error || '');
@@ -2452,6 +2519,7 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
 // --- DASHBOARD (CORRIGIDO: BOTÕES VISÍVEIS + LOGO NO MOBILE) ---
 function Dashboard() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [verificandoLogin, setVerificandoLogin] = useState(true);
   const { config: contextoSistema, loading: carregandoSistema } = useSistema();
@@ -2477,6 +2545,7 @@ function Dashboard() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (!currentUser) {
+        rememberPostLoginRedirect(`${location.pathname}${location.search}`);
         navigate('/');
       } else {
         setUser(buildSafeAuthUser(currentUser));
@@ -2484,7 +2553,7 @@ function Dashboard() {
       setVerificandoLogin(false);
     });
     return () => unsubscribe();
-  }, [navigate]);
+  }, [location.pathname, location.search, navigate]);
 
   const { isAdmin, autorizado, loading: verificandoBanco, role } = useUsuario(user);
   const isOnline = useTerritorioSync({
@@ -2777,7 +2846,7 @@ function Dashboard() {
       />
 
       <InformacoesGeraisModal
-        isOpen={informacoesGeraisAberto}
+        isOpen={isAdmin && informacoesGeraisAberto}
         onClose={() => setInformacoesGeraisAberto(false)}
       />
 
@@ -2874,17 +2943,19 @@ function Dashboard() {
               onClose={() => setStatusSyncAberto(false)}
             />
 
-            <button
-              type="button"
-              onClick={() => setInformacoesGeraisAberto(true)}
-              className={`p-1.5 sm:p-2 text-white/90 hover:text-white ${temaSistema.headerHover} rounded-full transition-colors relative`}
-              title="Informações gerais"
-              aria-label="Informações gerais"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M18 10A8 8 0 112 10a8 8 0 0116 0zM9 8a1 1 0 112 0v5a1 1 0 11-2 0V8zm1-3a1.25 1.25 0 100 2.5A1.25 1.25 0 0010 5z" clipRule="evenodd" />
-              </svg>
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setInformacoesGeraisAberto(true)}
+                className={`p-1.5 sm:p-2 text-white/90 hover:text-white ${temaSistema.headerHover} rounded-full transition-colors relative`}
+                title="Informações gerais"
+                aria-label="Informações gerais"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10A8 8 0 112 10a8 8 0 0116 0zM9 8a1 1 0 112 0v5a1 1 0 11-2 0V8zm1-3a1.25 1.25 0 100 2.5A1.25 1.25 0 0010 5z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )}
             
             {/* ATALHO 1: RELATÓRIOS (SÓ ADMIN) - Sempre visível agora */}
             {isAdmin && (

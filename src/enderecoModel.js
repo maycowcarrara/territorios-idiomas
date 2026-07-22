@@ -2,9 +2,9 @@ import {
     arrayUnion,
     collection,
     doc,
-    runTransaction,
-    setDoc
+    runTransaction
 } from 'firebase/firestore';
+import { buildUsuarioAprovadoData, USUARIOS_COLLECTION } from './usuariosModel.js';
 
 export const ENDERECOS_COLLECTION = 'enderecos';
 export const GRUPOS_ENDERECOS_COLLECTION = 'grupos_enderecos';
@@ -257,6 +257,7 @@ export async function createEnderecoManual(db, { user, ...input }) {
             status: ENDERECO_STATUS.ATIVO,
             grupoId: null,
             grupoCodigo: null,
+            grupoDesignadoPara: null,
             ...fields,
             geohash: null,
             origem: ENDERECO_ORIGEM.MANUAL,
@@ -470,6 +471,7 @@ export async function createGrupoEnderecoManual(db, { enderecos, nome, user }) {
             transaction.set(getEnderecoRef(db, enderecoId), {
                 grupoId,
                 grupoCodigo: codigo,
+                grupoDesignadoPara: null,
                 atualizadoEm: agora,
                 atualizadoPor: actorEmail
             }, { merge: true });
@@ -560,6 +562,7 @@ export async function adicionarEnderecosAoGrupo(db, { enderecoIds, grupoId, user
             transaction.set(getEnderecoRef(db, enderecoId), {
                 grupoId,
                 grupoCodigo: grupo.codigo,
+                grupoDesignadoPara: grupo.designadoPara || null,
                 atualizadoEm: agora,
                 atualizadoPor: actorEmail
             }, { merge: true });
@@ -575,14 +578,33 @@ export async function adicionarEnderecosAoGrupo(db, { enderecoIds, grupoId, user
 
 export async function setGrupoEnderecoArquivado(db, grupoId, arquivar, user) {
     const agora = new Date();
+    const actorEmail = buildActorEmail(user);
 
-    await setDoc(getGrupoEnderecoRef(db, grupoId), {
-        status: arquivar ? GRUPO_ENDERECO_STATUS.ARQUIVADO : GRUPO_ENDERECO_STATUS.ATIVO,
-        atualizadoEm: agora,
-        atualizadoPor: buildActorEmail(user),
-        arquivadoEm: arquivar ? agora : null,
-        arquivadoPor: arquivar ? buildActorEmail(user) : null
-    }, { merge: true });
+    await runTransaction(db, async (transaction) => {
+        const grupoRef = getGrupoEnderecoRef(db, grupoId);
+        const grupoSnapshot = await transaction.get(grupoRef);
+
+        if (!grupoSnapshot.exists()) {
+            throw new Error('Território não encontrado.');
+        }
+
+        const grupo = grupoSnapshot.data();
+        ensureArray(grupo.enderecoIds).forEach((enderecoId) => {
+            transaction.set(getEnderecoRef(db, enderecoId), {
+                grupoDesignadoPara: arquivar ? null : (grupo.designadoPara || null),
+                atualizadoEm: agora,
+                atualizadoPor: actorEmail
+            }, { merge: true });
+        });
+
+        transaction.set(grupoRef, {
+            status: arquivar ? GRUPO_ENDERECO_STATUS.ARQUIVADO : GRUPO_ENDERECO_STATUS.ATIVO,
+            atualizadoEm: agora,
+            atualizadoPor: actorEmail,
+            arquivadoEm: arquivar ? agora : null,
+            arquivadoPor: arquivar ? actorEmail : null
+        }, { merge: true });
+    });
 }
 
 export async function designarGrupoEndereco(db, { grupoId, usuario, user }) {
@@ -590,26 +612,140 @@ export async function designarGrupoEndereco(db, { grupoId, usuario, user }) {
     const designacaoId = createDesignacaoId();
     const usuarioEmail = normalizeEmail(usuario?.email);
     const novoNome = usuario?.nome || usuario?.email || 'Dirigente';
+    if (!usuarioEmail) {
+        throw new Error('Usuário inválido para designação.');
+    }
 
-    await setDoc(getGrupoEnderecoRef(db, grupoId), {
-        designadoPara: usuarioEmail,
-        designadoNome: novoNome,
-        dataDesignacao: agora,
-        designacaoId,
-        cicloAtual: {
-            dataInicio: agora,
-            responsaveis: [novoNome],
-            designacaoId
-        },
-        status: GRUPO_ENDERECO_STATUS.ATIVO,
-        ultimaAlteracao: agora,
-        atualizadoEm: agora,
-        atualizadoPor: buildActorEmail(user)
-    }, { merge: true });
+    await runTransaction(db, async (transaction) => {
+        const grupoRef = getGrupoEnderecoRef(db, grupoId);
+        const grupoSnapshot = await transaction.get(grupoRef);
+
+        if (!grupoSnapshot.exists()) {
+            throw new Error('Território não encontrado.');
+        }
+
+        const grupo = grupoSnapshot.data();
+        const statusAtual = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
+        if (statusAtual === GRUPO_ENDERECO_STATUS.ARQUIVADO) {
+            throw new Error('Território arquivado não pode ser designado.');
+        }
+
+        if (statusAtual === GRUPO_ENDERECO_STATUS.FINALIZADO) {
+            throw new Error('Território finalizado precisa ser disponibilizado antes de uma nova designação.');
+        }
+
+        transaction.set(grupoRef, {
+            designadoPara: usuarioEmail,
+            designadoNome: novoNome,
+            dataDesignacao: agora,
+            designacaoId,
+            cicloAtual: {
+                dataInicio: agora,
+                responsaveis: [novoNome],
+                designacaoId
+            },
+            status: GRUPO_ENDERECO_STATUS.ATIVO,
+            ultimaAlteracao: agora,
+            atualizadoEm: agora,
+            atualizadoPor: buildActorEmail(user)
+        }, { merge: true });
+
+        ensureArray(grupo.enderecoIds).forEach((enderecoId) => {
+            transaction.set(getEnderecoRef(db, enderecoId), {
+                grupoDesignadoPara: usuarioEmail,
+                atualizadoEm: agora,
+                atualizadoPor: buildActorEmail(user)
+            }, { merge: true });
+        });
+    });
 
     return {
         designacaoId,
         designadoNome: novoNome
+    };
+}
+
+export async function designarGrupoEnderecoComUsuarioAprovado(db, { grupoId, convite, user }) {
+    const agora = new Date();
+    const dadosUsuarioPreliminares = buildUsuarioAprovadoData({
+        email: convite?.email,
+        nome: convite?.nome || 'Novo Dirigente',
+        whatsapp: convite?.whatsapp,
+        criadoPor: buildActorEmail(user) || null,
+        origem: 'designacao-grupo-endereco',
+        agora
+    });
+    const usuarioRef = doc(db, USUARIOS_COLLECTION, dadosUsuarioPreliminares.email);
+    const grupoRef = getGrupoEnderecoRef(db, grupoId);
+    const designacaoId = createDesignacaoId();
+    let usuarioRetorno = null;
+
+    await runTransaction(db, async (transaction) => {
+        const usuarioSnapshot = await transaction.get(usuarioRef);
+        const grupoSnapshot = await transaction.get(grupoRef);
+
+        if (!grupoSnapshot.exists()) {
+            throw new Error('Território não encontrado.');
+        }
+
+        const grupo = grupoSnapshot.data();
+        const statusAtual = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
+        if (statusAtual === GRUPO_ENDERECO_STATUS.ARQUIVADO) {
+            throw new Error('Território arquivado não pode ser designado.');
+        }
+
+        if (statusAtual === GRUPO_ENDERECO_STATUS.FINALIZADO) {
+            throw new Error('Território finalizado precisa ser disponibilizado antes de uma nova designação.');
+        }
+
+        const existente = usuarioSnapshot.exists() ? usuarioSnapshot.data() : null;
+        const usuarioAprovado = buildUsuarioAprovadoData({
+            email: convite?.email,
+            nome: convite?.nome || 'Novo Dirigente',
+            whatsapp: convite?.whatsapp,
+            criadoPor: buildActorEmail(user) || null,
+            origem: 'designacao-grupo-endereco',
+            existente,
+            agora
+        });
+        usuarioRetorno = {
+            email: usuarioAprovado.email,
+            id: usuarioAprovado.id,
+            role: usuarioAprovado.dados.role,
+            nome: usuarioAprovado.dados.nome,
+            whatsapp: usuarioAprovado.dados.whatsapp
+        };
+
+        transaction.set(usuarioRef, usuarioAprovado.dados, { merge: true });
+        transaction.set(grupoRef, {
+            designadoPara: usuarioAprovado.email,
+            designadoNome: usuarioAprovado.dados.nome,
+            dataDesignacao: agora,
+            designacaoId,
+            cicloAtual: {
+                dataInicio: agora,
+                responsaveis: [usuarioAprovado.dados.nome],
+                designacaoId
+            },
+            status: GRUPO_ENDERECO_STATUS.ATIVO,
+            ultimaAlteracao: agora,
+            atualizadoEm: agora,
+            atualizadoPor: buildActorEmail(user)
+        }, { merge: true });
+
+        ensureArray(grupo.enderecoIds).forEach((enderecoId) => {
+            transaction.set(getEnderecoRef(db, enderecoId), {
+                grupoDesignadoPara: usuarioAprovado.email,
+                atualizadoEm: agora,
+                atualizadoPor: buildActorEmail(user)
+            }, { merge: true });
+        });
+    });
+
+    return {
+        usuario: usuarioRetorno,
+        designacaoId,
+        designadoNome: usuarioRetorno?.nome
     };
 }
 
@@ -648,6 +784,14 @@ export async function devolverGrupoEndereco(db, { grupoId, user }) {
             atualizadoEm: agora,
             atualizadoPor: actorEmail
         }, { merge: true });
+
+        ensureArray(grupo.enderecoIds).forEach((enderecoId) => {
+            transaction.set(getEnderecoRef(db, enderecoId), {
+                grupoDesignadoPara: null,
+                atualizadoEm: agora,
+                atualizadoPor: actorEmail
+            }, { merge: true });
+        });
     });
 }
 
@@ -735,6 +879,14 @@ export async function finalizarGrupoEnderecoDesignado(db, { grupoId, user }) {
             atualizadoEm: agora,
             atualizadoPor: actorEmail
         }, { merge: true });
+
+        ensureArray(grupo.enderecoIds).forEach((enderecoId) => {
+            transaction.set(getEnderecoRef(db, enderecoId), {
+                grupoDesignadoPara: null,
+                atualizadoEm: agora,
+                atualizadoPor: actorEmail
+            }, { merge: true });
+        });
     });
 }
 
@@ -779,6 +931,7 @@ export async function removerEnderecoDoGrupo(db, { enderecoId, grupoId, user }) 
         transaction.set(enderecoRef, {
             grupoId: null,
             grupoCodigo: null,
+            grupoDesignadoPara: null,
             atualizadoEm: agora,
             atualizadoPor: actorEmail
         }, { merge: true });

@@ -123,7 +123,7 @@ Status atual:
 - grupos de enderecos cadastraveis no mapa, com codigo automatico `T-00X`;
 - grupos podem ser designados para publicadores e aparecem em "Meus Territorios";
 - publicador marca enderecos visitados e finaliza o grupo quando todos foram visitados;
-- botão de informações gerais no header com totais de territórios, endereços e pessoas por agregações do Firestore;
+- botão de informações gerais no header do admin com totais de territórios, endereços e pessoas por agregações do Firestore;
 - fluxo de enderecos/grupos esta online-first; o offline robusto segue disponivel para territorios/quadras.
 
 ### Coleções principais

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MapContainer, TileLayer, Polygon, Popup, CircleMarker, Tooltip, useMapEvents, useMap, Marker, Polyline } from 'react-leaflet';
-import { onSnapshot, setDoc, deleteDoc, doc, arrayUnion, collection, getDocs } from 'firebase/firestore';
+import { onSnapshot, setDoc, deleteDoc, doc, arrayUnion, collection, query, where } from 'firebase/firestore';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
 import { db } from './firebase';
@@ -44,6 +44,7 @@ import {
     createEnderecoManual,
     devolverGrupoEndereco,
     designarGrupoEndereco,
+    designarGrupoEnderecoComUsuarioAprovado,
     ENDERECO_STATUS,
     finalizarGrupoEnderecoDesignado,
     formatEnderecoCodigoExibicao,
@@ -65,6 +66,7 @@ import L from 'leaflet';
 import { useUiFeedback } from './uiFeedback';
 import { enviarEventoNotificacao } from './notificationRelay';
 import { MAP_COLORS, getTerritorioDisponivelColors } from './mapLegend';
+import { ensureUsuarioAprovado, isValidUsuarioEmail, isValidWhatsappDigits } from './usuariosModel';
 
 const normalizeEmailValue = (value) => String(value || '').trim().toLowerCase();
 
@@ -106,6 +108,23 @@ const addEnderecoUnico = (destino, vistos, endereco) => {
     if (!endereco?.id || vistos.has(endereco.id)) return;
     vistos.add(endereco.id);
     destino.push(endereco);
+};
+
+const enderecoTemCoordenadas = (endereco) => (
+    Number.isFinite(Number(endereco?.lat)) && Number.isFinite(Number(endereco?.lng))
+);
+
+const sortEnderecosPorCodigo = (a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id));
+
+const mergeEnderecosUnicos = (...listas) => {
+    const map = new Map();
+    listas.flat().forEach((endereco) => {
+        if (endereco?.id) {
+            map.set(endereco.id, endereco);
+        }
+    });
+
+    return [...map.values()].sort(sortEnderecosPorCodigo);
 };
 
 const resolveEnderecosGrupoFromMaps = (grupo, exactMap, canonicalMap, enderecosById) => {
@@ -1739,15 +1758,16 @@ const buildGrupoBoundsParam = (bounds) => {
 
 const buildGrupoEnderecoAppLink = ({ grupo, centro }) => {
     const boundsParam = buildGrupoBoundsParam(grupo?.bounds);
+    const grupoId = grupo?.id || '';
     if (boundsParam) {
-        return buildPublicAppRouteUrl('/app', { bounds: boundsParam });
+        return buildPublicAppRouteUrl('/app', { grupoId, bounds: boundsParam });
     }
 
     if (Number.isFinite(Number(centro?.lat)) && Number.isFinite(Number(centro?.lng))) {
-        return buildPublicAppRouteUrl('/app', { lat: centro.lat, lng: centro.lng, z: 17 });
+        return buildPublicAppRouteUrl('/app', { grupoId, lat: centro.lat, lng: centro.lng, z: 17 });
     }
 
-    return buildPublicAppRouteUrl('/app');
+    return buildPublicAppRouteUrl('/app', { grupoId });
 };
 
 const buildGrupoEnderecoTituloMensagem = (grupo) => {
@@ -1981,6 +2001,10 @@ const GrupoEnderecoLayer = ({
     const isMeu = normalizeEmailValue(grupo.designadoPara) === userEmail;
     const podeExecutar = (isAdmin || isMeu) && isOnline && !arquivado && !progresso.isFinalizado;
     const [usuarioSelecionado, setUsuarioSelecionado] = useState('');
+    const [conviteAberto, setConviteAberto] = useState(false);
+    const [conviteNome, setConviteNome] = useState('');
+    const [conviteEmail, setConviteEmail] = useState('');
+    const [conviteWhatsapp, setConviteWhatsapp] = useState('');
     const [loadingAction, setLoadingAction] = useState(false);
     const [menuAberto, setMenuAberto] = useState(false);
     const [enderecosModalAberto, setEnderecosModalAberto] = useState(false);
@@ -2016,6 +2040,10 @@ const GrupoEnderecoLayer = ({
 
     useEffect(() => {
         setUsuarioSelecionado('');
+        setConviteAberto(false);
+        setConviteNome('');
+        setConviteEmail('');
+        setConviteWhatsapp('');
         setMenuAberto(false);
         setEnderecosModalAberto(false);
         setMensagemDesignacaoPronta(null);
@@ -2048,6 +2076,24 @@ const GrupoEnderecoLayer = ({
         const mensagem = await onDesignar(grupo, usuarioSelecionado, { centro: centroGrupo });
         if (mensagem) {
             setMensagemDesignacaoPronta(mensagem);
+        }
+    };
+
+    const convidarEDesignarTerritorio = async () => {
+        const mensagem = await onDesignar(grupo, null, {
+            centro: centroGrupo,
+            convite: {
+                nome: conviteNome,
+                email: conviteEmail,
+                whatsapp: conviteWhatsapp
+            }
+        });
+        if (mensagem) {
+            setMensagemDesignacaoPronta(mensagem);
+            setConviteAberto(false);
+            setConviteNome('');
+            setConviteEmail('');
+            setConviteWhatsapp('');
         }
     };
 
@@ -2246,6 +2292,50 @@ const GrupoEnderecoLayer = ({
                                             >
                                                 {loadingAction ? 'Salvando...' : 'Designar território'}
                                             </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setConviteAberto((aberto) => !aberto)}
+                                                disabled={loadingAction || !isOnline}
+                                                className="mt-2 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-extrabold text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
+                                            >
+                                                {conviteAberto ? 'Fechar envio para nova pessoa' : 'Enviar para nova pessoa'}
+                                            </button>
+                                            {conviteAberto && (
+                                                <div className="mt-2 rounded-lg border border-indigo-100 bg-white p-2">
+                                                    <input
+                                                        type="text"
+                                                        className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                        placeholder="Nome"
+                                                        value={conviteNome}
+                                                        onChange={(event) => setConviteNome(event.target.value)}
+                                                        disabled={loadingAction || !isOnline}
+                                                    />
+                                                    <input
+                                                        type="email"
+                                                        className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                        placeholder="E-mail"
+                                                        value={conviteEmail}
+                                                        onChange={(event) => setConviteEmail(event.target.value)}
+                                                        disabled={loadingAction || !isOnline}
+                                                    />
+                                                    <input
+                                                        type="tel"
+                                                        className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                        placeholder="WhatsApp"
+                                                        value={conviteWhatsapp}
+                                                        onChange={(event) => setConviteWhatsapp(event.target.value)}
+                                                        disabled={loadingAction || !isOnline}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => executarAcaoGrupo(convidarEDesignarTerritorio)}
+                                                        disabled={!isValidUsuarioEmail(conviteEmail) || !conviteWhatsapp.replace(/\D/g, '') || !isValidWhatsappDigits(conviteWhatsapp) || loadingAction || !isOnline}
+                                                        className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
+                                                    >
+                                                        {loadingAction ? 'Salvando...' : 'Liberar acesso e preparar WhatsApp'}
+                                                    </button>
+                                                </div>
+                                            )}
                                             {grupo.designadoPara && (
                                                 <button
                                                     onClick={() => executarAcaoGrupo(() => onDevolver(grupo))}
@@ -2410,6 +2500,10 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
     const [dadosContexto, setDadosContexto] = useState(dadosContextoIniciais);
     const [notasDocsMap, setNotasDocsMap] = useState({});
     const [usuarioSelecionado, setUsuarioSelecionado] = useState("");
+    const [conviteAberto, setConviteAberto] = useState(false);
+    const [conviteNome, setConviteNome] = useState("");
+    const [conviteEmail, setConviteEmail] = useState("");
+    const [conviteWhatsapp, setConviteWhatsapp] = useState("");
     const [msgPronta, setMsgPronta] = useState(null);
     const [posicaoClique, setPosicaoClique] = useState(null);
     const [modalConfig, setModalConfig] = useState({ open: false, dados: null });
@@ -2484,6 +2578,10 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
 
     useEffect(() => {
         setUsuarioSelecionado("");
+        setConviteAberto(false);
+        setConviteNome("");
+        setConviteEmail("");
+        setConviteWhatsapp("");
         setMsgPronta(null);
     }, [contextoId, idTerritorio]);
 
@@ -2798,6 +2896,45 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
         return { texto: textoMsg, whatsapp: uWhats, nome: uNome };
     };
 
+    const salvarDesignacaoParaUsuario = async (usuarioObj) => {
+        const novoNome = usuarioObj?.nome || usuarioObj?.email || "Dirigente";
+        const agora = new Date();
+        const designacaoId = createDesignacaoId();
+        const novoCiclo = buildNovoCicloTerritorio({
+            dadosBanco,
+            novoNome,
+            agora,
+            designacaoId
+        });
+
+        await salvarEstadoTerritorio({
+            designadoPara: usuarioObj.email,
+            designadoNome: novoNome,
+            dataDesignacao: agora,
+            designacaoId,
+            cicloAtual: novoCiclo,
+            status: TERRITORIO_STATUS.ABERTO,
+            ultimaAlteracao: agora
+        });
+
+        const link = buildPublicAppRouteUrl('/app', { lat: centro.lat, lng: centro.lng, z: 16 });
+        const contextoLinha = contextoSistema?.campanhaAtiva ? `\n *Modo:* ${contextoSistema.contextoAtivoTitulo}` : '';
+        const mensagemDesignacao = {
+            texto: `Olá *${novoNome}*! \nO território *${nome}* foi designado para você.${contextoLinha}\n\n *Acesse:* ${link}\n\nBom trabalho!`,
+            whatsapp: usuarioObj?.whatsapp,
+            nome: novoNome
+        };
+        setMsgPronta(mensagemDesignacao);
+
+        notify({
+            title: 'Designação salva',
+            message: `Designação salva com sucesso para ${novoNome}.`,
+            variant: 'success'
+        });
+
+        return mensagemDesignacao;
+    };
+
     const salvarDesignacao = async () => {
         if (!isOnline) {
             notify({
@@ -2864,41 +3001,62 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
                 });
             } else {
                 const usuarioObj = listaUsuarios.find(u => u.email === usuarioSelecionado);
-                const novoNome = usuarioObj ? usuarioObj.nome : "Dirigente";
-                const agora = new Date();
-                const designacaoId = createDesignacaoId();
-                const novoCiclo = buildNovoCicloTerritorio({
-                    dadosBanco,
-                    novoNome,
-                    agora,
-                    designacaoId
-                });
+                if (!usuarioObj) {
+                    notify({
+                        title: 'Usuário não encontrado',
+                        message: 'Escolha um usuário aprovado ou libere um novo publicador por e-mail.',
+                        variant: 'warning'
+                    });
+                    return;
+                }
 
-                await salvarEstadoTerritorio({
-                    designadoPara: usuarioSelecionado,
-                    designadoNome: novoNome,
-                    dataDesignacao: agora,
-                    designacaoId,
-                    cicloAtual: novoCiclo,
-                    status: TERRITORIO_STATUS.ABERTO,
-                    ultimaAlteracao: agora
-                });
-
-                const link = buildPublicAppRouteUrl('/app', { lat: centro.lat, lng: centro.lng, z: 16 });
-                const contextoLinha = contextoSistema?.campanhaAtiva ? `\n *Modo:* ${contextoSistema.contextoAtivoTitulo}` : '';
-                setMsgPronta({ texto: `Olá *${novoNome}*! \nO território *${nome}* foi designado para você.${contextoLinha}\n\n *Acesse:* ${link}\n\nBom trabalho!`, whatsapp: usuarioObj?.whatsapp, nome: novoNome });
-
-                notify({
-                    title: 'Designação salva',
-                    message: `Designação salva com sucesso para ${novoNome}.`,
-                    variant: 'success'
-                });
+                await salvarDesignacaoParaUsuario(usuarioObj);
             }
         } catch (error) {
             console.error("Erro ao salvar:", error);
             notify({
                 title: 'Erro ao salvar',
                 message: 'Verifique sua conexão com a internet e tente novamente. A alteração não foi salva.',
+                variant: 'error',
+                durationMs: 7000
+            });
+        } finally {
+            setLoadingAction(false);
+        }
+    };
+
+    const convidarEDesignar = async () => {
+        if (!isOnline) {
+            notify({
+                title: 'Administração bloqueada offline',
+                message: ADMIN_OFFLINE_MESSAGE,
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        setLoadingAction(true);
+
+        try {
+            const usuarioConvidado = await ensureUsuarioAprovado(db, {
+                email: conviteEmail,
+                nome: conviteNome || 'Novo Dirigente',
+                whatsapp: conviteWhatsapp,
+                criadoPor: user?.email || null,
+                origem: 'designacao-territorio'
+            });
+            const mensagemDesignacao = await salvarDesignacaoParaUsuario(usuarioConvidado);
+            setMsgPronta(mensagemDesignacao);
+            setConviteAberto(false);
+            setConviteNome("");
+            setConviteEmail("");
+            setConviteWhatsapp("");
+        } catch (error) {
+            console.error("Erro ao liberar e designar:", error);
+            notify({
+                title: 'Liberação não concluída',
+                message: String(error?.message || 'Não foi possível liberar o acesso agora.'),
                 variant: 'error',
                 durationMs: 7000
             });
@@ -3072,6 +3230,50 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
                                                 !dadosBanco.designadoPara && !usuarioSelecionado ? "Já está Livre" : !usuarioSelecionado ? "Devolver" : "Salvar"
                                             )}
                                         </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setConviteAberto((aberto) => !aberto)}
+                                            disabled={loadingAction || !isOnline}
+                                            className="popup-btn-action bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs py-1 mb-2 disabled:opacity-50"
+                                        >
+                                            {conviteAberto ? 'Fechar envio para nova pessoa' : 'Enviar para nova pessoa'}
+                                        </button>
+                                        {conviteAberto && (
+                                            <div className="mb-2 rounded-lg border border-blue-100 bg-white p-2">
+                                                <input
+                                                    type="text"
+                                                    className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-blue-400 disabled:bg-slate-100"
+                                                    placeholder="Nome"
+                                                    value={conviteNome}
+                                                    onChange={(event) => setConviteNome(event.target.value)}
+                                                    disabled={loadingAction || !isOnline}
+                                                />
+                                                <input
+                                                    type="email"
+                                                    className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-blue-400 disabled:bg-slate-100"
+                                                    placeholder="E-mail"
+                                                    value={conviteEmail}
+                                                    onChange={(event) => setConviteEmail(event.target.value)}
+                                                    disabled={loadingAction || !isOnline}
+                                                />
+                                                <input
+                                                    type="tel"
+                                                    className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-blue-400 disabled:bg-slate-100"
+                                                    placeholder="WhatsApp"
+                                                    value={conviteWhatsapp}
+                                                    onChange={(event) => setConviteWhatsapp(event.target.value)}
+                                                    disabled={loadingAction || !isOnline}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={convidarEDesignar}
+                                                    disabled={!isValidUsuarioEmail(conviteEmail) || !conviteWhatsapp.replace(/\D/g, '') || !isValidWhatsappDigits(conviteWhatsapp) || loadingAction || !isOnline}
+                                                    className="popup-btn-action bg-blue-600 text-white hover:bg-blue-700 text-xs py-1 disabled:opacity-50"
+                                                >
+                                                    {loadingAction ? 'Salvando...' : 'Liberar acesso e preparar WhatsApp'}
+                                                </button>
+                                            </div>
+                                        )}
                                         {isFinalizado && !dadosBanco.designadoPara && (
                                             <button onClick={disponibilizarNovamente} disabled={loadingAction || !isOnline} className="popup-btn-action bg-amber-50 border border-amber-300 text-amber-700 hover:bg-amber-100 mt-2 disabled:opacity-50">
                                                 Disponibilizar Novamente
@@ -3188,14 +3390,17 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
 
 // --- MAPA PRINCIPAL ---
 const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
+    const location = useLocation();
     const adminControlsRef = useLeafletDomEventIsolation();
     const focusSummaryRef = useLeafletDomEventIsolation();
+    const deepLinkGrupoProcessadoRef = useRef('');
     const [geoJsonData, setGeoJsonData] = useState(null);
     const [bairrosGeoJson, setBairrosGeoJson] = useState(null);
     const [mapaErro, setMapaErro] = useState('');
     const [zoomLevel, setZoomLevel] = useState(MAP_INITIAL_ZOOM);
     const [listaUsuarios, setListaUsuarios] = useState([]);
     const [enderecos, setEnderecos] = useState([]);
+    const [enderecosGruposDesignados, setEnderecosGruposDesignados] = useState([]);
     const [gruposEndereco, setGruposEndereco] = useState([]);
     const [mostrarEnderecosArquivados, setMostrarEnderecosArquivados] = useState(false);
     const [mostrarGruposArquivados, setMostrarGruposArquivados] = useState(false);
@@ -3224,6 +3429,10 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
     const mapLongPressSuppressNextClickRef = useRef(false);
     const mapLongPressSuppressClickUntilRef = useRef(0);
     const { notify, confirm } = useUiFeedback();
+    const deepLinkGrupoEnderecoId = useMemo(() => {
+        const params = new URLSearchParams(location.search);
+        return params.get('grupoId') || params.get('grupoEnderecoId') || '';
+    }, [location.search]);
 
     const tiposPontosDisponiveis = useMemo(() => {
         const todosPontos = geoJsonData?.features?.flatMap((feature) => feature.properties?.pontos || []) || [];
@@ -3240,30 +3449,138 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
     }, [geoJsonData, tiposPontosDisponiveis.hasCondominios, tiposPontosDisponiveis.hasReferencias]);
 
     useEffect(() => {
-        const unsubscribe = onSnapshot(getEnderecosCollectionRef(db), (snapshot) => {
+        if (isAdmin) {
+            const unsubscribe = onSnapshot(getEnderecosCollectionRef(db), (snapshot) => {
+                const lista = snapshot.docs
+                    .map((docSnapshot) => ({
+                        id: docSnapshot.id,
+                        ...docSnapshot.data()
+                    }))
+                    .filter(enderecoTemCoordenadas)
+                    .sort(sortEnderecosPorCodigo);
+
+                setEnderecos(lista);
+                setEnderecosGruposDesignados([]);
+            }, (error) => {
+                console.error('Erro ao carregar endereços:', error);
+                notify({
+                    title: 'Endereços indisponíveis',
+                    message: 'Não foi possível carregar os endereços cadastrados agora.',
+                    variant: 'warning'
+                });
+            });
+
+            return unsubscribe;
+        }
+
+        const userEmail = normalizeEmailValue(user?.email);
+        if (!userEmail) {
+            setEnderecos([]);
+            return undefined;
+        }
+
+        const unsubscribe = onSnapshot(query(getEnderecosCollectionRef(db), where('grupoDesignadoPara', '==', userEmail)), (snapshot) => {
             const lista = snapshot.docs
                 .map((docSnapshot) => ({
                     id: docSnapshot.id,
                     ...docSnapshot.data()
                 }))
-                .filter((endereco) => Number.isFinite(Number(endereco.lat)) && Number.isFinite(Number(endereco.lng)))
-                .sort((a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id)));
+                .filter(enderecoTemCoordenadas)
+                .sort(sortEnderecosPorCodigo);
 
             setEnderecos(lista);
         }, (error) => {
-            console.error('Erro ao carregar endereços:', error);
+            console.error('Erro ao carregar endereços designados:', error);
             notify({
                 title: 'Endereços indisponíveis',
-                message: 'Não foi possível carregar os endereços cadastrados agora.',
+                message: 'Não foi possível carregar os endereços do seu território agora.',
                 variant: 'warning'
             });
         });
 
         return unsubscribe;
-    }, [notify]);
+    }, [isAdmin, notify, user?.email]);
+
+    const enderecoIdsGruposDesignados = useMemo(() => {
+        if (isAdmin) return [];
+
+        const userEmail = normalizeEmailValue(user?.email);
+        if (!userEmail) return [];
+
+        const ids = new Set();
+        gruposEndereco.forEach((grupo) => {
+            if (normalizeEmailValue(grupo.designadoPara) !== userEmail) return;
+            (grupo.enderecoIds || []).filter(Boolean).forEach((enderecoId) => ids.add(enderecoId));
+        });
+
+        return [...ids].sort();
+    }, [gruposEndereco, isAdmin, user?.email]);
+
+    const enderecoIdsGruposDesignadosKey = enderecoIdsGruposDesignados.join('|');
 
     useEffect(() => {
-        const unsubscribe = onSnapshot(getGruposEnderecoCollectionRef(db), (snapshot) => {
+        if (isAdmin || !enderecoIdsGruposDesignados.length) {
+            setEnderecosGruposDesignados([]);
+            return undefined;
+        }
+
+        let ativo = true;
+        let erroNotificado = false;
+        const docsMap = new Map();
+
+        const atualizarLista = () => {
+            if (!ativo) return;
+            setEnderecosGruposDesignados([...docsMap.values()].filter(enderecoTemCoordenadas).sort(sortEnderecosPorCodigo));
+        };
+
+        const unsubscribes = enderecoIdsGruposDesignados.map((enderecoId) => (
+            onSnapshot(doc(getEnderecosCollectionRef(db), enderecoId), (docSnapshot) => {
+                if (!ativo) return;
+
+                if (docSnapshot.exists()) {
+                    docsMap.set(docSnapshot.id, {
+                        id: docSnapshot.id,
+                        ...docSnapshot.data()
+                    });
+                } else {
+                    docsMap.delete(enderecoId);
+                }
+
+                atualizarLista();
+            }, (error) => {
+                console.error('Erro ao carregar endereço do território designado:', error);
+                if (!erroNotificado) {
+                    erroNotificado = true;
+                    notify({
+                        title: 'Endereços indisponíveis',
+                        message: 'Não foi possível carregar todos os endereços do seu território agora.',
+                        variant: 'warning'
+                    });
+                }
+            })
+        ));
+
+        return () => {
+            ativo = false;
+            unsubscribes.forEach((unsubscribe) => unsubscribe());
+        };
+    }, [enderecoIdsGruposDesignados, enderecoIdsGruposDesignadosKey, isAdmin, notify]);
+
+    const enderecosOperacionais = useMemo(() => (
+        isAdmin ? enderecos : mergeEnderecosUnicos(enderecos, enderecosGruposDesignados)
+    ), [enderecos, enderecosGruposDesignados, isAdmin]);
+
+    useEffect(() => {
+        const userEmail = normalizeEmailValue(user?.email);
+        if (!isAdmin && !userEmail) {
+            setGruposEndereco([]);
+            return undefined;
+        }
+
+        const gruposQuery = isAdmin
+            ? getGruposEnderecoCollectionRef(db)
+            : query(getGruposEnderecoCollectionRef(db), where('designadoPara', '==', userEmail));
+        const unsubscribe = onSnapshot(gruposQuery, (snapshot) => {
             const lista = snapshot.docs
                 .map((docSnapshot) => ({
                     id: docSnapshot.id,
@@ -3282,10 +3599,11 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         });
 
         return unsubscribe;
-    }, [notify]);
+    }, [isAdmin, notify, user?.email]);
 
     useEffect(() => {
         let ativo = true;
+        let unsubscribeUsuarios = null;
 
         setMapaErro('');
         setGeoJsonData(null);
@@ -3304,19 +3622,29 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
                 setMapaErro('Não foi possível carregar o mapa agora. Tente novamente.');
             });
 
-        const carregarUsuarios = async () => {
-            if (!isAdmin) return;
-            try {
-                const q = await getDocs(collection(db, "usuarios"));
-                const lista = q.docs.map(doc => ({ email: doc.id, nome: doc.data().nome || "Sem Nome", role: doc.data().role, whatsapp: doc.data().whatsapp }));
+        if (isAdmin) {
+            unsubscribeUsuarios = onSnapshot(collection(db, "usuarios"), (snapshot) => {
+                if (!ativo) return;
+                const lista = snapshot.docs
+                    .map((usuarioDoc) => ({
+                        email: usuarioDoc.id,
+                        nome: usuarioDoc.data().nome || "Sem Nome",
+                        role: usuarioDoc.data().role,
+                        whatsapp: usuarioDoc.data().whatsapp
+                    }))
+                    .filter((usuario) => usuario.role === 'admin' || usuario.role === 'comum');
                 lista.sort((a, b) => a.nome.localeCompare(b.nome));
                 setListaUsuarios(lista);
-            } catch (e) { console.error(e); }
-        };
-        carregarUsuarios();
+            }, (error) => {
+                console.error(error);
+            });
+        } else {
+            setListaUsuarios([]);
+        }
 
         return () => {
             ativo = false;
+            unsubscribeUsuarios?.();
         };
     }, [isAdmin, tentativaMapa]);
 
@@ -3507,7 +3835,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
 
     const enderecosPorGrupo = useMemo(() => {
         const map = new Map();
-        enderecos.forEach((endereco) => {
+        enderecosOperacionais.forEach((endereco) => {
             if (!endereco.grupoId) return;
             if (!map.has(endereco.grupoId)) {
                 map.set(endereco.grupoId, []);
@@ -3517,15 +3845,15 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
 
         map.forEach((lista) => lista.sort((a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id))));
         return map;
-    }, [enderecos]);
+    }, [enderecosOperacionais]);
 
     const enderecosPorId = useMemo(() => (
-        new Map(enderecos.map((endereco) => [endereco.id, endereco]))
-    ), [enderecos]);
+        new Map(enderecosOperacionais.map((endereco) => [endereco.id, endereco]))
+    ), [enderecosOperacionais]);
 
     const enderecosPorGrupoCanonico = useMemo(() => {
         const map = new Map();
-        enderecos.forEach((endereco) => {
+        enderecosOperacionais.forEach((endereco) => {
             const grupoKey = getGrupoEnderecoCanonicalKey(endereco.grupoId || endereco.grupoCodigo);
             if (!grupoKey) return;
             if (!map.has(grupoKey)) {
@@ -3536,7 +3864,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
 
         map.forEach((lista) => lista.sort((a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id))));
         return map;
-    }, [enderecos]);
+    }, [enderecosOperacionais]);
 
     const gruposEnderecoCompletos = useMemo(() => {
         const grupos = gruposEndereco.map((grupo) => (
@@ -3560,6 +3888,29 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
 
         return grupos.sort((a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id)));
     }, [enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId, gruposEndereco]);
+
+    const podeFocarGrupoEndereco = useCallback((grupo) => {
+        if (!grupo) return false;
+        if (isAdmin) return true;
+
+        const statusGrupo = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
+        return statusGrupo === GRUPO_ENDERECO_STATUS.ATIVO &&
+            normalizeEmailValue(grupo.designadoPara) === normalizeEmailValue(user?.email);
+    }, [isAdmin, user?.email]);
+
+    useEffect(() => {
+        if (!deepLinkGrupoEnderecoId) return;
+        if (deepLinkGrupoProcessadoRef.current === deepLinkGrupoEnderecoId) return;
+
+        const grupo = gruposEnderecoCompletos.find((item) => isSameGrupoEndereco(item, deepLinkGrupoEnderecoId));
+        if (!grupo) return;
+
+        deepLinkGrupoProcessadoRef.current = deepLinkGrupoEnderecoId;
+        if (!podeFocarGrupoEndereco(grupo)) return;
+
+        setModoVisualizacaoMapa(MAPA_VISUALIZACAO.TERRITORIOS);
+        setGrupoEnderecoFocadoId(grupo.id);
+    }, [deepLinkGrupoEnderecoId, gruposEnderecoCompletos, podeFocarGrupoEndereco]);
 
     const grupoEnderecoFocado = useMemo(() => (
         gruposEnderecoCompletos.find((grupo) => isSameGrupoEndereco(grupo, grupoEnderecoFocadoId)) || null
@@ -3591,10 +3942,11 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         }
     };
 
-    const enderecosVisiveis = useMemo(() => enderecos.filter((endereco) => {
+    const enderecosVisiveis = useMemo(() => enderecosOperacionais.filter((endereco) => {
         if (grupoEnderecoFocadoId) {
+            if (!grupoEnderecoFocado || !podeFocarGrupoEndereco(grupoEnderecoFocado)) return false;
             const chavesFoco = new Set(
-                (grupoEnderecoFocado ? [grupoEnderecoFocado.id, grupoEnderecoFocado.codigo] : [grupoEnderecoFocadoId])
+                [grupoEnderecoFocado.id, grupoEnderecoFocado.codigo]
                     .filter(Boolean)
                     .map(getGrupoEnderecoCanonicalKey)
             );
@@ -3614,14 +3966,14 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         }
 
         return false;
-    }), [enderecos, grupoEnderecoFocado, grupoEnderecoFocadoId, isAdmin, modoVisualizacaoMapa, mostrarEnderecosArquivados]);
+    }), [enderecosOperacionais, grupoEnderecoFocado, grupoEnderecoFocadoId, isAdmin, modoVisualizacaoMapa, mostrarEnderecosArquivados, podeFocarGrupoEndereco]);
 
-    const totalEnderecosArquivados = useMemo(() => enderecos.filter((endereco) => endereco.status === ENDERECO_STATUS.ARQUIVADO).length, [enderecos]);
+    const totalEnderecosArquivados = useMemo(() => enderecosOperacionais.filter((endereco) => endereco.status === ENDERECO_STATUS.ARQUIVADO).length, [enderecosOperacionais]);
     const gruposEnderecoVisiveis = useMemo(() => gruposEnderecoCompletos.filter((grupo) => {
         const statusGrupo = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
 
         if (grupoEnderecoFocadoId) {
-            return isSameGrupoEndereco(grupo, grupoEnderecoFocadoId);
+            return isSameGrupoEndereco(grupo, grupoEnderecoFocadoId) && podeFocarGrupoEndereco(grupo);
         }
 
         if (isAdmin) {
@@ -3635,7 +3987,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         }
 
         return statusGrupo === GRUPO_ENDERECO_STATUS.ATIVO && normalizeEmailValue(grupo.designadoPara) === normalizeEmailValue(user?.email);
-    }), [grupoEnderecoFocadoId, gruposEnderecoCompletos, isAdmin, modoVisualizacaoMapa, mostrarGruposArquivados, user?.email]);
+    }), [grupoEnderecoFocadoId, gruposEnderecoCompletos, isAdmin, modoVisualizacaoMapa, mostrarGruposArquivados, podeFocarGrupoEndereco, user?.email]);
     const totalGruposArquivados = useMemo(() => gruposEndereco.filter((grupo) => (grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) === GRUPO_ENDERECO_STATUS.ARQUIVADO).length, [gruposEndereco]);
     const resumoBairros = useMemo(() => {
         const features = bairrosGeoJson?.features || [];
@@ -3683,11 +4035,11 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
         return resumo;
     }, [bairrosGeoJson, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId, gruposEnderecoCompletos]);
     const enderecosSelecionadosDados = useMemo(() => {
-        const porId = new Map(enderecos.map((endereco) => [endereco.id, endereco]));
+        const porId = new Map(enderecosOperacionais.map((endereco) => [endereco.id, endereco]));
         return enderecosSelecionadosGrupo
             .map((enderecoId) => porId.get(enderecoId))
             .filter((endereco) => endereco && endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo);
-    }, [enderecos, enderecosSelecionadosGrupo]);
+    }, [enderecosOperacionais, enderecosSelecionadosGrupo]);
     const gruposEnderecoParaVinculo = useMemo(() => (
         gruposEnderecoCompletos
             .filter((grupo) => !grupo.sintetico && (grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) === GRUPO_ENDERECO_STATUS.ATIVO)
@@ -3732,18 +4084,18 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
 
     useEffect(() => {
         setEnderecosSelecionadosGrupo((selecionadosAtuais) => {
-            const selecionaveis = new Set(enderecos
+            const selecionaveis = new Set(enderecosOperacionais
                 .filter((endereco) => endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo)
                 .map((endereco) => endereco.id));
             return selecionadosAtuais.filter((enderecoId) => selecionaveis.has(enderecoId));
         });
-    }, [enderecos]);
+    }, [enderecosOperacionais]);
 
     useEffect(() => {
-        if (grupoEnderecoFocadoId && !grupoEnderecoFocado) {
+        if (grupoEnderecoFocadoId && (!grupoEnderecoFocado || !podeFocarGrupoEndereco(grupoEnderecoFocado))) {
             setGrupoEnderecoFocadoId(null);
         }
-    }, [grupoEnderecoFocado, grupoEnderecoFocadoId]);
+    }, [grupoEnderecoFocado, grupoEnderecoFocadoId, podeFocarGrupoEndereco]);
 
     const resumoFocoGrupoEndereco = useMemo(() => {
         if (!grupoEnderecoFocado) return null;
@@ -4120,24 +4472,33 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline, outboxActions }) => {
             return;
         }
 
-        const usuario = listaUsuarios.find((item) => item.email === usuarioEmail);
-        if (!usuario) {
-            notify({
-                title: 'Usuário não encontrado',
-                message: 'Escolha um usuário aprovado para designar o território.',
-                variant: 'warning'
-            });
-            return;
-        }
-
         const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id);
 
         try {
-            await designarGrupoEndereco(db, {
-                grupoId: grupo.id,
-                usuario,
-                user
-            });
+            let usuario = listaUsuarios.find((item) => item.email === usuarioEmail);
+            if (opcoes?.convite) {
+                const resultado = await designarGrupoEnderecoComUsuarioAprovado(db, {
+                    grupoId: grupo.id,
+                    convite: opcoes.convite,
+                    user
+                });
+                usuario = resultado.usuario;
+            } else if (usuario) {
+                await designarGrupoEndereco(db, {
+                    grupoId: grupo.id,
+                    usuario,
+                    user
+                });
+            }
+
+            if (!usuario) {
+                notify({
+                    title: 'Usuário não encontrado',
+                    message: 'Escolha um usuário aprovado ou informe um e-mail válido para liberar acesso.',
+                    variant: 'warning'
+                });
+                return;
+            }
 
             const mensagemDesignacao = buildMensagemDesignacaoGrupoEndereco({
                 grupo,
