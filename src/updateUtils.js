@@ -1,6 +1,15 @@
 import appInfo from './version.json';
 import { checkNativeLiveUpdate, isNativeLiveUpdateAvailable } from './nativeLiveUpdate';
 
+function isPwaServiceWorker(registration) {
+    const workerUrl = registration.active?.scriptURL
+        || registration.waiting?.scriptURL
+        || registration.installing?.scriptURL
+        || '';
+
+    return /\/(?:dev-)?sw\.js(?:\?|$)/.test(workerUrl);
+}
+
 export async function checkForUpdate(manual = false) {
     try {
         if (isNativeLiveUpdateAvailable()) {
@@ -20,7 +29,11 @@ export async function checkForUpdate(manual = false) {
         if (manual) {
             if ('serviceWorker' in navigator) {
                 const regs = await navigator.serviceWorker.getRegistrations();
-                await Promise.all(regs.map((registration) => registration.unregister()));
+                await Promise.all(
+                    regs
+                        .filter(isPwaServiceWorker)
+                        .map((registration) => registration.update())
+                );
             }
 
             const baseUrl = import.meta.env.BASE_URL || '/';

@@ -38,7 +38,6 @@ import { getTerritorioContextCollectionRef, getTerritorioProgresso, getTerritori
 import { normalizeTerritorioNome } from './territorioNome';
 import { useCoberturaCampanha } from './useCoberturaCampanha';
 import { finalizarTerritorioDesignado } from './territorioActions';
-import { describeOutboxConflict } from './territorioOfflineModel';
 import {
   ENDERECO_STATUS,
   finalizarGrupoEnderecoDesignado,
@@ -49,22 +48,11 @@ import {
   getGruposEnderecoCollectionRef,
   GRUPO_ENDERECO_STATUS
 } from './enderecoModel';
-import { useTerritorioOutbox, useTerritorioSync } from './useTerritorioOffline';
+import { useOnlineStatus } from './useOnlineStatus';
 import { UiFeedbackProvider, useUiFeedback } from './uiFeedback';
 import { ModalFrame } from './uiPrimitives';
 import { buttonClass } from './uiClasses';
 import { MAP_COLORS, TERRITORIO_RECENCY_STEPS } from './mapLegend';
-import {
-  buildOfflineAreaDownloadPlan,
-  clearOfflineMapCaches,
-  downloadOfflineMapArea,
-  getOfflineMapFreshnessInfo,
-  OFFLINE_MAP_DOWNLOAD_PROFILES,
-  OFFLINE_MAP_MAX_AGE_DAYS,
-  getOfflineMapCacheSummary,
-  readOfflineMapDownloadState,
-  writeOfflineMapDownloadState
-} from './mapOfflineCache';
 
 const Mapa = lazy(() => import('./Mapa'));
 const AdminPanel = lazy(() => import('./AdminPanel'));
@@ -1605,10 +1593,13 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
       });
 
       if (resultado.ok) {
+        const notificacaoMensagem = resultado.notificacaoEnviada
+          ? ''
+          : ' A finalização foi salva, mas o aviso automático aos admins não saiu.';
         setLista((listaAtual) => listaAtual.filter((territorio) => territorio.id !== item.id));
         notify({
           title: 'Território finalizado',
-          message: `Território finalizado com sucesso${resultado.contextoSufixo}.`,
+          message: `Território finalizado com sucesso${resultado.contextoSufixo}.${notificacaoMensagem}`,
           variant: 'success'
         });
       }
@@ -1709,351 +1700,18 @@ const MeusTerritoriosModal = ({ isOpen, onClose, user, navigate, contextoSistema
   );
 };
 
-const MapaOfflineModal = ({ isOpen, onClose }) => {
-  const [loading, setLoading] = useState(false);
-  const [summary, setSummary] = useState(null);
-  const [geoData, setGeoData] = useState(null);
-  const [downloading, setDownloading] = useState(false);
-  const [progress, setProgress] = useState(null);
-  const [downloadState, setDownloadState] = useState(() => readOfflineMapDownloadState());
-  const [profileId, setProfileId] = useState('medio');
-  const [includeSatellite, setIncludeSatellite] = useState(true);
-  const downloadingRef = useRef(false);
-  const mountedRef = useRef(false);
-  const { notify, confirm } = useUiFeedback();
-  const profile = OFFLINE_MAP_DOWNLOAD_PROFILES[profileId] || OFFLINE_MAP_DOWNLOAD_PROFILES.medio;
-  const layerTypes = useMemo(
-    () => (includeSatellite ? ['padrao', 'google', 'satelite'] : ['padrao', 'google']),
-    [includeSatellite]
-  );
-
-  const plan = useMemo(() => {
-    if (!geoData) return null;
-    return buildOfflineAreaDownloadPlan(geoData, {
-      zooms: profile.zooms,
-      layerTypes
-    });
-  }, [geoData, layerTypes, profile.zooms]);
-
-  useEffect(() => {
-    downloadingRef.current = downloading;
-  }, [downloading]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  const refreshData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [geoData, cacheSummary] = await Promise.all([
-        loadMapaData(),
-        getOfflineMapCacheSummary()
-      ]);
-
-      if (!mountedRef.current) return;
-      setGeoData(geoData);
-      setSummary(cacheSummary);
-      const persistedState = readOfflineMapDownloadState();
-      if (persistedState.status === 'running' && !downloadingRef.current) {
-        writeOfflineMapDownloadState('interrupted');
-        if (mountedRef.current) {
-          setDownloadState(readOfflineMapDownloadState());
-        }
-      } else {
-        if (mountedRef.current) {
-          setDownloadState(persistedState);
-        }
-      }
-    } catch (error) {
-      console.error(error);
-      if (!mountedRef.current) return;
-      notify({
-        title: 'Mapa offline indisponível',
-        message: 'Não foi possível carregar os dados para o gerenciamento offline agora.',
-        variant: 'error'
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [notify]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    refreshData();
-  }, [isOpen, refreshData]);
-
-  const handleDownload = async () => {
-    if (downloading) return;
-
-    writeOfflineMapDownloadState('running');
-    if (mountedRef.current) {
-      setDownloadState(readOfflineMapDownloadState());
-    }
-    setDownloading(true);
-    setProgress({
-      total: plan?.totalTiles ? plan.totalTiles + 1 : 1,
-      completed: 0,
-      downloaded: 0,
-      skipped: 0,
-      phase: 'Preparando download...'
-    });
-
-    try {
-      await downloadOfflineMapArea({
-        geoJsonData: geoData,
-        zooms: profile.zooms,
-        layerTypes,
-        onProgress: (next) => setProgress(next)
-      });
-
-      writeOfflineMapDownloadState('completed');
-      if (mountedRef.current) {
-        setDownloadState(readOfflineMapDownloadState());
-      }
-      await refreshData();
-      if (!mountedRef.current) return;
-      notify({
-        title: 'Mapas baixados',
-        message: 'A área principal dos territórios ficou salva para uso offline.',
-        variant: 'success'
-      });
-    } catch (error) {
-      console.error(error);
-      writeOfflineMapDownloadState('interrupted');
-      if (mountedRef.current) {
-        setDownloadState(readOfflineMapDownloadState());
-      }
-      if (!mountedRef.current) return;
-      notify({
-        title: 'Download interrompido',
-        message: String(error?.message || 'Não foi possível baixar os mapas offline agora.'),
-        variant: 'error'
-      });
-    } finally {
-      if (mountedRef.current) {
-        setDownloading(false);
-      }
-    }
-  };
-
-  const handleClear = async () => {
-    if (downloading) return;
-
-    const shouldClear = await confirm({
-      title: 'Excluir mapas offline',
-      message: 'Remover os mapas baixados desta área do aparelho?',
-      tone: 'warning',
-      confirmLabel: 'Excluir'
-    });
-
-    if (!shouldClear) return;
-
-    try {
-      await clearOfflineMapCaches();
-      writeOfflineMapDownloadState('idle');
-      if (mountedRef.current) {
-        setDownloadState(readOfflineMapDownloadState());
-      }
-      await refreshData();
-      if (!mountedRef.current) return;
-      notify({
-        title: 'Mapas removidos',
-        message: 'Os arquivos offline desta área foram apagados do aparelho.',
-        variant: 'success'
-      });
-    } catch (error) {
-      console.error(error);
-      notify({
-        title: 'Não foi possível excluir',
-        message: 'Tente novamente em alguns instantes.',
-        variant: 'error'
-      });
-    }
-  };
-
-  if (!isOpen) return null;
-
-  const totalTiles = plan?.totalTiles || 0;
-  const tileEntries = summary?.tileEntries || 0;
-  const totalEntries = summary?.totalEntries || 0;
-  const percent = progress?.total ? Math.min(100, Math.round((progress.completed / progress.total) * 100)) : 0;
-  const zoomLabel = `${Math.min(...profile.zooms)} a ${Math.max(...profile.zooms)}`;
-  const estimateMb = plan?.estimatedTotalMb ? Math.round(plan.estimatedTotalMb) : 0;
-  const canDownload = !loading && !downloading && !!geoData && totalTiles > 0;
-  const freshness = getOfflineMapFreshnessInfo();
-  const downloadButtonLabel = freshness.isExpired ? 'Atualizar mapas' : 'Baixar área';
-
-  return (
-    <ModalFrame
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Mapas Offline"
-      subtitle="Baixe todos os territórios com o nível de detalhe desejado."
-      titleIcon={<span>🗺️</span>}
-      size="md"
-      accentClass="bg-blue-600"
-      bodyClassName="space-y-4 p-4"
-      footer={(
-        <div className="flex gap-2">
-          {totalEntries > 0 && (
-            <button
-              onClick={handleClear}
-              disabled={loading || downloading}
-              className={buttonClass('dangerSoft', 'px-4')}
-            >
-              Excluir
-            </button>
-          )}
-          <button
-            onClick={handleDownload}
-            disabled={!canDownload}
-            className={buttonClass('primary', 'flex-[1.2] disabled:cursor-wait')}
-          >
-            {downloading ? 'Baixando...' : downloadButtonLabel}
-          </button>
-        </div>
-      )}
-    >
-          <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-900">
-            Salva a área útil de <strong>todos os territórios</strong> nos mapas <strong>rua</strong> e <strong>Google</strong>. O <strong>satélite</strong> é opcional.
-          </div>
-
-          {loading ? (
-            <div className="py-8 flex flex-col items-center justify-center text-gray-500">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              <p className="mt-3 text-sm font-medium">Lendo dados offline...</p>
-            </div>
-          ) : (
-            <>
-              <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-gray-400">Detalhe</p>
-                  <label className="flex items-center gap-2 text-xs font-medium text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={includeSatellite}
-                      onChange={(e) => setIncludeSatellite(e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    Incluir satélite
-                  </label>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {Object.values(OFFLINE_MAP_DOWNLOAD_PROFILES).map((preset) => (
-                    <button
-                      key={preset.id}
-                      onClick={() => setProfileId(preset.id)}
-                      className={`rounded-xl border px-3 py-2.5 text-center transition-colors ${profileId === preset.id ? 'border-blue-300 bg-blue-50 text-blue-800' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}
-                    >
-                      <span className="font-bold text-sm">{preset.label}</span>
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-3 text-xs text-gray-500">
-                  <strong className="text-gray-700">{profile.label}:</strong> {profile.description} · Zoom {zoomLabel}
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-slate-50 to-white px-4 py-3 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-gray-400">Resumo</p>
-                    <p className="mt-2 text-sm font-semibold text-gray-800">
-                      ~{estimateMb} MB para {totalTiles.toLocaleString('pt-BR')} partes do mapa
-                    </p>
-                  </div>
-                  {totalEntries > 0 && (
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                      {totalEntries.toLocaleString('pt-BR')} itens salvos
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  Todos os territórios · Zoom {zoomLabel}
-                  {includeSatellite ? ' · Com satélite' : ''}
-                  {tileEntries > 0 ? ` · ${tileEntries} partes do mapa já salvas` : ''}
-                </p>
-              </div>
-
-              {downloadState.status === 'interrupted' && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-                  Um download anterior foi interrompido. Toque em <strong>Baixar área</strong> para retomar aproveitando o que já ficou salvo.
-                </div>
-              )}
-
-              {freshness.isExpired && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-900">
-                  Seus mapas offline passaram de <strong>{OFFLINE_MAP_MAX_AGE_DAYS} dias</strong>. Para continuar confiando no conteúdo salvo, faça um novo download desta área.
-                </div>
-              )}
-
-              {freshness.hasOfflineDownload && !freshness.isExpired && freshness.ageDays !== null && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
-                  Último pacote offline baixado há <strong>{freshness.ageDays} dia{freshness.ageDays === 1 ? '' : 's'}</strong>.
-                </div>
-              )}
-
-              {progress && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                  <div className="flex items-center justify-between gap-3 text-sm font-semibold text-emerald-800">
-                    <span>{progress.phase}</span>
-                    <span>{percent}%</span>
-                  </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-emerald-100">
-                    <div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${percent}%` }}></div>
-                  </div>
-                  <p className="mt-2 text-xs text-emerald-800">
-                    {progress.completed} de {progress.total} itens processados
-                    {progress.downloaded > 0 ? ` · ${progress.downloaded} baixados` : ''}
-                    {progress.skipped > 0 ? ` · ${progress.skipped} já estavam salvos` : ''}
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-    </ModalFrame>
-  );
-};
-
 const StatusSincronizacaoChip = ({
   isAdmin,
   isOnline,
-  onlineSyncCount,
-  offlinePendingCount,
-  failedCount,
-  conflictCount,
-  conflictActions,
   aberto,
   onToggle,
   onClose
 }) => {
-  const hasStatus = !isOnline || offlinePendingCount > 0 || failedCount > 0 || conflictCount > 0;
-  if (!hasStatus) return null;
+  if (isOnline) return null;
 
   const infoOffline = isAdmin
     ? 'Você está offline. Ações administrativas precisam de conexão para evitar conflito de designações.'
-    : 'Você está offline. As alterações do seu território ficam salvas localmente e sincronizam quando a conexão voltar.';
-
-  let chipClasses = 'border-white/20 bg-white/12 text-white';
-  let chipLabel = 'Status';
-
-  if (conflictCount > 0) {
-    chipClasses = 'border-red-200/70 bg-red-50 text-red-700';
-    chipLabel = `${conflictCount} conflito${conflictCount === 1 ? '' : 's'}`;
-  } else if (failedCount > 0) {
-    chipClasses = 'border-orange-200/70 bg-orange-50 text-orange-700';
-    chipLabel = `${failedCount} retry`;
-  } else if (!isOnline) {
-    chipClasses = 'border-amber-200/70 bg-amber-50 text-amber-800';
-    chipLabel = offlinePendingCount > 0 ? `Offline · ${offlinePendingCount}` : 'Offline';
-  } else if (onlineSyncCount > 0) {
-    chipClasses = 'border-sky-200/70 bg-sky-50 text-sky-700';
-    chipLabel = onlineSyncCount === 1 ? 'Salvando' : `Salvando ${onlineSyncCount}`;
-  }
+    : 'Você está sem conexão. O modo offline foi removido; aguarde a internet voltar antes de marcar progresso.';
 
   return (
     <>
@@ -2061,20 +1719,20 @@ const StatusSincronizacaoChip = ({
         <button
           type="button"
           onClick={onToggle}
-          className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.14em] shadow-sm transition-all active:scale-95 ${chipClasses}`}
+          className="flex items-center gap-1.5 rounded-full border border-amber-200/70 bg-amber-50 px-2.5 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.14em] text-amber-800 shadow-sm transition-all active:scale-95"
           aria-expanded={aberto}
           aria-haspopup="dialog"
-          title="Status da sincronização offline"
+          title="Sem conexão"
         >
           <span className="inline-block h-2 w-2 rounded-full bg-current opacity-80"></span>
-          <span>{chipLabel}</span>
+          <span>Sem conexão</span>
         </button>
         <div className={`fixed left-3 right-3 top-[4.75rem] z-[60] origin-top overflow-hidden rounded-2xl border border-slate-200 bg-white/98 shadow-2xl backdrop-blur transition-all duration-200 sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+0.5rem)] sm:w-[24rem] sm:origin-top-right ${aberto ? 'pointer-events-auto translate-y-0 scale-100 opacity-100' : 'pointer-events-none -translate-y-2 scale-[0.98] opacity-0'}`}>
           <div className="border-b border-slate-100 px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-400">Status do envio</p>
-                <p className="mt-1 text-sm font-bold text-slate-800">Sincronização e modo offline</p>
+                <p className="mt-1 text-sm font-bold text-slate-800">Conexão necessária</p>
               </div>
               <button
                 type="button"
@@ -2087,38 +1745,9 @@ const StatusSincronizacaoChip = ({
             </div>
           </div>
           <div className="space-y-3 px-4 py-4 text-sm">
-            {!isOnline && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-900">
-                {infoOffline}
-              </div>
-            )}
-            {onlineSyncCount > 0 && (
-              <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sky-800">
-                Salvando alteraç{onlineSyncCount === 1 ? 'ão' : 'ões'} agora.
-              </div>
-            )}
-            {offlinePendingCount > 0 && (
-              <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-slate-800">
-                {offlinePendingCount} alteraç{offlinePendingCount === 1 ? 'ão pendente' : 'ões pendentes'} aguardando sincronização.
-              </div>
-            )}
-            {failedCount > 0 && (
-              <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-3 text-orange-800">
-                {failedCount} alteraç{failedCount === 1 ? 'ão precisa' : 'ões precisam'} de nova tentativa de sincronização.
-              </div>
-            )}
-            {conflictCount > 0 && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-red-800">
-                <p>{conflictCount} alteraç{conflictCount === 1 ? 'ão não pôde ser enviada' : 'ões não puderam ser enviadas'} porque a designação mudou.</p>
-                {conflictActions.length > 0 && (
-                  <div className="mt-2 space-y-1 text-xs font-medium text-red-700">
-                    {conflictActions.map((action) => (
-                      <div key={action.id}>{describeOutboxConflict(action)}</div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-900">
+              {infoOffline}
+            </div>
           </div>
         </div>
       </div>
@@ -2133,26 +1762,6 @@ const StatusSincronizacaoChip = ({
     </>
   );
 };
-
-const BarraSalvandoHeader = ({ visible, count }) => (
-  <div className={`overflow-hidden transition-all duration-300 ease-out ${visible ? 'max-h-16 opacity-100' : 'pointer-events-none max-h-0 opacity-0'}`}>
-    <div className="relative border-b border-sky-100 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-sky-700">
-        <div className="flex items-center gap-2">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-60"></span>
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-500"></span>
-          </span>
-          <span>Salvando alterações</span>
-        </div>
-        <span>{count === 1 ? '1 envio' : `${count} envios`}</span>
-      </div>
-      <div className="h-0.5 w-full overflow-hidden bg-sky-100">
-        <div className="h-full w-1/3 animate-[header-saving-slide_1.2s_ease-in-out_infinite] rounded-full bg-sky-500"></div>
-      </div>
-    </div>
-  </div>
-);
 
 // --- MODAL DE LEGENDA ---
 const LegendaModal = ({ isOpen, onClose, isAdmin }) => {
@@ -2269,7 +1878,7 @@ const LegendaModal = ({ isOpen, onClose, isAdmin }) => {
 };
 
 // --- MENU LATERAL (ATUALIZADO - ORDEM REAJUSTADA) ---
-const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, abrirAjuda, abrirLegenda, abrirSobre, abrirMapaOffline, mapaOfflineNeedsRefresh, contextoSistema, coberturaCampanha, carregandoCobertura }) => {
+const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, abrirAjuda, abrirLegenda, abrirSobre, contextoSistema, coberturaCampanha, carregandoCobertura }) => {
   const isNativePlatform = Capacitor.isNativePlatform();
   const [instalacaoDisponivel, setInstalacaoDisponivel] = useState(() => Boolean(!isNativePlatform && deferredPromptGlobal));
   const [photoUrlComErro, setPhotoUrlComErro] = useState(null);
@@ -2290,6 +1899,7 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
       deferredPromptGlobal = e;
       setInstalacaoDisponivel(true);
     };
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -2420,21 +2030,7 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
             </>
           )}
 
-          {/* 3. MAPAS OFFLINE */}
-          <button onClick={() => { abrirMapaOffline(); onClose(); }} className={`${menuActionClass} text-cyan-700 hover:bg-cyan-50`}>
-            <svg xmlns="http://www.w3.org/2000/svg" className={menuActionIconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75 15 4.5l6 2.25v12L15 21l-6-2.25L3 21V8.25L9 6.75Z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75v12M15 4.5v12.75" />
-            </svg>
-            <span>Mapas Offline</span>
-            {mapaOfflineNeedsRefresh && (
-              <span className="ml-auto rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-amber-800">
-                Atualizar
-              </span>
-            )}
-          </button>
-
-          {/* 4. COMO USAR */}
+          {/* 3. COMO USAR */}
           <button onClick={() => { abrirAjuda(); onClose(); }} className={`${menuActionClass} text-yellow-700 hover:bg-yellow-50`}>
             <svg xmlns="http://www.w3.org/2000/svg" className={menuActionIconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
               <circle cx="12" cy="12" r="8" />
@@ -2444,7 +2040,7 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
             Como usar (Ajuda)
           </button>
 
-          {/* 5. LEGENDA */}
+          {/* 4. LEGENDA */}
           <button onClick={() => { abrirLegenda(); onClose(); }} className={`${menuActionClass} text-gray-700 hover:bg-gray-50`}>
             <svg xmlns="http://www.w3.org/2000/svg" className={`${menuActionIconClass} text-gray-500`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 7.5h10.5" />
@@ -2457,7 +2053,7 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
             Legenda do Mapa
           </button>
 
-          {/* 6. INSTALAR */}
+          {/* 5. INSTALAR */}
           {podeExibirInstalacao && (
             <button onClick={instalarApp} className={`${menuActionClass} mt-2 border border-dashed border-green-200 text-green-700 hover:bg-green-50`}>
               <svg xmlns="http://www.w3.org/2000/svg" className={menuActionIconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
@@ -2468,6 +2064,7 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
               {instalacaoDisponivel ? 'Instalar Aplicativo' : 'Como instalar'}
             </button>
           )}
+
         </div>
 
         {/* --- RODAPÉ COM BOTÃO DE UPDATE --- */}
@@ -2532,7 +2129,6 @@ function Dashboard() {
   const [ajudaAberta, setAjudaAberta] = useState(false);
   const [sobreAberto, setSobreAberto] = useState(false);
   const [informacoesGeraisAberto, setInformacoesGeraisAberto] = useState(false);
-  const [mapaOfflineAberto, setMapaOfflineAberto] = useState(false);
   const [meusTerritoriosAberto, setMeusTerritoriosAberto] = useState(false);
   const [confirmarLogoutAberto, setConfirmarLogoutAberto] = useState(false);
   const [pushStatus, setPushStatus] = useState('oculto');
@@ -2556,34 +2152,7 @@ function Dashboard() {
   }, [location.pathname, location.search, navigate]);
 
   const { isAdmin, autorizado, loading: verificandoBanco, role } = useUsuario(user);
-  const isOnline = useTerritorioSync({
-    db,
-    userEmail: user?.email,
-    enabled: Boolean(user?.email && autorizado)
-  });
-  const { actions: outboxActions, summary: outboxSummary } = useTerritorioOutbox(user?.email);
-  const conflictActions = useMemo(
-    () => outboxActions.filter((action) => action.status === 'conflict').slice(0, 3),
-    [outboxActions]
-  );
-  const onlineSyncCount = isOnline ? (outboxSummary.pendingCount + outboxSummary.syncingCount) : 0;
-  const offlinePendingCount = !isOnline ? outboxSummary.pendingCount : 0;
-  const mapaOfflineFreshness = getOfflineMapFreshnessInfo();
-
-  useEffect(() => {
-    if (!mapaOfflineFreshness.isExpired || typeof window === 'undefined') return;
-
-    const key = 'offline-map-expired-toast-shown';
-    if (window.sessionStorage.getItem(key)) return;
-
-    window.sessionStorage.setItem(key, '1');
-    notify({
-      title: 'Mapas offline precisam de atualização',
-      message: 'Abra "Mapas Offline" no menu e baixe novamente a área salva.',
-      variant: 'warning',
-      durationMs: 7000
-    });
-  }, [mapaOfflineFreshness.isExpired, notify]);
+  const isOnline = useOnlineStatus();
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -2805,12 +2374,6 @@ function Dashboard() {
   // 3. TELA PRINCIPAL (DASHBOARD)
   return (
     <div className="h-[100dvh] flex flex-col overflow-hidden relative">
-      <style>{`
-        @keyframes header-saving-slide {
-          0% { transform: translateX(-140%); }
-          100% { transform: translateX(420%); }
-        }
-      `}</style>
       <MenuLateral
         isOpen={menuAberto}
         onClose={() => setMenuAberto(false)}
@@ -2821,8 +2384,6 @@ function Dashboard() {
         abrirAjuda={() => setAjudaAberta(true)}
         abrirLegenda={() => setLegendaAberta(true)}
         abrirSobre={() => setSobreAberto(true)}
-        abrirMapaOffline={() => setMapaOfflineAberto(true)}
-        mapaOfflineNeedsRefresh={mapaOfflineFreshness.isExpired}
         contextoSistema={contextoSistema}
         coberturaCampanha={coberturaCampanha}
         carregandoCobertura={coberturaCampanha.loading}
@@ -2848,11 +2409,6 @@ function Dashboard() {
       <InformacoesGeraisModal
         isOpen={isAdmin && informacoesGeraisAberto}
         onClose={() => setInformacoesGeraisAberto(false)}
-      />
-
-      <MapaOfflineModal
-        isOpen={mapaOfflineAberto}
-        onClose={() => setMapaOfflineAberto(false)}
       />
 
       <MeusTerritoriosModal
@@ -2933,11 +2489,6 @@ function Dashboard() {
             <StatusSincronizacaoChip
               isAdmin={isAdmin}
               isOnline={isOnline}
-              onlineSyncCount={onlineSyncCount}
-              offlinePendingCount={offlinePendingCount}
-              failedCount={outboxSummary.failedCount}
-              conflictCount={outboxSummary.conflictCount}
-              conflictActions={conflictActions}
               aberto={statusSyncAberto}
               onToggle={() => setStatusSyncAberto((current) => !current)}
               onClose={() => setStatusSyncAberto(false)}
@@ -3011,9 +2562,6 @@ function Dashboard() {
             </button>
           </div>
         </div>
-        <div className="pointer-events-none absolute left-0 right-0 top-full">
-          <BarraSalvandoHeader visible={isOnline && onlineSyncCount > 0} count={onlineSyncCount} />
-        </div>
       </div>
 
       <div className="flex-1 bg-gray-100 relative z-0">
@@ -3032,7 +2580,6 @@ function Dashboard() {
             isAdmin={isAdmin}
             contextoSistema={contextoSistema}
             isOnline={isOnline}
-            outboxActions={outboxActions}
           />
         </Suspense>
       </div>

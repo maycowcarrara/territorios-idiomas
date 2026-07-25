@@ -77,7 +77,7 @@
     "@capgo/capacitor-social-login": "^7.20.0",
     "@onesignal/capacitor-plugin": "1.0.6",
     "firebase": "^12.16.0",
-    "firebase-admin": "^13.10.0",
+    "firebase-admin": "^14.2.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "leaflet": "^1.9.4",

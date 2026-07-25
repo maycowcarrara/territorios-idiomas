@@ -1,4 +1,4 @@
-import { loadMapDataWithOfflineCache, resolveMapDataUrl } from './mapOfflineCache';
+import { loadMapDataFromNetwork, resolveMapDataUrl } from './mapDataSource';
 import { normalizeTerritorioNome } from './territorioNome';
 
 let mapaPromise = null;
@@ -26,7 +26,7 @@ function normalizeGeoData(geoData) {
 
 export function loadMapaData() {
     if (!mapaPromise) {
-        mapaPromise = loadMapDataWithOfflineCache(MAPA_URL)
+        mapaPromise = loadMapDataFromNetwork(MAPA_URL)
             .then(normalizeGeoData)
             .catch((error) => {
                 mapaPromise = null;

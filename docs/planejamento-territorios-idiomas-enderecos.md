@@ -52,7 +52,7 @@ Ainda pendente para fechar o plano completo:
 - listagem administrativa dedicada para enderecos e grupos;
 - relatorios de enderecos/grupos;
 - importador de enderecos idempotente para semear enderecos/grupos futuramente;
-- offline robusto para execucao de grupos, equivalente ao fluxo de territorios/quadras;
+- modo offline removido; execucao de grupos e territorios/quadras segue online-first;
 
 ## Decisao de modelo
 
@@ -264,33 +264,11 @@ Status: implementado online-first. O publicador ve o grupo no mapa, marca endere
 
 ## Offline
 
-Manter o principio atual: offline nao pode sobrescrever uma designacao nova.
+Status: removido. O app nao enfileira mais acoes locais para sincronizar depois.
 
-Adicionar actions offline especificas para grupos:
+Principio atual: sem conexao, a acao de escrita deve ser bloqueada ou falhar claramente, evitando que uma designacao antiga ou progresso local sobrescreva o servidor.
 
-- `toggle_endereco_visitado`
-- `finalization_request_grupo`
-- `finalization_confirm_grupo`
-- `add_endereco_visit_note` se houver notas de visita
-
-Cada action deve carregar:
-
-- `grupoId`
-- `grupoCodigo`
-- `userEmail`
-- `designacaoId`
-- `payload`
-
-Na sincronizacao, validar no servidor:
-
-- grupo ainda existe e esta ativo;
-- `designadoPara === userEmail`;
-- `designacaoId` continua igual;
-- endereco pertence ao grupo no momento da sincronizacao.
-
-Cadastro, edicao, arquivamento e movimentacao administrativa devem exigir conexao no MVP, como ja ocorre com a administracao atual.
-
-Status atual: enderecos/grupos estao online-first. O offline robusto continua implementado para territorios/quadras, mas ainda nao foi estendido para `grupos_enderecos`.
+Cadastro, edicao, arquivamento, movimentacao administrativa, progresso e finalizacao exigem conexao.
 
 ## Regras do Firestore
 
@@ -302,10 +280,6 @@ Rules implementadas para:
 - atualizacao operacional do grupo pelo responsavel atual, separando progresso (`enderecos_visitados`) de finalizacao;
 - validacao de `enderecos_visitados` para impedir endereco fora do grupo, duplicidade e finalizacao antes de todos os enderecos estarem visitados;
 - validacao de campos e limites de texto.
-
-Ainda pendente nas rules/modelo offline:
-
-- bloqueio por `designacaoId` nas actions offline de progresso, quando a outbox de grupos for implementada.
 
 Campos administrativos sensiveis:
 
@@ -345,9 +319,6 @@ Arquivos principais:
 
 - `src/territorioActions.js`
   - sem alteracao principal para grupos no MVP; as actions online de grupos ficaram em `src/enderecoModel.js`.
-
-- `src/territorioOfflineModel.js`
-  - pendente para fase offline de grupos.
 
 - `src/mapaUtils.js`
   - nao foi necessario no MVP; os calculos de grupo ficaram em `src/enderecoModel.js`.
@@ -404,10 +375,9 @@ Arquivos principais:
 - [x] Preparar mensagem/WhatsApp ao designar territorio.
 - [ ] Notificar admins na devolucao/finalizacao, seguindo padrao atual.
 
-### Fase 4 - Offline e relatorios
+### Fase 4 - Relatorios e importacao
 
-- [ ] Criar outbox de progresso de grupos.
-- [ ] Validar conflito por `designacaoId`.
+- [x] Remover outbox/modo offline e manter escrita online-first.
 - [x] Resumo geral agregado no header para territorios, enderecos e pessoas.
 - [ ] Relatorios administrativos de grupos/endereco.
 - [ ] Importador JSON idempotente.
@@ -449,6 +419,6 @@ Como nao houve persistencia nova no Firestore, esta camada nao exige deploy de `
 - [x] Grupo pode ser designado a publicador.
 - [x] Publicador ve o grupo designado e marca enderecos visitados.
 - [x] Progresso mostra `visitados / total de enderecos`.
-- [ ] Parcial: finalizacao/devolucao preserva historico e usa `designacaoId`. Historico implementado; guardrail por `designacaoId` ficara na fase offline.
+- [x] Finalizacao/devolucao preserva historico e usa `designacaoId` nos ciclos atuais; nao ha mais fase offline.
 - [x] Rules impedem usuario comum de alterar designacao, codigo, agrupamento ou arquivamento.
 - [x] Build, lint e smoke local passam com as alteracoes locais de 2026-07-21.

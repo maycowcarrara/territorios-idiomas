@@ -1,6 +1,6 @@
 # Territórios Idiomas
 
-Sistema web para gestão de territórios de pregação, feito em React + Firebase e usado como PWA em celular e desktop. O app substitui cartões físicos, centraliza designações, marcação de quadras, observações por território e relatórios administrativos.
+Sistema web para gestão de territórios de pregação, feito em React + Firebase, usado como PWA no navegador e com build Android/Capacitor. O app substitui cartões físicos, centraliza designações, marcação de quadras, observações por território e relatórios administrativos.
 
 ## Visão Geral
 
@@ -10,52 +10,29 @@ O sistema foi pensado para uso real no dia a dia:
 - administradores designam, devolvem, acompanham histórico e geram relatórios
 - observações por quadra e condomínio ficam salvas como conhecimento permanente do território
 - campanhas podem ser ativadas sem apagar o progresso normal
-- o app continua utilizável sem conexão para execução segura do território
+- o app é online-first para evitar divergência de progresso e designação
 
-## Modo Offline Seguro
+## Operação Online-First
 
-O modo offline foi desenhado para permitir trabalho de campo sem abrir brecha para sobrescrever uma designação nova.
+O modo offline foi removido. Alterações de progresso, observações, designações e finalizações agora exigem conexão com o Firestore.
 
-### O que pode offline
+### O que exige conexão
 
-- marcar e desmarcar quadras
+- marcar e desmarcar quadras ou endereços
 - adicionar, editar e excluir observações
-- preparar pedido de finalização
-- confirmar finalização para concluir automaticamente quando a conexão voltar
-- consultar dados já carregados no aparelho
-
-### O que não pode offline
-
-Ações administrativas exigem conexão:
-
-- designar território
-- devolver ou liberar território
-- transferir responsável
-- finalizar ou reabrir como admin
+- solicitar ou confirmar finalização
+- designar, devolver, liberar ou reabrir território
+- criar, editar, arquivar ou agrupar endereços
 - criar, ativar ou excluir campanha
 - mudar usuários e permissões
 - enviar comunicados e notificações administrativas
 
-### Como a proteção funciona
+### Como o app se comporta sem conexão
 
-- cada ciclo de designação recebe um `designacaoId`
-- toda ação offline guarda `territorioId`, `userEmail`, `designacaoId`, tipo e payload
-- na sincronização, a ação só é aplicada se o servidor ainda tiver:
-  - `designadoPara === userEmail`
-  - `designacaoId === action.designacaoId`
-- se a designação mudou, a ação vira `conflict` e não é aplicada automaticamente
-
-### Fila local
-
-As ações locais ficam em uma outbox no IndexedDB com estes estados:
-
-- `pending`
-- `syncing`
-- `synced`
-- `conflict`
-- `failed`
-
-Quando o usuário está online, o app mostra uma barra discreta de salvamento abaixo do header. Quando há offline, pendências, falhas ou conflitos, o topo mostra um chip de status; ao tocar nele, o usuário vê os detalhes.
+- o topo mostra um aviso de falta de conexão
+- ações de escrita ficam bloqueadas ou exibem uma mensagem pedindo internet
+- nenhum progresso é enfileirado localmente para sincronização posterior
+- caches antigos de mapas offline são removidos no boot; a PWA continua ativa para instalação e atualização do app
 
 ## Funcionalidades
 
@@ -66,7 +43,7 @@ Quando o usuário está online, o app mostra uma barra discreta de salvamento ab
 - controle de zoom, GPS, pontos de referência e condomínios
 - marcação de quadras feitas e pendentes
 - ponto de encontro compartilhável por WhatsApp
-- status de sincronização visível no header
+- aviso de falta de conexão visível no header
 
 ### Observações
 
@@ -83,7 +60,7 @@ Quando o usuário está online, o app mostra uma barra discreta de salvamento ab
 - ativação e desativação de campanhas
 - reativação de campanhas salvas
 - retorno imediato ao modo normal sem perder progresso anterior
-- ações de escrita bloqueadas enquanto o admin estiver offline
+- ações de escrita bloqueadas enquanto o admin estiver sem conexão
 
 ### Campanhas
 
@@ -124,7 +101,7 @@ Status atual:
 - grupos podem ser designados para publicadores e aparecem em "Meus Territorios";
 - publicador marca enderecos visitados e finaliza o grupo quando todos foram visitados;
 - botão de informações gerais no header do admin com totais de territórios, endereços e pessoas por agregações do Firestore;
-- fluxo de enderecos/grupos esta online-first; o offline robusto segue disponivel para territorios/quadras.
+- fluxo de enderecos/grupos e territorios/quadras esta online-first; o modo offline/outbox foi removido.
 
 ### Coleções principais
 

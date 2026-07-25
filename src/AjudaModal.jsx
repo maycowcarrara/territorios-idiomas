@@ -407,8 +407,8 @@ const AjudaModal = ({ isOpen, onClose, isAdmin = false }) => {
 
                             <div className="grid gap-4 md:grid-cols-2">
                                 <InfoCard
-                                    title="Mapas Offline"
-                                    description="A tela ainda existe para o fluxo legado de territórios por quadras, mas o progresso dos territórios de idioma ainda não tem sincronização offline robusta."
+                                    title="Sem modo offline"
+                                    description="O app não salva alterações locais para sincronizar depois. Aguarde a conexão voltar antes de marcar progresso ou finalizar."
                                 />
 
                                 <InfoCard
