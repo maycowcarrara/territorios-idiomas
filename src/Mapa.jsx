@@ -1360,7 +1360,8 @@ const GrupoEnderecosModal = ({
     podeExecutar,
     loading,
     onClose,
-    onToggleVisitado
+    onToggleVisitado,
+    onNavigate
 }) => {
     const modalRef = useLeafletDomEventIsolation();
 
@@ -1401,27 +1402,40 @@ const GrupoEnderecosModal = ({
                         {enderecos.map((endereco) => {
                             const feito = visitados.has(endereco.id);
                             return (
-                                <button
+                                <div
                                     key={endereco.id}
-                                    type="button"
-                                    onClick={() => onToggleVisitado(endereco)}
-                                    disabled={!podeExecutar || loading}
-                                    className={`flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${feito ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-indigo-50'}`}
+                                    className={`grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg border p-2 text-sm transition ${feito ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}
                                 >
-                                    <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-black ${feito ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-transparent'}`}>✓</span>
-                                    <span className="min-w-0">
-                                        <span className="block font-extrabold leading-tight text-slate-800">{formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}</span>
-                                        <span className="mt-0.5 block leading-snug">{endereco.endereco || 'Sem endereço'}</span>
-                                        <span className="mt-1 block text-xs font-semibold text-slate-500">{endereco.quantidadeEstrangeiros || 0} estrangeiro(s)</span>
-                                    </span>
-                                </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => onToggleVisitado(endereco)}
+                                        disabled={!podeExecutar || loading}
+                                        className="flex min-w-0 items-start gap-3 rounded-md px-1 py-0.5 text-left transition hover:bg-white/55 disabled:cursor-not-allowed disabled:opacity-60"
+                                        aria-label={`${feito ? 'Desmarcar' : 'Marcar como pregado'} ${formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}`}
+                                    >
+                                        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-black ${feito ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-transparent'}`}>✓</span>
+                                        <span className="min-w-0">
+                                            <span className="block font-extrabold leading-tight text-slate-800">{formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}</span>
+                                            <span className="mt-0.5 block leading-snug">{endereco.endereco || 'Sem endereço'}</span>
+                                            <span className="mt-1 block text-xs font-semibold text-slate-500">{endereco.quantidadeEstrangeiros || 0} estrangeiro(s)</span>
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => onNavigate(endereco)}
+                                        className="self-stretch rounded-md border border-blue-200 bg-white px-3 text-xs font-extrabold text-blue-700 transition hover:bg-blue-50"
+                                        aria-label={`Navegar para ${formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}`}
+                                    >
+                                        Navegar
+                                    </button>
+                                </div>
                             );
                         })}
                     </div>
                 </div>
                 {!podeExecutar && (
                     <div className="border-t border-slate-200 bg-slate-50 px-4 py-2 text-center text-xs font-semibold text-slate-500">
-                        Visualização somente leitura.
+                        Marcação somente leitura.
                     </div>
                 )}
             </div>
@@ -1787,7 +1801,7 @@ const FocoGrupoEnderecoMapController = ({ grupoId, enderecos }) => {
     return null;
 };
 
-const BairroSbsLayer = ({ bairrosGeoJson, resumoPorBairro, onLongPressStart, onLongPressEnd, onLongPressCancel, onContextMenu, shouldIgnoreClick }) => {
+const BairroSbsLayer = ({ bairrosGeoJson, resumoPorBairro, mostrarCobertura = false, onLongPressStart, onLongPressEnd, onLongPressCancel, onContextMenu, shouldIgnoreClick }) => {
     const features = bairrosGeoJson?.features || [];
 
     return (
@@ -1803,14 +1817,23 @@ const BairroSbsLayer = ({ bairrosGeoJson, resumoPorBairro, onLongPressStart, onL
                 const percentual = resumo.total > 0
                     ? Math.round((resumo.cobertos / resumo.total) * 100)
                     : 0;
-                const pathOptions = {
-                    color: colors.border,
-                    fillColor: colors.fill,
-                    weight: completo ? 2.6 : temAndamento ? 2.2 : 1.6,
-                    opacity: resumo.total > 0 ? 0.88 : 0.62,
-                    fillOpacity: resumo.total > 0 ? 0.24 : 0.11,
-                    dashArray: resumo.total > 0 ? undefined : '7 8'
-                };
+                const pathOptions = mostrarCobertura
+                    ? {
+                        color: colors.border,
+                        fillColor: colors.fill,
+                        weight: completo ? 2.6 : temAndamento ? 2.2 : 1.6,
+                        opacity: resumo.total > 0 ? 0.88 : 0.62,
+                        fillOpacity: resumo.total > 0 ? 0.24 : 0.11,
+                        dashArray: resumo.total > 0 ? undefined : '7 8'
+                    }
+                    : {
+                        color: colors.border,
+                        fillColor: colors.fill,
+                        weight: 1.6,
+                        opacity: 0.72,
+                        fillOpacity: 0.14,
+                        dashArray: undefined
+                    };
 
                 return (
                     <Polygon
@@ -1850,41 +1873,45 @@ const BairroSbsLayer = ({ bairrosGeoJson, resumoPorBairro, onLongPressStart, onL
                                         </div>
                                     </div>
 
-                                    <div className="mt-2">
-                                        <div className="flex items-center justify-between gap-3 text-xs font-extrabold">
-                                            <span style={{ color: colors.text }}>{resumo.cobertos}/{resumo.total} cobertos</span>
-                                            <span className="text-slate-500">{percentual}%</span>
-                                        </div>
-                                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                                            <div
-                                                className="h-full rounded-full transition-all duration-500"
-                                                style={{
-                                                    width: `${percentual}%`,
-                                                    backgroundColor: colors.border
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
+                                    {mostrarCobertura && (
+                                        <>
+                                            <div className="mt-2">
+                                                <div className="flex items-center justify-between gap-3 text-xs font-extrabold">
+                                                    <span style={{ color: colors.text }}>{resumo.cobertos}/{resumo.total} cobertos</span>
+                                                    <span className="text-slate-500">{percentual}%</span>
+                                                </div>
+                                                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                                    <div
+                                                        className="h-full rounded-full transition-all duration-500"
+                                                        style={{
+                                                            width: `${percentual}%`,
+                                                            backgroundColor: colors.border
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
 
-                                    <div className="mt-2 grid grid-cols-3 overflow-hidden rounded-lg border border-slate-100 text-center">
-                                        <div className="bg-white px-2 py-1.5">
-                                            <div className="text-[9px] font-black uppercase leading-none text-slate-400">Total</div>
-                                            <div className="mt-1 text-base font-black leading-none text-slate-800">{resumo.total}</div>
-                                        </div>
-                                        <div className="border-x border-slate-100 bg-white px-2 py-1.5">
-                                            <div className="text-[9px] font-black uppercase leading-none text-emerald-600">Cobertos</div>
-                                            <div className="mt-1 text-base font-black leading-none text-emerald-700">{resumo.cobertos}</div>
-                                        </div>
-                                        <div className="bg-white px-2 py-1.5">
-                                            <div className="text-[9px] font-black uppercase leading-none text-amber-600">Faltam</div>
-                                            <div className="mt-1 text-base font-black leading-none text-amber-700">{resumo.faltando}</div>
-                                        </div>
-                                    </div>
+                                            <div className="mt-2 grid grid-cols-3 overflow-hidden rounded-lg border border-slate-100 text-center">
+                                                <div className="bg-white px-2 py-1.5">
+                                                    <div className="text-[9px] font-black uppercase leading-none text-slate-400">Total</div>
+                                                    <div className="mt-1 text-base font-black leading-none text-slate-800">{resumo.total}</div>
+                                                </div>
+                                                <div className="border-x border-slate-100 bg-white px-2 py-1.5">
+                                                    <div className="text-[9px] font-black uppercase leading-none text-emerald-600">Cobertos</div>
+                                                    <div className="mt-1 text-base font-black leading-none text-emerald-700">{resumo.cobertos}</div>
+                                                </div>
+                                                <div className="bg-white px-2 py-1.5">
+                                                    <div className="text-[9px] font-black uppercase leading-none text-amber-600">Faltam</div>
+                                                    <div className="mt-1 text-base font-black leading-none text-amber-700">{resumo.faltando}</div>
+                                                </div>
+                                            </div>
 
-                                    {resumo.emAndamento > 0 && (
-                                        <div className="mt-2 rounded-md bg-blue-50 px-2 py-1.5 text-center text-xs font-extrabold text-blue-700">
-                                            {resumo.emAndamento} em andamento
-                                        </div>
+                                            {resumo.emAndamento > 0 && (
+                                                <div className="mt-2 rounded-md bg-blue-50 px-2 py-1.5 text-center text-xs font-extrabold text-blue-700">
+                                                    {resumo.emAndamento} em andamento
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             </div>
@@ -1905,6 +1932,7 @@ const GrupoEnderecoLayer = ({
     listaUsuarios,
     enderecosGrupo,
     onShare,
+    onNavigate,
     onToggleArchive,
     onDesignar,
     onDevolver,
@@ -2325,6 +2353,7 @@ const GrupoEnderecoLayer = ({
                     if (!loadingAction) setEnderecosModalAberto(false);
                 }}
                 onToggleVisitado={(endereco) => executarAcaoGrupo(() => onToggleVisitado(grupo, endereco, { sugerirFinalizacao: true }))}
+                onNavigate={onNavigate}
             />
         </>
     );
@@ -4718,6 +4747,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         <BairroSbsLayer
                             bairrosGeoJson={bairrosGeoJson}
                             resumoPorBairro={resumoBairros}
+                            mostrarCobertura={isAdmin}
                             onLongPressStart={iniciarToqueLongoMapa}
                             onLongPressEnd={finalizarToqueLongoMapa}
                             onLongPressCancel={cancelarToqueLongoMapa}
@@ -4737,6 +4767,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                             listaUsuarios={listaUsuarios}
                             enderecosGrupo={resolveEnderecosGrupoFromMaps(grupo, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId)}
                             onShare={compartilharGrupoEndereco}
+                            onNavigate={navegarEndereco}
                             onToggleArchive={alternarArquivoGrupoEndereco}
                             onDesignar={salvarDesignacaoGrupoEndereco}
                             onDevolver={devolverDesignacaoGrupoEndereco}
