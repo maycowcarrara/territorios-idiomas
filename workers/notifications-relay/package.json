@@ -2,7 +2,8 @@
   "name": "notifications-relay",
   "private": true,
   "scripts": {
-    "deploy": "node ../../scripts/check-deploy-auth.cjs wrangler idiomas --config wrangler.idiomas.toml --cwd . && wrangler deploy --config wrangler.idiomas.toml",
+    "sync-env": "node ../../scripts/sync-worker-env.cjs idiomas --config wrangler.idiomas.toml --cwd .",
+    "deploy": "npm run sync-env && node ../../scripts/check-deploy-auth.cjs wrangler idiomas --config wrangler.idiomas.toml --cwd . && wrangler deploy --config wrangler.idiomas.toml",
     "deploy:idiomas": "npm run deploy",
     "dev": "wrangler dev --config wrangler.idiomas.toml",
     "dev:idiomas": "npm run dev",

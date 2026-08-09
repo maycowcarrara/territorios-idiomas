@@ -43,6 +43,8 @@
     "android:release:idiomas": "npm run android:release",
     "android:play": "npm run android:release",
     "worker:install": "npm --prefix workers/notifications-relay install",
+    "worker:sync-env": "node scripts/sync-worker-env.cjs idiomas --config workers/notifications-relay/wrangler.idiomas.toml",
+    "worker:sync-env:idiomas": "npm run worker:sync-env",
     "worker:dev": "npm --prefix workers/notifications-relay run dev",
     "worker:dev:idiomas": "npm --prefix workers/notifications-relay run dev:idiomas",
     "worker:deploy": "npm --prefix workers/notifications-relay run deploy",
