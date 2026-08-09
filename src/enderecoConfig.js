@@ -71,6 +71,7 @@ function normalizeIdiomas(value) {
             ordem: normalizePositiveInt(idioma?.ordem, index + 1, 1, 999)
         }))
         .filter((idioma) => idioma.id && idioma.nome)
+        .filter((idioma, index, list) => list.findIndex((item) => item.id === idioma.id) === index)
         .sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
 
     return idiomas.length ? idiomas : DEFAULT_ENDERECO_CONFIG.idiomas;

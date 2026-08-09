@@ -432,10 +432,24 @@ const AdminPanel = () => {
         event.preventDefault();
         if (!ensureOnlineAdminAction()) return;
 
+        const idiomasForm = getEnderecoConfigFormIdiomas(enderecoConfigForm);
+        const idiomaIdsPreenchidos = idiomasForm.map((idioma) => idioma.id).filter(Boolean);
+        const idiomaIdDuplicado = idiomaIdsPreenchidos.find((idiomaId, index, list) => list.indexOf(idiomaId) !== index);
+
+        if (idiomaIdDuplicado) {
+            notify({
+                title: 'Idioma duplicado',
+                message: `O ID ${idiomaIdDuplicado} aparece mais de uma vez. Use um ID único para cada idioma.`,
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
         const configBase = normalizeEnderecoConfig({
             ...enderecoConfig,
             ...enderecoConfigForm,
-            idiomas: getEnderecoConfigFormIdiomas(enderecoConfigForm),
+            idiomas: idiomasForm,
             tiposEndereco: enderecoConfig.tiposEndereco
         });
         const idiomasAtivos = getEnderecoIdiomasAtivos(configBase);

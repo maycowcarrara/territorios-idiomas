@@ -401,6 +401,12 @@ export async function updateEnderecoBasico(db, enderecoId, input, user) {
             ...fields,
             status: fields.status
         };
+        const idiomaAtual = normalizeText(enderecoAtual.idiomaId, 32) || IDIOMA_PADRAO_ENDERECOS.id;
+        const proximoIdioma = normalizeText(fields.idiomaId, 32) || IDIOMA_PADRAO_ENDERECOS.id;
+
+        if ((enderecoAtual.grupoId || enderecoAtual.grupoCodigo) && idiomaAtual !== proximoIdioma) {
+            throw new Error('Remova o endereço do território antes de trocar o idioma.');
+        }
 
         if (enderecoAtual.grupoId) {
             const grupoRef = getGrupoEnderecoRef(db, enderecoAtual.grupoId);
@@ -662,6 +668,14 @@ export async function adicionarEnderecosAoGrupo(db, { enderecoIds, grupoId, user
 
         const stats = calculateGrupoEnderecoStats(enderecosAtualizados);
         const proximosVisitados = ensureArray(grupo.enderecos_visitados).filter((id) => proximosEnderecoIds.includes(id));
+        const idiomaGrupo = normalizeText(grupo.idiomaId, 32);
+        const idiomasAtualizados = [...new Set(enderecosAtualizados.map((endereco) => (
+            normalizeText(endereco.idiomaId, 32) || IDIOMA_PADRAO_ENDERECOS.id
+        )))];
+
+        if (idiomaGrupo && idiomasAtualizados.some((idiomaId) => idiomaId !== idiomaGrupo)) {
+            throw new Error('Selecione endereços do mesmo idioma do território.');
+        }
 
         transaction.set(grupoRef, {
             enderecoIds: proximosEnderecoIds,

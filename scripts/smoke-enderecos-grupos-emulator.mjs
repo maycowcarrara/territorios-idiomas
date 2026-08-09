@@ -20,6 +20,7 @@ import { initializeApp as initializeAdminApp, getApps as getAdminApps } from 'fi
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import {
+    adicionarEnderecosAoGrupo,
     createEnderecoManual,
     createGrupoEnderecoManual,
     designarGrupoEndereco,
@@ -197,6 +198,21 @@ async function main() {
         const configIngles = getEnderecoConfigForIdioma(configPublicador, 'en');
         assert(getEnderecoCodigoPadraoFromConfig(configIngles) === 'EN-SBS-001', 'Config deveria sugerir EN-SBS-001 para inglês.');
         assert(getGrupoEnderecoCodigoPadraoFromConfig(configIngles) === 'EN-SBS-T01', 'Config deveria sugerir EN-SBS-T01 para inglês.');
+        const configDuplicada = normalizeEnderecoConfig({
+            ...configCadastros,
+            idiomas: [
+                ...configCadastros.idiomas,
+                {
+                    id: 'en',
+                    nome: 'Inglês duplicado',
+                    codigoPrefixoEndereco: 'EN-DUP-',
+                    codigoPrefixoTerritorio: 'EN-DUP-T',
+                    ativo: true,
+                    ordem: 3
+                }
+            ]
+        });
+        assert(getEnderecoIdiomasAtivos(configDuplicada).length === 2, 'Normalização deveria ignorar idioma duplicado.');
 
         const enderecoA = await createEnderecoManual(adminClient.db, {
             user: adminUser,
@@ -322,6 +338,13 @@ async function main() {
         const grupoInglesDoc = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoIngles.id));
         assert(grupoIngles.codigo === 'EN-SBS-T01', 'Território em inglês deveria salvar EN-SBS-T01 normalizado.');
         assert(grupoInglesDoc.data().idiomaId === 'en', 'Território em inglês deveria herdar idiomaId do endereço.');
+        await expectDomainBlocked('vincular endereço de outro idioma ao território existente', () => (
+            adicionarEnderecosAoGrupo(adminClient.db, {
+                enderecoIds: [enderecoB.id],
+                grupoId: grupoIngles.id,
+                user: adminUser
+            })
+        ), 'mesmo idioma do território');
         const grupo = await createGrupoEnderecoManual(adminClient.db, {
             user: adminUser,
             codigo: 'es-sbs-t01',
@@ -332,6 +355,19 @@ async function main() {
             ]
         });
         assert(grupo.codigo === 'ES-SBS-T01', 'Primeiro grupo deveria salvar ES-SBS-T01 normalizado.');
+        await expectDomainBlocked('trocar idioma de endereço agrupado', () => (
+            updateEnderecoBasico(adminClient.db, enderecoA.id, {
+                lat: -10.1841,
+                lng: -48.3336,
+                idiomaId: 'en',
+                idiomaNome: 'Inglês',
+                bairro: 'Serra Alta',
+                endereco: 'Rua Smoke A atualizada, 10',
+                quantidadeEstrangeiros: 3,
+                informacao: 'Tentativa de troca de idioma',
+                classe: 'estudo'
+            }, adminUser)
+        ), 'Remova o endereço do território antes de trocar o idioma');
         await expectDomainBlocked('codigo duplicado de território', () => (
             createGrupoEnderecoManual(adminClient.db, {
                 user: adminUser,
