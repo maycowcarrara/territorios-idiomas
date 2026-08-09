@@ -12,7 +12,7 @@ O territorio designavel para o publicador passa a ser um grupo de enderecos prox
 
 ## Status atual da implementacao
 
-Atualizado em 2026-07-21.
+Atualizado em 2026-07-21. Complemento local em 2026-08-09: busca manual de endereco por OpenStreetMap/Nominatim adicionada ao MVP controlado, ainda sem publicacao/deploy nesta etapa.
 
 Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, site `territ-es-sbs`, ultima versao publicada confirmada neste plano: `3.0.340`):
 
@@ -55,6 +55,7 @@ Ainda pendente para fechar o plano completo:
 - relatorios de enderecos/grupos;
 - importador de enderecos idempotente para semear enderecos/grupos futuramente;
 - modo offline removido; execucao de grupos e territorios/quadras segue online-first;
+- validacao visual/publicacao da busca manual de endereco no mapa com OpenStreetMap/Nominatim, agora tratada como MVP controlado: sem autocomplete, por botao/Enter, limitado a Sao Bento do Sul/SC/Brasil, com cache local e throttle minimo no cliente.
 
 ## Decisao de modelo
 
@@ -223,6 +224,20 @@ Fluxo futuro recomendado:
    - salvar em `enderecos`.
 
 Status: implementado para admin online. A escolha de grupo durante o cadastro ficou fora do MVP; o agrupamento acontece depois, selecionando enderecos sem grupo no mapa.
+
+### Busca manual de endereco no mapa
+
+MVP controlado para reduzir atrito no cadastro manual:
+
+- barra `Buscar endereco` visivel para admin no mapa;
+- consulta somente por botao `Buscar` ou Enter, sem autocomplete;
+- provider inicial: OpenStreetMap/Nominatim publico, com query reforcada por Sao Bento do Sul/SC/Brasil e ate 5 resultados;
+- limite geografico inicial do Nominatim: viewbox de Sao Bento do Sul em torno de longitudes `-49.x` e latitudes `-26.x`, configuravel por `VITE_ADDRESS_SEARCH_VIEWBOX_*`;
+- uso leve no browser com cache em `sessionStorage` por texto normalizado e throttle minimo de 1 segundo entre chamadas reais;
+- resultado escolhido centraliza o mapa, cria um pin temporario distinto e libera `Cadastrar neste ponto`;
+- admin pode ajustar o ponto depois, escolhendo outro local no mapa antes de cadastrar;
+- modal atual de cadastro recebe lat/lng, endereco textual e bairro quando disponivel pela busca ou pela camada local de bairros;
+- busca e cadastro seguem online-first; offline deve mostrar bloqueio claro.
 
 ### Agrupamento de enderecos
 
@@ -416,7 +431,8 @@ Como nao houve persistencia nova no Firestore, esta camada nao exige deploy de `
 ## Fora do MVP
 
 - Nome estruturado do morador.
-- Geocoding automatico de endereco textual.
+- Autocomplete e geocoding automatico a cada tecla.
+- Proxy/cache global de geocoding em Worker.
 - Criacao automatica de grupos por cluster.
 - Poligono editavel do grupo.
 - Poligonos de bairros/areas para consolidar varios territorios `T`.

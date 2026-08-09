@@ -7,6 +7,7 @@ import { Geolocation } from '@capacitor/geolocation';
 import { db } from './firebase';
 import { clearMapaDataCache, loadMapaData } from './mapData';
 import { getFeatureId } from './mapaUtils';
+import { searchAddresses } from './addressSearch';
 import {
     buildBairroId,
     findBairroFeatureForPoint,
@@ -287,6 +288,7 @@ const cssTooltip = `
   .map-group-marker.assigned { background: ${MAP_COLORS.grupoEndereco.designado.marker}; }
   .map-group-marker.finished { background: ${MAP_COLORS.grupoEndereco.finalizado.marker}; }
   .map-click-marker { width: 28px; height: 28px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.apoio.clique}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(37,99,235,0.35); font-size: 16px; line-height: 1; font-weight: 900; }
+  .map-click-marker.search { background: #7c3aed; box-shadow: 0 4px 14px rgba(124,58,237,0.38); }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-content-wrapper { padding: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 30px rgba(15,23,42,0.22); }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-content { margin: 0; width: auto !important; }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button { top: 7px; right: 7px; width: 22px; height: 22px; border-radius: 999px; color: #64748b; font-size: 16px; line-height: 21px; transition: background-color 0.2s, color 0.2s; }
@@ -1118,7 +1120,7 @@ const getEnderecoInitialForm = (endereco, ponto, enderecoConfig = DEFAULT_ENDERE
     idiomaId: endereco?.idiomaId || enderecoConfig.idiomaPadraoId || IDIOMA_PADRAO_ENDERECOS.id,
     idiomaNome: endereco?.idiomaNome || enderecoConfig.idiomaPadraoNome || IDIOMA_PADRAO_ENDERECOS.nome,
     bairro: endereco?.bairro || ponto?.bairro || '',
-    endereco: endereco?.endereco || '',
+    endereco: endereco?.endereco || ponto?.endereco || '',
     informacao: endereco?.informacao ?? endereco?.observacao ?? '',
     classe: endereco?.classe || enderecoConfig.classeEnderecoPadrao || ENDERECO_CLASSES.CONFIRMADO,
     quantidadeEstrangeiros: String(endereco?.quantidadeEstrangeiros ?? enderecoConfig.quantidadeEstrangeirosPadrao ?? 1),
@@ -1543,14 +1545,123 @@ const GrupoEnderecosModal = ({
     );
 };
 
+const AddressSearchControl = ({ isOnline, onSelect }) => {
+    const map = useMap();
+    const controlRef = useLeafletDomEventIsolation();
+    const { notify } = useUiFeedback();
+    const abortRef = useRef(null);
+    const [query, setQuery] = useState('');
+    const [results, setResults] = useState([]);
+    const [selectedId, setSelectedId] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [message, setMessage] = useState('');
+
+    useEffect(() => () => abortRef.current?.abort(), []);
+
+    const handleSubmit = async (event) => {
+        event.preventDefault();
+        const text = query.trim();
+
+        if (!isOnline) {
+            notify({
+                title: 'Busca bloqueada offline',
+                message: 'Conecte-se para buscar endereços no OpenStreetMap.',
+                variant: 'warning',
+                durationMs: 6500
+            });
+            return;
+        }
+
+        if (!text) {
+            setMessage('Digite um endereço para buscar.');
+            setResults([]);
+            return;
+        }
+
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
+        setLoading(true);
+        setMessage('');
+        setSelectedId('');
+
+        try {
+            const found = await searchAddresses(text, { signal: controller.signal });
+            setResults(found);
+            setMessage(found.length ? '' : 'Nenhum resultado encontrado em São Bento do Sul.');
+        } catch (error) {
+            if (error?.name === 'AbortError') return;
+            console.error('Erro ao buscar endereço:', error);
+            setResults([]);
+            setMessage(String(error?.message || 'Não foi possível buscar este endereço agora.'));
+        } finally {
+            if (abortRef.current === controller) {
+                abortRef.current = null;
+                setLoading(false);
+            }
+        }
+    };
+
+    const selecionarResultado = (result) => {
+        setSelectedId(result.id);
+        map.flyTo([result.lat, result.lng], Math.max(map.getZoom(), 18), {
+            animate: true,
+            duration: 0.9
+        });
+        onSelect(result);
+    };
+
+    return (
+        <div ref={controlRef} className="pointer-events-auto absolute left-3 right-3 top-4 z-[500] max-w-[440px] sm:right-auto" onClick={stopMapDomEvent}>
+            <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur">
+                <div className="flex gap-2">
+                    <input
+                        type="search"
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder="Buscar endereço"
+                        className="min-w-0 flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                    />
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="rounded-md bg-teal-700 px-3 py-2 text-sm font-extrabold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-wait disabled:bg-teal-400"
+                    >
+                        {loading ? 'Buscando' : 'Buscar'}
+                    </button>
+                </div>
+                {message && (
+                    <p className="mt-2 rounded-md bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-600">{message}</p>
+                )}
+                {results.length > 0 && (
+                    <div className="mt-2 max-h-56 overflow-y-auto rounded-md border border-slate-100 bg-white">
+                        {results.map((result) => (
+                            <button
+                                key={result.id}
+                                type="button"
+                                onClick={() => selecionarResultado(result)}
+                                className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-xs font-semibold leading-snug transition last:border-b-0 hover:bg-teal-50 ${selectedId === result.id ? 'bg-teal-50 text-teal-800' : 'text-slate-700'}`}
+                            >
+                                {result.label || result.endereco}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Resultados: OpenStreetMap/Nominatim</p>
+            </form>
+        </div>
+    );
+};
+
 const PontoMapaClicado = ({ ponto, canCreate, onCreate, onShare, onClose }) => {
     const markerRef = useRef(null);
+    const isSearchPoint = ponto?.origem === 'busca-endereco';
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
-        html: '<div class="map-click-marker">+</div>',
+        html: `<div class="map-click-marker ${isSearchPoint ? 'search' : ''}">${isSearchPoint ? 'S' : '+'}</div>`,
         iconSize: [28, 28],
         iconAnchor: [14, 14]
-    }), []);
+    }), [isSearchPoint]);
 
     useEffect(() => {
         if (!ponto) return;
@@ -1567,13 +1678,16 @@ const PontoMapaClicado = ({ ponto, canCreate, onCreate, onShare, onClose }) => {
         <Marker ref={markerRef} position={[ponto.lat, ponto.lng]} icon={icon} eventHandlers={{ click: (event) => event.originalEvent && L.DomEvent.stopPropagation(event.originalEvent) }}>
             <Popup>
                 <div className="flex min-w-[190px] flex-col gap-2 p-1 text-center">
-                    <h3 className="text-sm font-bold text-slate-800">Local selecionado</h3>
+                    <h3 className="text-sm font-bold text-slate-800">{isSearchPoint ? 'Resultado da busca' : 'Local selecionado'}</h3>
+                    {isSearchPoint && ponto.endereco && (
+                        <p className="max-w-[220px] text-xs font-semibold leading-snug text-slate-500">{ponto.endereco}</p>
+                    )}
                     <button onClick={onShare} className="popup-btn-action bg-blue-600 text-white hover:bg-blue-700">
                         Compartilhar localização
                     </button>
                     {canCreate && (
                         <button onClick={onCreate} className="popup-btn-action bg-teal-700 text-white hover:bg-teal-800">
-                            Cadastrar endereço
+                            {isSearchPoint ? 'Cadastrar neste ponto' : 'Cadastrar endereço'}
                         </button>
                     )}
                     <button onClick={onClose} className="text-xs font-semibold text-slate-400 underline">
@@ -3811,11 +3925,38 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     const selecionarPontoMapa = useCallback((latlng) => {
         if (!latlng) return;
 
-        setPontoMapaSelecionado({
-            lat: latlng.lat,
-            lng: latlng.lng
+        setPontoMapaSelecionado((current) => {
+            const pontoAjustado = {
+                lat: latlng.lat,
+                lng: latlng.lng
+            };
+
+            if (current?.origem !== 'busca-endereco') {
+                return pontoAjustado;
+            }
+
+            const bairroFeature = findBairroFeatureForPoint(bairrosGeoJson?.features || [], pontoAjustado);
+            return {
+                ...current,
+                ...pontoAjustado,
+                bairro: bairroFeature?.properties?.bairroNome || current.bairro || ''
+            };
         });
-    }, []);
+    }, [bairrosGeoJson]);
+
+    const selecionarResultadoBuscaEndereco = useCallback((result) => {
+        const bairroFeature = result?.bairro ? null : findBairroFeatureForPoint(bairrosGeoJson?.features || [], result);
+        setPontoMapaSelecionado({
+            lat: result.lat,
+            lng: result.lng,
+            endereco: result.endereco || result.label || '',
+            bairro: result.bairro || bairroFeature?.properties?.bairroNome || '',
+            origem: 'busca-endereco'
+        });
+        setGrupoEnderecoFocadoId(null);
+        setEnderecosSelecionadosGrupo([]);
+        setModoVisualizacaoMapa(MAPA_VISUALIZACAO.ENDERECOS);
+    }, [bairrosGeoJson]);
 
     const iniciarToqueLongoMapa = useCallback((event) => {
         const latlng = event?.latlng;
@@ -3882,6 +4023,11 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                     return;
                 }
 
+                if (pontoMapaSelecionado?.origem === 'busca-endereco') {
+                    selecionarPontoMapa(event.latlng);
+                    return;
+                }
+
                 setPontoMapaSelecionado(null);
             },
             mousedown: iniciarToqueLongoMapa,
@@ -3892,11 +4038,15 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
             contextmenu: abrirPontoMapaPorContexto,
             zoomstart: () => {
                 cancelarToqueLongoMapa();
-                setPontoMapaSelecionado(null);
+                if (pontoMapaSelecionado?.origem !== 'busca-endereco') {
+                    setPontoMapaSelecionado(null);
+                }
             },
             dragstart: () => {
                 cancelarToqueLongoMapa();
-                setPontoMapaSelecionado(null);
+                if (pontoMapaSelecionado?.origem !== 'busca-endereco') {
+                    setPontoMapaSelecionado(null);
+                }
             },
             zoomend: () => {
                 setZoomLevel(map.getZoom());
@@ -4841,6 +4991,12 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                     <MapEvents />
                     <FocoGrupoEnderecoMapController grupoId={grupoEnderecoFocadoId} enderecos={enderecosGrupoFocado} />
                     <DeepLinkHandler />
+                    {isAdmin && (
+                        <AddressSearchControl
+                            isOnline={isOnline}
+                            onSelect={selecionarResultadoBuscaEndereco}
+                        />
+                    )}
                     {tipoMapa === 'padrao' && <TileLayer attribution='© OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxNativeZoom={19} maxZoom={22} />}
                     {tipoMapa === 'google' && <TileLayer attribution='© Google Maps' url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" maxNativeZoom={20} maxZoom={22} />}
                     {tipoMapa === 'satelite' && <TileLayer attribution='© Google Maps' url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}" maxNativeZoom={20} maxZoom={22} />}
