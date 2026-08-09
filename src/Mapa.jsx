@@ -39,6 +39,9 @@ import {
     calculateGrupoEnderecoStats,
     createGrupoEnderecoManual,
     createEnderecoManual,
+    ENDERECO_CLASSES,
+    ENDERECO_CLASSE_LABELS,
+    ENDERECO_CODIGO_PADRAO,
     devolverGrupoEndereco,
     designarGrupoEndereco,
     designarGrupoEnderecoComUsuarioAprovado,
@@ -47,8 +50,10 @@ import {
     formatEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoExibicao,
     formatGrupoEnderecoNomeExibicao,
+    GRUPO_ENDERECO_CODIGO_PADRAO,
     getGrupoEnderecoProgresso,
     GRUPO_ENDERECO_STATUS,
+    IDIOMA_PADRAO_ENDERECOS,
     getEnderecosCollectionRef,
     getGruposEnderecoCollectionRef,
     getGrupoEnderecoDocIdFromSequence,
@@ -238,6 +243,10 @@ const formatPessoasCadastradasLabel = (total) => {
     const totalSeguro = Math.max(0, Math.trunc(Number(total) || 0));
     return `${totalSeguro} ${totalSeguro === 1 ? 'pessoa cadastrada' : 'pessoas cadastradas'}`;
 };
+
+const getEnderecoClasseLabel = (classe) => (
+    ENDERECO_CLASSE_LABELS[classe] || ENDERECO_CLASSE_LABELS[ENDERECO_CLASSES.CONFIRMADO]
+);
 
 // --- CSS ---
 const cssTooltip = `
@@ -1094,12 +1103,19 @@ const ModalConfirmacaoFinalizacao = ({ isOpen, onConfirmar, onRecusar, loading, 
 };
 
 const getEnderecoInitialForm = (endereco, ponto) => ({
+    codigo: endereco?.codigo || ENDERECO_CODIGO_PADRAO,
+    idiomaId: endereco?.idiomaId || IDIOMA_PADRAO_ENDERECOS.id,
+    idiomaNome: endereco?.idiomaNome || IDIOMA_PADRAO_ENDERECOS.nome,
+    bairro: endereco?.bairro || '',
     endereco: endereco?.endereco || '',
+    informacao: endereco?.informacao ?? endereco?.observacao ?? '',
+    classe: endereco?.classe || ENDERECO_CLASSES.CONFIRMADO,
     quantidadeEstrangeiros: String(endereco?.quantidadeEstrangeiros ?? 1),
     observacao: endereco?.observacao || '',
     lat: endereco?.lat ?? ponto?.lat ?? '',
     lng: endereco?.lng ?? ponto?.lng ?? '',
     grupoEscolha: '',
+    grupoCodigo: GRUPO_ENDERECO_CODIGO_PADRAO,
     grupoNome: ''
 });
 
@@ -1128,6 +1144,9 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
         event.preventDefault();
         onSubmit({
             ...form,
+            codigo: form.codigo,
+            informacao: form.informacao,
+            observacao: form.informacao,
             lat: Number(form.lat),
             lng: Number(form.lng),
             quantidadeEstrangeiros: Number(form.quantidadeEstrangeiros)
@@ -1143,7 +1162,7 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
             onMouseDown={stopMapDomEvent}
             onTouchStart={stopMapDomEvent}
         >
-            <form onSubmit={handleSubmit} className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl" onClick={stopMapDomEvent}>
+            <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl bg-white shadow-2xl" onClick={stopMapDomEvent}>
                 <div className="bg-teal-700 px-4 py-3">
                     <h3 className="text-lg font-bold text-white">{titulo}</h3>
                 </div>
@@ -1151,6 +1170,18 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
                         Lat {Number(form.lat).toFixed(6)} · Lng {Number(form.lng).toFixed(6)}
                     </div>
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
+                        <input
+                            value={form.codigo}
+                            onChange={handleChange('codigo')}
+                            maxLength={40}
+                            required
+                            disabled={loading || isEdit}
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                            placeholder={ENDERECO_CODIGO_PADRAO}
+                        />
+                    </label>
                     {!isEdit && (
                         <label className="block">
                             <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Território</span>
@@ -1171,18 +1202,43 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
                         </label>
                     )}
                     {!isEdit && form.grupoEscolha === '__novo__' && (
-                        <label className="block">
-                            <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
-                            <input
-                                value={form.grupoNome}
-                                onChange={handleChange('grupoNome')}
-                                maxLength={120}
-                                disabled={loading}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                placeholder="Ex.: Jardim São João"
-                            />
-                        </label>
+                        <div className="grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código do território</span>
+                                <input
+                                    value={form.grupoCodigo}
+                                    onChange={handleChange('grupoCodigo')}
+                                    maxLength={40}
+                                    required
+                                    disabled={loading}
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                    placeholder={GRUPO_ENDERECO_CODIGO_PADRAO}
+                                />
+                            </label>
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
+                                <input
+                                    value={form.grupoNome}
+                                    onChange={handleChange('grupoNome')}
+                                    maxLength={120}
+                                    disabled={loading}
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                    placeholder="Ex.: Jardim São João"
+                                />
+                            </label>
+                        </div>
                     )}
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Bairro</span>
+                        <input
+                            value={form.bairro}
+                            onChange={handleChange('bairro')}
+                            maxLength={120}
+                            disabled={loading}
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                            placeholder="Ex.: Serra Alta"
+                        />
+                    </label>
                     <label className="block">
                         <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Endereço</span>
                         <input
@@ -1194,6 +1250,19 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
                             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
                             placeholder="Rua, número, referência"
                         />
+                    </label>
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Classe</span>
+                        <select
+                            value={form.classe}
+                            onChange={handleChange('classe')}
+                            disabled={loading}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                        >
+                            {Object.values(ENDERECO_CLASSES).map((classe) => (
+                                <option key={classe} value={classe}>{getEnderecoClasseLabel(classe)}</option>
+                            ))}
+                        </select>
                     </label>
                     <label className="block">
                         <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Estrangeiros</span>
@@ -1208,15 +1277,15 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
                         />
                     </label>
                     <label className="block">
-                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Observação</span>
+                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Informação</span>
                         <textarea
-                            value={form.observacao}
-                            onChange={handleChange('observacao')}
+                            value={form.informacao}
+                            onChange={handleChange('informacao')}
                             maxLength={2000}
                             rows="4"
                             disabled={loading}
                             className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                            placeholder="Idioma, melhor horário, detalhes úteis"
+                            placeholder="Nome, idioma, melhor horário, detalhes úteis"
                         />
                     </label>
                 </div>
@@ -1243,12 +1312,14 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
 };
 
 const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, gruposDisponiveis, loading, onClose, onSubmit }) => {
+    const [codigo, setCodigo] = useState(GRUPO_ENDERECO_CODIGO_PADRAO);
     const [nome, setNome] = useState('');
     const [modo, setModo] = useState('novo');
     const [grupoIdSelecionado, setGrupoIdSelecionado] = useState('');
 
     useEffect(() => {
         if (!isOpen) return;
+        setCodigo(GRUPO_ENDERECO_CODIGO_PADRAO);
         setNome('');
         setModo(gruposDisponiveis.length ? 'existente' : 'novo');
         setGrupoIdSelecionado(gruposDisponiveis[0]?.id || '');
@@ -1260,7 +1331,7 @@ const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, gruposDisponiveis, 
 
     const handleSubmit = (event) => {
         event.preventDefault();
-        onSubmit({ modo, nome, grupoId: grupoIdSelecionado });
+        onSubmit({ modo, codigo, nome, grupoId: grupoIdSelecionado });
     };
 
     return (
@@ -1308,17 +1379,31 @@ const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, gruposDisponiveis, 
                             </select>
                         </label>
                     ) : (
-                        <label className="block">
-                            <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
-                            <input
-                                value={nome}
-                                onChange={(event) => setNome(event.target.value)}
-                                maxLength={120}
-                                disabled={loading}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
-                                placeholder="Ex.: Jardim São João"
-                            />
-                        </label>
+                        <div className="grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
+                                <input
+                                    value={codigo}
+                                    onChange={(event) => setCodigo(event.target.value)}
+                                    maxLength={40}
+                                    required
+                                    disabled={loading}
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
+                                    placeholder={GRUPO_ENDERECO_CODIGO_PADRAO}
+                                />
+                            </label>
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
+                                <input
+                                    value={nome}
+                                    onChange={(event) => setNome(event.target.value)}
+                                    maxLength={120}
+                                    disabled={loading}
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
+                                    placeholder="Ex.: Jardim São João"
+                                />
+                            </label>
+                        </div>
                     )}
                     <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2">
                         {selectedEnderecos.map((endereco) => (
@@ -1619,12 +1704,16 @@ const EnderecoMarker = ({
                     <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                         <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Endereço</div>
                         <div className="mt-1 font-semibold leading-snug">{endereco.endereco || 'Sem endereço informado'}</div>
+                        {endereco.bairro && (
+                            <div className="mt-1 text-xs font-bold text-slate-500">Bairro: {endereco.bairro}</div>
+                        )}
+                        <div className="mt-1 text-xs font-bold text-slate-500">Classe: {getEnderecoClasseLabel(endereco.classe)}</div>
                         <div className="mt-1.5 text-xs font-semibold text-slate-500">{formatPessoasCadastradasLabel(endereco.quantidadeEstrangeiros)}</div>
                     </div>
-                    {endereco.observacao && (
+                    {(endereco.informacao || endereco.observacao) && (
                         <div className="rounded-lg border border-slate-100 bg-white px-3 py-2">
-                            <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Observação</div>
-                            <div className="mt-1 whitespace-pre-line text-xs font-medium leading-snug text-slate-600">{endereco.observacao}</div>
+                            <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Informação</div>
+                            <div className="mt-1 whitespace-pre-line text-xs font-medium leading-snug text-slate-600">{endereco.informacao || endereco.observacao}</div>
                         </div>
                     )}
                     {focusMode ? (
@@ -4069,8 +4158,11 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         const mapsUrl = buildGoogleMapsUrl(endereco.lat, endereco.lng);
         const detalhes = [
             `Código: *${formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}*`,
+            endereco.bairro ? `Bairro: ${endereco.bairro}` : '',
             endereco.endereco ? `Endereço: ${endereco.endereco}` : '',
-            `Estrangeiros: ${endereco.quantidadeEstrangeiros || 0}`
+            `Classe: ${getEnderecoClasseLabel(endereco.classe)}`,
+            `Estrangeiros: ${endereco.quantidadeEstrangeiros || 0}`,
+            (endereco.informacao || endereco.observacao) ? `Informação: ${endereco.informacao || endereco.observacao}` : ''
         ].filter(Boolean).join('\n');
         const text = buildLocationShareText({
             title: 'Endereço de idioma',
@@ -4185,6 +4277,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
             } else {
                 const {
                     grupoEscolha = '',
+                    grupoCodigo = '',
                     grupoNome = '',
                     ...enderecoFields
                 } = form;
@@ -4199,6 +4292,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         vinculoResultado = grupoEscolha === '__novo__'
                             ? await createGrupoEnderecoManual(db, {
                                 enderecos: [{ id: resultado.id }],
+                                codigo: grupoCodigo,
                                 nome: grupoNome,
                                 user
                             })
@@ -4212,7 +4306,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         setPontoMapaSelecionado(null);
                         notify({
                             title: 'Endereço cadastrado',
-                            message: `Código gerado: ${formatEnderecoCodigoExibicao(resultado.codigo)}, mas o território não foi salvo.`,
+                            message: `Código salvo: ${formatEnderecoCodigoExibicao(resultado.codigo)}, mas o território não foi salvo.`,
                             variant: 'warning',
                             durationMs: 8000
                         });
@@ -4230,7 +4324,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                     title: vinculoResultado ? (grupoEscolha === '__novo__' ? 'Endereço e território criados' : 'Endereço cadastrado e vinculado') : 'Endereço cadastrado',
                     message: vinculoResultado
                         ? `${formatEnderecoCodigoExibicao(resultado.codigo)} no ${formatGrupoEnderecoCodigoExibicao(vinculoResultado.codigo)}.`
-                        : `Código gerado: ${formatEnderecoCodigoExibicao(resultado.codigo)}.`,
+                        : `Código salvo: ${formatEnderecoCodigoExibicao(resultado.codigo)}.`,
                     variant: 'success'
                 });
             }
@@ -4240,7 +4334,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
             console.error('Erro ao salvar endereço:', error);
             notify({
                 title: 'Erro ao salvar endereço',
-                message: 'Verifique sua conexão e permissões antes de tentar novamente.',
+                message: String(error?.message || 'Verifique sua conexão e permissões antes de tentar novamente.'),
                 variant: 'error',
                 durationMs: 7000
             });
@@ -4312,7 +4406,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         setGrupoEnderecoModalAberto(true);
     };
 
-    const salvarVinculoGrupoEndereco = async ({ modo, nome, grupoId }) => {
+    const salvarVinculoGrupoEndereco = async ({ modo, codigo, nome, grupoId }) => {
         if (!isOnline) {
             notify({
                 title: 'Agrupamento bloqueado offline',
@@ -4333,6 +4427,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                 })
                 : await createGrupoEnderecoManual(db, {
                     enderecos: enderecosSelecionadosDados,
+                    codigo,
                     nome,
                     user
                 });
@@ -4347,7 +4442,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                 title: modo === 'existente' ? 'Endereço vinculado' : 'Território criado',
                 message: modo === 'existente'
                     ? `Endereço(s) vinculado(s) ao ${codigoExibicao}.`
-                    : `Código gerado: ${codigoExibicao}.`,
+                    : `Código salvo: ${codigoExibicao}.`,
                 variant: 'success'
             });
         } catch (error) {

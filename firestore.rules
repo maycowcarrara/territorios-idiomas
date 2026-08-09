@@ -102,9 +102,14 @@ service cloud.firestore {
         'lat',
         'lng',
         'geohash',
+        'idiomaId',
+        'idiomaNome',
+        'bairro',
         'endereco',
+        'informacao',
         'quantidadeEstrangeiros',
         'observacao',
+        'classe',
         'origem',
         'importacaoId',
         'criadoEm',
@@ -119,6 +124,9 @@ service cloud.firestore {
     function camposGrupoEndereco() {
       return [
         'codigo',
+        'idiomaId',
+        'idiomaNome',
+        'bairro',
         'nome',
         'status',
         'enderecoIds',
@@ -146,6 +154,20 @@ service cloud.firestore {
 
     function textoOpcionalValido(valor, limite) {
       return valor == null || (valor is string && valor.size() <= limite);
+    }
+
+    function codigoManualValido(valor) {
+      return valor is string &&
+             valor.matches('^[A-Z0-9]+(-[A-Z0-9]+)+$') &&
+             valor.size() <= 40;
+    }
+
+    function classeEnderecoValida() {
+      return request.resource.data.classe in ['confirmado', 'verificar', 'estudo', 'excluido'] &&
+             (
+               request.resource.data.classe != 'excluido' ||
+               request.resource.data.status == 'arquivado'
+             );
     }
 
     function pontoMapaValido(valor) {
@@ -184,9 +206,9 @@ service cloud.firestore {
 
     function enderecoDocumentoValido() {
       return request.resource.data.keys().hasOnly(camposEndereco()) &&
-             request.resource.data.codigo is string &&
-             request.resource.data.codigo.matches('^E-[0-9]{4,}$') &&
+             codigoManualValido(request.resource.data.codigo) &&
              request.resource.data.status in ['ativo', 'arquivado'] &&
+             classeEnderecoValida() &&
              (request.resource.data.grupoId == null || request.resource.data.grupoId is string) &&
              (request.resource.data.grupoCodigo == null || request.resource.data.grupoCodigo is string) &&
              textoOpcionalValido(request.resource.data.grupoDesignadoPara, 180) &&
@@ -197,9 +219,13 @@ service cloud.firestore {
              request.resource.data.lng >= -180 &&
              request.resource.data.lng <= 180 &&
              textoOpcionalValido(request.resource.data.geohash, 24) &&
+             textoOpcionalValido(request.resource.data.idiomaId, 32) &&
+             textoOpcionalValido(request.resource.data.idiomaNome, 80) &&
+             textoOpcionalValido(request.resource.data.bairro, 120) &&
              request.resource.data.endereco is string &&
              request.resource.data.endereco.size() > 0 &&
              request.resource.data.endereco.size() <= 220 &&
+             textoOpcionalValido(request.resource.data.informacao, 2000) &&
              request.resource.data.quantidadeEstrangeiros is int &&
              request.resource.data.quantidadeEstrangeiros >= 0 &&
              request.resource.data.quantidadeEstrangeiros <= 99 &&
@@ -217,12 +243,29 @@ service cloud.firestore {
     function podeCriarEndereco() {
       return isAdmin() &&
              enderecoDocumentoValido() &&
-             request.resource.data.status == 'ativo' &&
+             (
+               request.resource.data.status == 'ativo' ||
+               (
+                 request.resource.data.classe == 'excluido' &&
+                 request.resource.data.status == 'arquivado'
+               )
+             ) &&
              request.resource.data.origem == 'manual' &&
              request.resource.data.criadoPor == meuEmail() &&
              request.resource.data.atualizadoPor == meuEmail() &&
-             request.resource.data.arquivadoEm == null &&
-             request.resource.data.arquivadoPor == null;
+             (
+               (
+                 request.resource.data.status == 'ativo' &&
+                 request.resource.data.arquivadoEm == null &&
+                 request.resource.data.arquivadoPor == null
+               ) ||
+               (
+                 request.resource.data.classe == 'excluido' &&
+                 request.resource.data.status == 'arquivado' &&
+                 request.resource.data.arquivadoEm is timestamp &&
+                 request.resource.data.arquivadoPor == meuEmail()
+               )
+             );
     }
 
     function podeAtualizarEndereco() {
@@ -252,8 +295,10 @@ service cloud.firestore {
 
     function grupoEnderecoDocumentoValido() {
       return request.resource.data.keys().hasOnly(camposGrupoEndereco()) &&
-             request.resource.data.codigo is string &&
-             request.resource.data.codigo.matches('^T-[0-9]{3,}$') &&
+             codigoManualValido(request.resource.data.codigo) &&
+             textoOpcionalValido(request.resource.data.idiomaId, 32) &&
+             textoOpcionalValido(request.resource.data.idiomaNome, 80) &&
+             textoOpcionalValido(request.resource.data.bairro, 120) &&
              request.resource.data.nome is string &&
              request.resource.data.nome.size() > 0 &&
              request.resource.data.nome.size() <= 120 &&
@@ -371,6 +416,9 @@ service cloud.firestore {
 
     function mantemEstruturaGrupoEndereco() {
       return request.resource.data.codigo == resource.data.codigo &&
+             request.resource.data.idiomaId == resource.data.idiomaId &&
+             request.resource.data.idiomaNome == resource.data.idiomaNome &&
+             request.resource.data.bairro == resource.data.bairro &&
              request.resource.data.nome == resource.data.nome &&
              request.resource.data.enderecoIds == resource.data.enderecoIds &&
              request.resource.data.totalEnderecos == resource.data.totalEnderecos &&
@@ -386,9 +434,11 @@ service cloud.firestore {
     function grupoEnderecoCompletoAntesDaFinalizacao() {
       return resource.data.enderecoIds is list &&
              resource.data.enderecoIds.size() > 0 &&
+             resource.data.totalEnderecos is int &&
+             resource.data.totalEnderecos > 0 &&
              resource.data.enderecos_visitados is list &&
-             resource.data.enderecos_visitados.size() == resource.data.enderecoIds.size() &&
-             resource.data.enderecos_visitados.hasAll(resource.data.enderecoIds);
+             resource.data.enderecos_visitados.size() == resource.data.totalEnderecos &&
+             resource.data.enderecos_visitados.hasOnly(resource.data.enderecoIds);
     }
 
     function podeAtualizarProgressoGrupoEnderecoDesignado() {

@@ -28,6 +28,31 @@ export const GRUPO_ENDERECO_STATUS = Object.freeze({
     FINALIZADO: 'finalizado'
 });
 
+export const IDIOMA_PADRAO_ENDERECOS = Object.freeze({
+    id: 'es',
+    nome: 'Espanhol',
+    codigoPrefixoEndereco: 'ES-SBS-',
+    codigoPrefixoTerritorio: 'ES-SBS-T'
+});
+
+export const ENDERECO_CODIGO_PADRAO = 'ES-SBS-001';
+export const GRUPO_ENDERECO_CODIGO_PADRAO = 'ES-SBS-T01';
+
+export const ENDERECO_CLASSES = Object.freeze({
+    CONFIRMADO: 'confirmado',
+    VERIFICAR: 'verificar',
+    ESTUDO: 'estudo',
+    EXCLUIDO: 'excluido'
+});
+
+export const ENDERECO_CLASSE_LABELS = Object.freeze({
+    [ENDERECO_CLASSES.CONFIRMADO]: 'Confirmado',
+    [ENDERECO_CLASSES.VERIFICAR]: 'Verificar',
+    [ENDERECO_CLASSES.ESTUDO]: 'Estudo',
+    [ENDERECO_CLASSES.EXCLUIDO]: 'Excluido'
+});
+
+const CODIGO_MANUAL_REGEX = /^[A-Z0-9]+(?:-[A-Z0-9]+)+$/;
 const ENDERECO_CODE_WIDTH = 4;
 const GRUPO_ENDERECO_CODE_WIDTH = 3;
 
@@ -38,6 +63,43 @@ function toFiniteNumber(value, fallback = 0) {
 
 function normalizeText(value, maxLength) {
     return String(value || '').trim().slice(0, maxLength);
+}
+
+export function normalizeCodigoManual(value) {
+    return String(value || '').trim().toUpperCase();
+}
+
+export function isCodigoManualValido(value) {
+    return CODIGO_MANUAL_REGEX.test(normalizeCodigoManual(value));
+}
+
+function assertCodigoManualValido(value, label) {
+    const codigo = normalizeCodigoManual(value);
+
+    if (!codigo) {
+        throw new Error(`Informe o código do ${label}.`);
+    }
+
+    if (!CODIGO_MANUAL_REGEX.test(codigo)) {
+        throw new Error(`Código do ${label} inválido. Use letras, números e hífen, como ES-SBS-001.`);
+    }
+
+    return codigo;
+}
+
+function codigoManualToDocSuffix(codigo) {
+    return normalizeCodigoManual(codigo)
+        .replace(/[^A-Z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .toLowerCase();
+}
+
+export function getEnderecoDocIdFromCodigo(codigo) {
+    return `e_${codigoManualToDocSuffix(codigo)}`;
+}
+
+export function getGrupoEnderecoDocIdFromCodigo(codigo) {
+    return `g_${codigoManualToDocSuffix(codigo)}`;
 }
 
 export function formatEnderecoCodigo(sequence) {
@@ -108,13 +170,39 @@ export function getCodigosCounterRef(db) {
     return doc(db, CONTADORES_COLLECTION, CODIGOS_COUNTER_DOC);
 }
 
+export function normalizeEnderecoClasse(value) {
+    const classe = String(value || '').trim().toLowerCase();
+    return Object.values(ENDERECO_CLASSES).includes(classe)
+        ? classe
+        : ENDERECO_CLASSES.CONFIRMADO;
+}
+
+export function resolveEnderecoStatusFromClasse(classe, fallbackStatus = ENDERECO_STATUS.ATIVO) {
+    if (normalizeEnderecoClasse(classe) === ENDERECO_CLASSES.EXCLUIDO) {
+        return ENDERECO_STATUS.ARQUIVADO;
+    }
+
+    return fallbackStatus === ENDERECO_STATUS.ARQUIVADO
+        ? ENDERECO_STATUS.ARQUIVADO
+        : ENDERECO_STATUS.ATIVO;
+}
+
 export function normalizeEnderecoFields(input = {}) {
+    const classe = normalizeEnderecoClasse(input.classe);
+    const informacao = normalizeText(input.informacao ?? input.observacao, 2000);
+
     return {
         lat: toFiniteNumber(input.lat),
         lng: toFiniteNumber(input.lng),
+        idiomaId: normalizeText(input.idiomaId, 32) || IDIOMA_PADRAO_ENDERECOS.id,
+        idiomaNome: normalizeText(input.idiomaNome, 80) || IDIOMA_PADRAO_ENDERECOS.nome,
+        bairro: normalizeText(input.bairro, 120),
         endereco: normalizeText(input.endereco, 220),
+        informacao,
         quantidadeEstrangeiros: Math.max(0, Math.min(99, Math.trunc(toFiniteNumber(input.quantidadeEstrangeiros)))),
-        observacao: normalizeText(input.observacao, 2000)
+        observacao: normalizeText(input.observacao ?? informacao, 2000),
+        classe,
+        status: resolveEnderecoStatusFromClasse(classe, input.status)
     };
 }
 
@@ -132,6 +220,31 @@ function isAdminActor(user) {
 
 function normalizeGrupoNome(value, fallback) {
     return normalizeText(value, 120) || fallback;
+}
+
+function normalizeGrupoMetadata(input = {}) {
+    return {
+        idiomaId: normalizeText(input.idiomaId, 32) || IDIOMA_PADRAO_ENDERECOS.id,
+        idiomaNome: normalizeText(input.idiomaNome, 80) || IDIOMA_PADRAO_ENDERECOS.nome,
+        bairro: normalizeText(input.bairro, 120)
+    };
+}
+
+function resolveGrupoMetadataFromEnderecos(enderecos = [], input = {}) {
+    const metadata = normalizeGrupoMetadata(input);
+    const idiomaIds = [...new Set(enderecos.map((endereco) => normalizeText(endereco.idiomaId, 32) || IDIOMA_PADRAO_ENDERECOS.id))];
+    const idiomaNomes = [...new Set(enderecos.map((endereco) => normalizeText(endereco.idiomaNome, 80) || IDIOMA_PADRAO_ENDERECOS.nome))];
+    const bairros = [...new Set(enderecos.map((endereco) => normalizeText(endereco.bairro, 120)).filter(Boolean))];
+
+    if (idiomaIds.length > 1) {
+        throw new Error('Selecione endereços do mesmo idioma para criar ou atualizar o território.');
+    }
+
+    return {
+        idiomaId: metadata.idiomaId || idiomaIds[0] || IDIOMA_PADRAO_ENDERECOS.id,
+        idiomaNome: metadata.idiomaNome || idiomaNomes[0] || IDIOMA_PADRAO_ENDERECOS.nome,
+        bairro: metadata.bairro || (bairros.length === 1 ? bairros[0] : '')
+    };
 }
 
 function ensureArray(value) {
@@ -233,28 +346,21 @@ export function calculateGrupoEnderecoStats(enderecos = []) {
 
 export async function createEnderecoManual(db, { user, ...input }) {
     const fields = normalizeEnderecoFields(input);
+    const codigo = assertCodigoManualValido(input.codigo || ENDERECO_CODIGO_PADRAO, 'endereço');
     const actorEmail = buildActorEmail(user);
     const agora = new Date();
-    const counterRef = getCodigosCounterRef(db);
+    const enderecoId = getEnderecoDocIdFromCodigo(codigo);
+    const enderecoRef = getEnderecoRef(db, enderecoId);
 
     return runTransaction(db, async (transaction) => {
-        const counterSnapshot = await transaction.get(counterRef);
-        const currentCounter = counterSnapshot.exists()
-            ? Number.parseInt(counterSnapshot.data().proximoEndereco, 10)
-            : 1;
-        const sequence = Number.isFinite(currentCounter) && currentCounter > 0 ? currentCounter : 1;
-        const codigo = formatEnderecoCodigo(sequence);
-        const enderecoId = getEnderecoDocIdFromSequence(sequence);
-        const enderecoRef = getEnderecoRef(db, enderecoId);
-
-        transaction.set(counterRef, {
-            proximoEndereco: sequence + 1,
-            atualizadoEm: agora
-        }, { merge: true });
+        const enderecoSnapshot = await transaction.get(enderecoRef);
+        if (enderecoSnapshot.exists()) {
+            throw new Error(`Já existe um endereço com o código ${codigo}.`);
+        }
 
         transaction.set(enderecoRef, {
             codigo,
-            status: ENDERECO_STATUS.ATIVO,
+            status: fields.status,
             grupoId: null,
             grupoCodigo: null,
             grupoDesignadoPara: null,
@@ -266,8 +372,8 @@ export async function createEnderecoManual(db, { user, ...input }) {
             criadoPor: actorEmail,
             atualizadoEm: agora,
             atualizadoPor: actorEmail,
-            arquivadoEm: null,
-            arquivadoPor: null
+            arquivadoEm: fields.status === ENDERECO_STATUS.ARQUIVADO ? agora : null,
+            arquivadoPor: fields.status === ENDERECO_STATUS.ARQUIVADO ? actorEmail : null
         });
 
         return {
@@ -296,7 +402,8 @@ export async function updateEnderecoBasico(db, enderecoId, input, user) {
         };
         const enderecoAtualizado = {
             ...enderecoAtual,
-            ...fields
+            ...fields,
+            status: fields.status
         };
 
         if (enderecoAtual.grupoId) {
@@ -314,21 +421,35 @@ export async function updateEnderecoBasico(db, enderecoId, input, user) {
                     .filter(Boolean);
                 enderecosGrupo.push(enderecoAtualizado);
 
-                transaction.set(grupoRef, {
+                const grupoUpdates = {
                     ...calculateGrupoEnderecoStats(enderecosGrupo),
                     ultimaAlteracao: agora,
                     atualizadoEm: agora,
                     atualizadoPor: actorEmail
-                }, { merge: true });
+                };
+
+                if (enderecoAtualizado.status === ENDERECO_STATUS.ARQUIVADO) {
+                    grupoUpdates.enderecos_visitados = ensureArray(grupo.enderecos_visitados).filter((id) => id !== enderecoId);
+                }
+
+                transaction.set(grupoRef, grupoUpdates, { merge: true });
             }
         }
 
         transaction.set(enderecoRef, {
+            idiomaId: fields.idiomaId,
+            idiomaNome: fields.idiomaNome,
+            bairro: fields.bairro,
             endereco: fields.endereco,
+            informacao: fields.informacao,
             quantidadeEstrangeiros: fields.quantidadeEstrangeiros,
             observacao: fields.observacao,
+            classe: fields.classe,
+            status: fields.status,
             atualizadoEm: agora,
-            atualizadoPor: actorEmail
+            atualizadoPor: actorEmail,
+            arquivadoEm: fields.status === ENDERECO_STATUS.ARQUIVADO ? (enderecoAtual.arquivadoEm || agora) : null,
+            arquivadoPor: fields.status === ENDERECO_STATUS.ARQUIVADO ? (enderecoAtual.arquivadoPor || actorEmail) : null
         }, { merge: true });
     });
 }
@@ -386,6 +507,9 @@ export async function setEnderecoArquivado(db, enderecoId, arquivar, user) {
 
         transaction.set(enderecoRef, {
             status: arquivar ? ENDERECO_STATUS.ARQUIVADO : ENDERECO_STATUS.ATIVO,
+            classe: !arquivar && enderecoAtual.classe === ENDERECO_CLASSES.EXCLUIDO
+                ? ENDERECO_CLASSES.CONFIRMADO
+                : (enderecoAtual.classe || ENDERECO_CLASSES.CONFIRMADO),
             atualizadoEm: agora,
             atualizadoPor: actorEmail,
             arquivadoEm: arquivar ? agora : null,
@@ -394,25 +518,23 @@ export async function setEnderecoArquivado(db, enderecoId, arquivar, user) {
     });
 }
 
-export async function createGrupoEnderecoManual(db, { enderecos, nome, user }) {
+export async function createGrupoEnderecoManual(db, { enderecos, nome, codigo: codigoInput, user, ...input }) {
     const enderecoIds = [...new Set((enderecos || []).map((endereco) => endereco.id).filter(Boolean))];
+    const codigo = assertCodigoManualValido(codigoInput || GRUPO_ENDERECO_CODIGO_PADRAO, 'território');
     const actorEmail = buildActorEmail(user);
     const agora = new Date();
-    const counterRef = getCodigosCounterRef(db);
+    const grupoId = getGrupoEnderecoDocIdFromCodigo(codigo);
+    const grupoRef = getGrupoEnderecoRef(db, grupoId);
 
     if (!enderecoIds.length) {
         throw new Error('Selecione pelo menos um endereço para criar o território.');
     }
 
     return runTransaction(db, async (transaction) => {
-        const counterSnapshot = await transaction.get(counterRef);
-        const currentCounter = counterSnapshot.exists()
-            ? Number.parseInt(counterSnapshot.data().proximoGrupoEndereco, 10)
-            : 1;
-        const sequence = Number.isFinite(currentCounter) && currentCounter > 0 ? currentCounter : 1;
-        const codigo = formatGrupoEnderecoCodigo(sequence);
-        const grupoId = getGrupoEnderecoDocIdFromSequence(sequence);
-        const grupoRef = getGrupoEnderecoRef(db, grupoId);
+        const grupoSnapshot = await transaction.get(grupoRef);
+        if (grupoSnapshot.exists()) {
+            throw new Error(`Já existe um território com o código ${codigo}.`);
+        }
 
         const enderecoSnapshots = await Promise.all(enderecoIds.map((enderecoId) => transaction.get(getEnderecoRef(db, enderecoId))));
         const enderecosAtuais = enderecoSnapshots.map((snapshot) => {
@@ -437,15 +559,12 @@ export async function createGrupoEnderecoManual(db, { enderecos, nome, user }) {
         });
 
         const stats = calculateGrupoEnderecoStats(enderecosAtuais);
+        const metadata = resolveGrupoMetadataFromEnderecos(enderecosAtuais, input);
         const nomeGrupo = normalizeGrupoNome(nome, `${codigo} - Endereços de idioma`);
-
-        transaction.set(counterRef, {
-            proximoGrupoEndereco: sequence + 1,
-            atualizadoEm: agora
-        }, { merge: true });
 
         transaction.set(grupoRef, {
             codigo,
+            ...metadata,
             nome: nomeGrupo,
             status: GRUPO_ENDERECO_STATUS.ATIVO,
             enderecoIds,
@@ -551,6 +670,7 @@ export async function adicionarEnderecosAoGrupo(db, { enderecoIds, grupoId, user
         transaction.set(grupoRef, {
             enderecoIds: proximosEnderecoIds,
             enderecos_visitados: proximosVisitados,
+            ...resolveGrupoMetadataFromEnderecos(enderecosAtualizados, grupo),
             ...stats,
             status: GRUPO_ENDERECO_STATUS.ATIVO,
             ultimaAlteracao: agora,

@@ -4,6 +4,8 @@
 
 Adaptar o app `territorios-idiomas` para atender grupos/congregacoes de idiomas, onde o trabalho de campo e baseado em enderecos especificos de moradores estrangeiros.
 
+Plano complementar para a proxima evolucao de cadastros por planilha, codigos manuais, idioma ativo e tipos/classes de endereco: `docs/planejamento-cadastros-planilha-enderecos.md`.
+
 Na versao atual, o app ainda suporta mapas legados por GeoJSON em instancias que definem `VITE_MAPA_URL`, mas a instancia Idiomas nao deve carregar `public/mapa.json` nem semear dados por JSON. Para Idiomas, a verdade operacional passa a ser somente o que for cadastrado no Firestore; importacao de enderecos fica para uma etapa futura.
 
 O territorio designavel para o publicador passa a ser um grupo de enderecos proximos, com codigo proprio, progresso, designacao, historico e compartilhamento.

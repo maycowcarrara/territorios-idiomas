@@ -150,29 +150,80 @@ async function main() {
 
         const enderecoA = await createEnderecoManual(adminClient.db, {
             user: adminUser,
+            codigo: 'es-sbs-001',
+            idiomaId: 'es',
+            idiomaNome: 'Espanhol',
+            bairro: 'Serra Alta',
             lat: -10.1841,
             lng: -48.3336,
             endereco: 'Rua Smoke A, 10',
             quantidadeEstrangeiros: 2,
-            observacao: 'Criado pelo smoke local'
+            informacao: 'Criado pelo smoke local',
+            classe: 'confirmado'
         });
+        await expectDomainBlocked('codigo duplicado de endereço', () => (
+            createEnderecoManual(adminClient.db, {
+                user: adminUser,
+                codigo: 'ES-SBS-001',
+                lat: -10.1842,
+                lng: -48.3337,
+                endereco: 'Rua Smoke Duplicada, 10',
+                quantidadeEstrangeiros: 1,
+                informacao: '',
+                classe: 'confirmado'
+            })
+        ), 'Já existe um endereço com o código ES-SBS-001');
+        await expectDomainBlocked('codigo invalido de endereço', () => (
+            createEnderecoManual(adminClient.db, {
+                user: adminUser,
+                codigo: 'ESSBS001',
+                lat: -10.1843,
+                lng: -48.3338,
+                endereco: 'Rua Smoke Inválida, 10',
+                quantidadeEstrangeiros: 1,
+                informacao: '',
+                classe: 'confirmado'
+            })
+        ), 'Código do endereço inválido');
         const enderecoB = await createEnderecoManual(adminClient.db, {
             user: adminUser,
+            codigo: 'ES-SBS-002',
+            idiomaId: 'es',
+            idiomaNome: 'Espanhol',
+            bairro: 'Serra Alta',
             lat: -10.1848,
             lng: -48.3342,
             endereco: 'Rua Smoke B, 20',
             quantidadeEstrangeiros: 1,
-            observacao: ''
+            informacao: '',
+            classe: 'verificar'
         });
-        assert(enderecoA.codigo === 'E-0001', 'Primeiro endereço deveria receber E-0001 no emulador.');
-        assert(enderecoB.codigo === 'E-0002', 'Segundo endereço deveria receber E-0002 no emulador.');
+        const enderecoExcluido = await createEnderecoManual(adminClient.db, {
+            user: adminUser,
+            codigo: 'ES-SBS-003',
+            idiomaId: 'es',
+            idiomaNome: 'Espanhol',
+            bairro: 'Centro',
+            lat: -10.185,
+            lng: -48.3344,
+            endereco: 'Rua Smoke Excluída, 30',
+            quantidadeEstrangeiros: 1,
+            informacao: 'Classe excluido deve arquivar',
+            classe: 'excluido'
+        });
+        assert(enderecoA.codigo === 'ES-SBS-001', 'Primeiro endereço deveria salvar ES-SBS-001 normalizado.');
+        assert(enderecoB.codigo === 'ES-SBS-002', 'Segundo endereço deveria salvar ES-SBS-002.');
 
         await updateEnderecoBasico(adminClient.db, enderecoA.id, {
             lat: -10.1841,
             lng: -48.3336,
+            idiomaId: 'es',
+            idiomaNome: 'Espanhol',
+            bairro: 'Serra Alta',
             endereco: 'Rua Smoke A atualizada, 10',
             quantidadeEstrangeiros: 3,
-            observacao: 'Atualizado pelo smoke local'
+            informacao: 'Atualizado pelo smoke local',
+            classe: 'estudo'
         }, adminUser);
 
         await setEnderecoArquivado(adminClient.db, enderecoB.id, true, adminUser);
@@ -180,15 +231,30 @@ async function main() {
 
         const enderecoADoc = await getDoc(getEnderecoRef(adminClient.db, enderecoA.id));
         const enderecoBDoc = await getDoc(getEnderecoRef(adminClient.db, enderecoB.id));
+        const enderecoExcluidoDoc = await getDoc(getEnderecoRef(adminClient.db, enderecoExcluido.id));
+        assert(enderecoADoc.data().codigo === 'ES-SBS-001', 'Endereço atualizado deveria preservar codigo manual.');
+        assert(enderecoADoc.data().bairro === 'Serra Alta', 'Endereço atualizado deveria salvar bairro.');
+        assert(enderecoADoc.data().informacao === 'Atualizado pelo smoke local', 'Endereço atualizado deveria salvar informação.');
+        assert(enderecoADoc.data().classe === 'estudo', 'Endereço atualizado deveria salvar classe.');
+        assert(enderecoExcluidoDoc.data().status === 'arquivado', 'Classe excluido deveria arquivar o endereço.');
         const grupo = await createGrupoEnderecoManual(adminClient.db, {
             user: adminUser,
+            codigo: 'es-sbs-t01',
             nome: 'Grupo Smoke Local',
             enderecos: [
                 { id: enderecoADoc.id, ...enderecoADoc.data() },
                 { id: enderecoBDoc.id, ...enderecoBDoc.data() }
             ]
         });
-        assert(grupo.codigo === 'T-001', 'Primeiro grupo deveria receber T-001 no emulador.');
+        assert(grupo.codigo === 'ES-SBS-T01', 'Primeiro grupo deveria salvar ES-SBS-T01 normalizado.');
+        await expectDomainBlocked('codigo duplicado de território', () => (
+            createGrupoEnderecoManual(adminClient.db, {
+                user: adminUser,
+                codigo: 'ES-SBS-T01',
+                nome: 'Grupo Smoke Duplicado',
+                enderecos: [{ id: enderecoExcluidoDoc.id, ...enderecoExcluidoDoc.data() }]
+            })
+        ), 'Já existe um território com o código ES-SBS-T01');
 
         await designarGrupoEndereco(adminClient.db, {
             grupoId: grupo.id,
