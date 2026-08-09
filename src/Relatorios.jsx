@@ -23,6 +23,7 @@ import {
     getGruposEnderecoCollectionRef,
     GRUPO_ENDERECO_STATUS
 } from './enderecoModel';
+import { normalizeBairroKey, resolveBairroNomeOficial } from './bairrosSbs';
 
 const STATUS_ARQUIVADO = 'arquivado';
 const RELATORIO_TERRITORIOS = 'territorios';
@@ -182,12 +183,13 @@ const getEnderecoClasseLabel = (classe) => (
 );
 
 const normalizeFiltroOptionValue = (value) => String(value || '').trim().toLowerCase();
+const normalizeBairroFiltroValue = (value) => normalizeBairroKey(value).toLowerCase();
 
-const uniqueSortedOptions = (items, getValue, getLabel = getValue) => {
+const uniqueSortedOptions = (items, getValue, getLabel = getValue, normalizeValue = normalizeFiltroOptionValue) => {
     const optionsMap = new Map();
 
     items.forEach((item) => {
-        const value = normalizeFiltroOptionValue(getValue(item));
+        const value = normalizeValue(getValue(item));
         if (!value) return;
         if (!optionsMap.has(value)) {
             optionsMap.set(value, String(getLabel(item) || getValue(item) || '').trim());
@@ -392,9 +394,11 @@ const Relatorios = () => {
                     const bairrosGrupo = uniqueSortedOptions(
                         enderecosRelacionados,
                         (endereco) => endereco.bairro,
-                        (endereco) => endereco.bairro
+                        (endereco) => resolveBairroNomeOficial(endereco.bairro),
+                        normalizeBairroFiltroValue
                     );
-                    const bairro = String(grupoCompleto.bairro || (bairrosGrupo.length === 1 ? bairrosGrupo[0].label : '')).trim();
+                    const bairro = String(resolveBairroNomeOficial(grupoCompleto.bairro || (bairrosGrupo.length === 1 ? bairrosGrupo[0].label : ''))).trim();
+                    const bairroKey = normalizeBairroFiltroValue(bairro);
                     const classeOptions = uniqueSortedOptions(
                         enderecosRelacionados,
                         (endereco) => endereco.classe || ENDERECO_CLASSES.CONFIRMADO,
@@ -417,6 +421,7 @@ const Relatorios = () => {
                         idiomaId,
                         idiomaNome,
                         bairro,
+                        bairroKey,
                         classeIds,
                         classeResumo,
                         lat: centro?.lat,
@@ -465,7 +470,8 @@ const Relatorios = () => {
                     const grupo = grupoKey ? gruposPorChave.get(grupoKey) : null;
                     const dataUltimaObj = toDateValue(endereco.atualizadoEm) || toDateValue(endereco.criadoEm);
                     const idiomaNome = String(endereco.idiomaNome || '').trim();
-                    const bairro = String(endereco.bairro || '').trim();
+                    const bairro = String(resolveBairroNomeOficial(endereco.bairro)).trim();
+                    const bairroKey = normalizeBairroFiltroValue(bairro);
                     const totalEstrangeiros = Math.max(0, Math.trunc(Number(endereco.quantidadeEstrangeiros) || 0));
 
                     return {
@@ -480,6 +486,7 @@ const Relatorios = () => {
                         idiomaId: normalizeFiltroOptionValue(endereco.idiomaId),
                         idiomaNome,
                         bairro,
+                        bairroKey,
                         classeIds: [classe],
                         classeResumo: getEnderecoClasseLabel(classe),
                         status: statusArquivado ? STATUS_ARQUIVADO : ENDERECO_STATUS.ATIVO,
@@ -621,7 +628,12 @@ const Relatorios = () => {
 
     const dadosBase = relatorioAtivo === RELATORIO_ENDERECOS ? enderecosRelatorio : territorios;
     const opcoesIdioma = uniqueSortedOptions([...territorios, ...enderecosRelatorio], (item) => item.idiomaId, (item) => item.idiomaNome || item.idiomaId);
-    const opcoesBairro = uniqueSortedOptions([...territorios, ...enderecosRelatorio], (item) => item.bairro, (item) => item.bairro);
+    const opcoesBairro = uniqueSortedOptions(
+        [...territorios, ...enderecosRelatorio],
+        (item) => item.bairro,
+        (item) => resolveBairroNomeOficial(item.bairro),
+        normalizeBairroFiltroValue
+    );
     const opcoesClasse = Object.values(ENDERECO_CLASSES).map((classe) => ({
         value: classe,
         label: getEnderecoClasseLabel(classe)
@@ -632,7 +644,7 @@ const Relatorios = () => {
         if (statusFiltro !== FILTRO_TODOS) dados = dados.filter(t => t.status === statusFiltro);
         dados = dados.filter(t => getStatusArquivadoFiltroMatch(t, arquivadosFiltro));
         if (idiomaFiltro !== FILTRO_TODOS) dados = dados.filter(t => normalizeFiltroOptionValue(t.idiomaId) === idiomaFiltro);
-        if (bairroFiltro !== FILTRO_TODOS) dados = dados.filter(t => normalizeFiltroOptionValue(t.bairro) === bairroFiltro);
+        if (bairroFiltro !== FILTRO_TODOS) dados = dados.filter(t => t.bairroKey === bairroFiltro);
         if (classeFiltro !== FILTRO_TODOS) dados = dados.filter(t => Array.isArray(t.classeIds) && t.classeIds.includes(classeFiltro));
         if (tempoFiltro === '2_meses') dados = dados.filter(t => t.diasParado > 60);
         if (tempoFiltro === '4_meses') dados = dados.filter(t => t.diasParado > 120);
@@ -645,6 +657,7 @@ const Relatorios = () => {
                 const idString = t.numeroId ? t.numeroId.toString() : '';
                 const responsavelLower = t.designadoNome ? t.designadoNome.toLowerCase() : '';
                 const bairroLower = t.bairro ? t.bairro.toLowerCase() : '';
+                const bairroKeyLower = t.bairroKey || '';
                 const idiomaLower = t.idiomaNome ? t.idiomaNome.toLowerCase() : '';
                 const classeLower = t.classeResumo ? t.classeResumo.toLowerCase() : '';
                 const enderecoLower = t.enderecoTexto ? t.enderecoTexto.toLowerCase() : '';
@@ -652,6 +665,7 @@ const Relatorios = () => {
                     idString.includes(termo) ||
                     responsavelLower.includes(termo) ||
                     bairroLower.includes(termo) ||
+                    bairroKeyLower.includes(normalizeBairroFiltroValue(termo)) ||
                     idiomaLower.includes(termo) ||
                     classeLower.includes(termo) ||
                     enderecoLower.includes(termo);

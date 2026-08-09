@@ -12,6 +12,7 @@ import {
     findBairroFeatureForPoint,
     getBairroLeafletPositions,
     loadBairrosSbsData,
+    normalizeBairroKey,
     normalizeBairroNome
 } from './bairrosSbs';
 import {
@@ -1116,7 +1117,7 @@ const getEnderecoInitialForm = (endereco, ponto, enderecoConfig = DEFAULT_ENDERE
     codigo: endereco?.codigo || getEnderecoCodigoPadraoFromConfig(enderecoConfig),
     idiomaId: endereco?.idiomaId || enderecoConfig.idiomaPadraoId || IDIOMA_PADRAO_ENDERECOS.id,
     idiomaNome: endereco?.idiomaNome || enderecoConfig.idiomaPadraoNome || IDIOMA_PADRAO_ENDERECOS.nome,
-    bairro: endereco?.bairro || '',
+    bairro: endereco?.bairro || ponto?.bairro || '',
     endereco: endereco?.endereco || '',
     informacao: endereco?.informacao ?? endereco?.observacao ?? '',
     classe: endereco?.classe || enderecoConfig.classeEnderecoPadrao || ENDERECO_CLASSES.CONFIRMADO,
@@ -4108,6 +4109,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
 
         const featuresById = new Map(features.map((feature) => [feature.properties.bairroId, feature]));
         const featuresByName = new Map(features.map((feature) => [feature.properties.bairroNomeNormalizado, feature]));
+        const featuresByKey = new Map(features.map((feature) => [feature.properties.bairroKey, feature]));
 
         gruposEnderecoCompletos.forEach((grupo) => {
             const statusGrupo = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
@@ -4115,7 +4117,8 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
 
             const bairroIdSalvo = grupo.bairroId ? buildBairroId(grupo.bairroId) : '';
             const bairroNomeNormalizado = normalizeBairroNome(grupo.bairroNome || grupo.bairro || '');
-            let bairroFeature = featuresById.get(bairroIdSalvo) || featuresByName.get(bairroNomeNormalizado);
+            const bairroKey = normalizeBairroKey(grupo.bairroNome || grupo.bairro || '');
+            let bairroFeature = featuresById.get(bairroIdSalvo) || featuresByName.get(bairroNomeNormalizado) || featuresByKey.get(bairroKey);
 
             if (!bairroFeature) {
                 const enderecosGrupo = resolveEnderecosGrupoFromMaps(grupo, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId);
@@ -4308,11 +4311,16 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
             return;
         }
 
+        const bairroFeature = findBairroFeatureForPoint(bairrosGeoJson?.features || [], ponto);
+        const pontoComBairro = bairroFeature?.properties?.bairroNome
+            ? { ...ponto, bairro: bairroFeature.properties.bairroNome }
+            : ponto;
+
         setEnderecoModal({
             open: true,
             mode: 'create',
             endereco: null,
-            ponto
+            ponto: pontoComBairro
         });
     };
 

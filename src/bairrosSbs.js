@@ -25,7 +25,7 @@ const BAIRROS_SBS_URBANOS = [
 ];
 
 const BAIRROS_BY_NORMALIZED_NAME = new Map(
-    BAIRROS_SBS_URBANOS.map((nome) => [normalizeBairroNome(nome), nome])
+    BAIRROS_SBS_URBANOS.map((nome) => [normalizeBairroKey(nome), nome])
 );
 
 let bairrosPromise = null;
@@ -40,6 +40,17 @@ export function normalizeBairroNome(value) {
         .toUpperCase();
 }
 
+export function normalizeBairroKey(value) {
+    return normalizeBairroNome(value)
+        .split(' ')
+        .filter((parte) => parte && !['BAIRRO', 'DE', 'DA', 'DO', 'DAS', 'DOS'].includes(parte))
+        .join('');
+}
+
+export function resolveBairroNomeOficial(value) {
+    return BAIRROS_BY_NORMALIZED_NAME.get(normalizeBairroKey(value)) || String(value || '').trim();
+}
+
 export function buildBairroId(value) {
     return normalizeBairroNome(value)
         .toLowerCase()
@@ -49,7 +60,8 @@ export function buildBairroId(value) {
 function normalizeBairroFeature(feature) {
     const rawNome = feature?.properties?.bairro || feature?.properties?.nome || '';
     const normalizedName = normalizeBairroNome(rawNome);
-    const bairroNome = BAIRROS_BY_NORMALIZED_NAME.get(normalizedName);
+    const bairroKey = normalizeBairroKey(rawNome);
+    const bairroNome = BAIRROS_BY_NORMALIZED_NAME.get(bairroKey);
 
     if (!bairroNome) return null;
 
@@ -59,7 +71,8 @@ function normalizeBairroFeature(feature) {
             ...feature.properties,
             bairroId: buildBairroId(bairroNome),
             bairroNome,
-            bairroNomeNormalizado: normalizedName
+            bairroNomeNormalizado: normalizedName,
+            bairroKey
         }
     };
 }
