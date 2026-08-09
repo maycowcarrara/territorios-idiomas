@@ -15,6 +15,8 @@ import {
     DEFAULT_ENDERECO_CONFIG,
     getEnderecoCodigoPadraoFromConfig,
     getEnderecoConfigRef,
+    getEnderecoConfigForIdioma,
+    getEnderecoIdiomasAtivos,
     getGrupoEnderecoCodigoPadraoFromConfig,
     normalizeEnderecoConfig
 } from './enderecoConfig';
@@ -28,6 +30,28 @@ const ADMIN_TABS = [
     { id: 'campanhas', label: 'Campanhas', icon: '📢' },
     { id: 'comunicados', label: 'Comunicados', icon: '🔔' }
 ];
+
+const getEnderecoConfigFormIdiomas = (config) => (
+    Array.isArray(config?.idiomas) && config.idiomas.length
+        ? config.idiomas
+        : DEFAULT_ENDERECO_CONFIG.idiomas
+).map((idioma, index) => ({
+    id: String(idioma?.id || '').trim().toLowerCase(),
+    nome: String(idioma?.nome || ''),
+    codigoPrefixoEndereco: String(idioma?.codigoPrefixoEndereco || ''),
+    codigoPrefixoTerritorio: String(idioma?.codigoPrefixoTerritorio || ''),
+    ativo: idioma?.ativo !== false,
+    ordem: Number(idioma?.ordem) || index + 1
+}));
+
+const criarEnderecoIdiomaForm = (ordem) => ({
+    id: '',
+    nome: '',
+    codigoPrefixoEndereco: '',
+    codigoPrefixoTerritorio: '',
+    ativo: true,
+    ordem
+});
 
 const AdminPanel = () => {
     const isOnline = useOnlineStatus();
@@ -325,32 +349,122 @@ const AdminPanel = () => {
         }));
     };
 
+    const selecionarIdiomaPadraoEndereco = (idiomaId) => {
+        setEnderecoConfigForm((current) => {
+            const idiomas = getEnderecoConfigFormIdiomas(current);
+            const idiomaSelecionado = idiomas.find((idioma) => idioma.id === idiomaId) || idiomas[0];
+
+            return {
+                ...current,
+                idiomaPadraoId: idiomaSelecionado?.id || idiomaId,
+                idiomaPadraoNome: idiomaSelecionado?.nome || current.idiomaPadraoNome,
+                prefixoEnderecoPadrao: idiomaSelecionado?.codigoPrefixoEndereco || current.prefixoEnderecoPadrao,
+                prefixoTerritorioPadrao: idiomaSelecionado?.codigoPrefixoTerritorio || current.prefixoTerritorioPadrao,
+                idiomas
+            };
+        });
+    };
+
+    const handleEnderecoIdiomaChange = (index, campo, valor) => {
+        setEnderecoConfigForm((current) => {
+            const idiomas = getEnderecoConfigFormIdiomas(current);
+            const atual = idiomas[index] || criarEnderecoIdiomaForm(index + 1);
+            const atualizado = {
+                ...atual,
+                [campo]: campo === 'id'
+                    ? String(valor || '').trim().toLowerCase()
+                    : campo === 'codigoPrefixoEndereco' || campo === 'codigoPrefixoTerritorio'
+                        ? String(valor || '').toUpperCase()
+                        : valor
+            };
+            const proximosIdiomas = idiomas.map((idioma, idiomaIndex) => (
+                idiomaIndex === index ? atualizado : idioma
+            ));
+            const idiomaPadraoAtualizado = atual.id && atual.id === current.idiomaPadraoId;
+
+            return {
+                ...current,
+                idiomaPadraoId: idiomaPadraoAtualizado ? atualizado.id : current.idiomaPadraoId,
+                idiomaPadraoNome: idiomaPadraoAtualizado ? atualizado.nome : current.idiomaPadraoNome,
+                prefixoEnderecoPadrao: idiomaPadraoAtualizado ? atualizado.codigoPrefixoEndereco : current.prefixoEnderecoPadrao,
+                prefixoTerritorioPadrao: idiomaPadraoAtualizado ? atualizado.codigoPrefixoTerritorio : current.prefixoTerritorioPadrao,
+                idiomas: proximosIdiomas
+            };
+        });
+    };
+
+    const adicionarEnderecoIdioma = () => {
+        setEnderecoConfigForm((current) => {
+            const idiomas = getEnderecoConfigFormIdiomas(current);
+            const proximaOrdem = Math.max(0, ...idiomas.map((idioma) => Number(idioma.ordem) || 0)) + 1;
+
+            return {
+                ...current,
+                idiomas: [
+                    ...idiomas,
+                    criarEnderecoIdiomaForm(proximaOrdem)
+                ]
+            };
+        });
+    };
+
+    const removerEnderecoIdioma = (index) => {
+        setEnderecoConfigForm((current) => {
+            const idiomas = getEnderecoConfigFormIdiomas(current);
+            const proximosIdiomas = idiomas.filter((_, idiomaIndex) => idiomaIndex !== index);
+            const idiomaPadraoAindaExiste = proximosIdiomas.some((idioma) => idioma.id === current.idiomaPadraoId);
+            const proximoPadrao = idiomaPadraoAindaExiste
+                ? proximosIdiomas.find((idioma) => idioma.id === current.idiomaPadraoId)
+                : proximosIdiomas.find((idioma) => idioma.ativo) || proximosIdiomas[0];
+
+            return {
+                ...current,
+                idiomaPadraoId: proximoPadrao?.id || current.idiomaPadraoId,
+                idiomaPadraoNome: proximoPadrao?.nome || current.idiomaPadraoNome,
+                prefixoEnderecoPadrao: proximoPadrao?.codigoPrefixoEndereco || current.prefixoEnderecoPadrao,
+                prefixoTerritorioPadrao: proximoPadrao?.codigoPrefixoTerritorio || current.prefixoTerritorioPadrao,
+                idiomas: proximosIdiomas.length ? proximosIdiomas : getEnderecoConfigFormIdiomas(DEFAULT_ENDERECO_CONFIG)
+            };
+        });
+    };
+
     const salvarEnderecoConfig = async (event) => {
         event.preventDefault();
         if (!ensureOnlineAdminAction()) return;
 
-        const configNormalizada = normalizeEnderecoConfig({
+        const configBase = normalizeEnderecoConfig({
             ...enderecoConfig,
             ...enderecoConfigForm,
-            idiomas: [
-                {
-                    id: enderecoConfigForm.idiomaPadraoId,
-                    nome: enderecoConfigForm.idiomaPadraoNome,
-                    codigoPrefixoEndereco: enderecoConfigForm.prefixoEnderecoPadrao,
-                    codigoPrefixoTerritorio: enderecoConfigForm.prefixoTerritorioPadrao,
-                    ativo: true,
-                    ordem: 1
-                }
-            ],
+            idiomas: getEnderecoConfigFormIdiomas(enderecoConfigForm),
             tiposEndereco: enderecoConfig.tiposEndereco
         });
-        const codigoEnderecoSugerido = getEnderecoCodigoPadraoFromConfig(configNormalizada);
-        const codigoTerritorioSugerido = getGrupoEnderecoCodigoPadraoFromConfig(configNormalizada);
+        const idiomasAtivos = getEnderecoIdiomasAtivos(configBase);
+        const idiomaPadrao = idiomasAtivos.find((idioma) => idioma.id === configBase.idiomaPadraoId) || idiomasAtivos[0];
 
-        if (!isCodigoManualValido(codigoEnderecoSugerido) || !isCodigoManualValido(codigoTerritorioSugerido)) {
+        if (!idiomaPadrao) {
+            notify({
+                title: 'Idioma obrigatório',
+                message: 'Mantenha pelo menos um idioma ativo para os cadastros.',
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        const configNormalizada = getEnderecoConfigForIdioma({
+            ...configBase,
+            idiomaPadraoId: idiomaPadrao.id
+        }, idiomaPadrao.id);
+        const idiomaInvalido = idiomasAtivos.find((idioma) => {
+            const configIdioma = getEnderecoConfigForIdioma(configBase, idioma.id);
+            return !isCodigoManualValido(getEnderecoCodigoPadraoFromConfig(configIdioma)) ||
+                !isCodigoManualValido(getGrupoEnderecoCodigoPadraoFromConfig(configIdioma));
+        });
+
+        if (idiomaInvalido) {
             notify({
                 title: 'Prefixo inválido',
-                message: 'Os prefixos precisam gerar códigos com hífen, como ES-SBS-001 e ES-SBS-T01.',
+                message: `Os prefixos de ${idiomaInvalido.nome} precisam gerar códigos com hífen, como ES-SBS-001 e ES-SBS-T01.`,
                 variant: 'warning',
                 durationMs: 7000
             });
@@ -700,6 +814,14 @@ const AdminPanel = () => {
 
         return correspondePerfil && correspondeBusca;
     });
+    const enderecoConfigIdiomasAtivos = getEnderecoIdiomasAtivos(enderecoConfig);
+    const enderecoConfigFormNormalizada = normalizeEnderecoConfig(enderecoConfigForm);
+    const enderecoConfigFormIdiomas = getEnderecoConfigFormIdiomas(enderecoConfigForm);
+    const enderecoConfigFormIdiomasAtivos = enderecoConfigFormNormalizada.idiomas.filter((idioma) => idioma.ativo);
+    const enderecoConfigFormIdiomaPadrao = enderecoConfigFormIdiomasAtivos.find((idioma) => idioma.id === enderecoConfigFormNormalizada.idiomaPadraoId) ||
+        enderecoConfigFormIdiomasAtivos[0] ||
+        enderecoConfigFormNormalizada.idiomas[0];
+    const enderecoConfigFormIdiomaPadraoResolvida = getEnderecoConfigForIdioma(enderecoConfigFormNormalizada, enderecoConfigFormIdiomaPadrao?.id);
     const adminTabs = ADMIN_TABS.map((tab) => {
         if (tab.id === 'usuarios') {
             return {
@@ -718,7 +840,9 @@ const AdminPanel = () => {
         if (tab.id === 'padroes') {
             return {
                 ...tab,
-                badge: enderecoConfig.idiomaPadraoId.toUpperCase()
+                badge: enderecoConfigIdiomasAtivos.length > 1
+                    ? `${enderecoConfigIdiomasAtivos.length} idi.`
+                    : enderecoConfig.idiomaPadraoId.toUpperCase()
             };
         }
 
@@ -1294,58 +1418,118 @@ const AdminPanel = () => {
                             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                                 <div className="rounded-xl border border-teal-100 bg-teal-50 px-3 py-2">
                                     <p className="text-[11px] font-bold uppercase tracking-wide text-teal-600">Endereço sugerido</p>
-                                    <p className="mt-1 font-mono text-lg font-black text-teal-900">{getEnderecoCodigoPadraoFromConfig(enderecoConfigForm)}</p>
+                                    <p className="mt-1 font-mono text-lg font-black text-teal-900">{getEnderecoCodigoPadraoFromConfig(enderecoConfigFormIdiomaPadraoResolvida)}</p>
                                 </div>
                                 <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2">
                                     <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-600">Território sugerido</p>
-                                    <p className="mt-1 font-mono text-lg font-black text-indigo-900">{getGrupoEnderecoCodigoPadraoFromConfig(enderecoConfigForm)}</p>
+                                    <p className="mt-1 font-mono text-lg font-black text-indigo-900">{getGrupoEnderecoCodigoPadraoFromConfig(enderecoConfigFormIdiomaPadraoResolvida)}</p>
                                 </div>
                             </div>
                         </div>
 
                         <form onSubmit={salvarEnderecoConfig} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                             <fieldset disabled={adminActionsDisabled || salvandoEnderecoConfig} className={`space-y-5 ${adminActionsDisabled ? 'opacity-60' : ''}`}>
+                                <div>
+                                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Idioma padrão</label>
+                                    <select
+                                        value={enderecoConfigFormIdiomaPadrao?.id || ''}
+                                        onChange={(event) => selecionarIdiomaPadraoEndereco(event.target.value)}
+                                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                    >
+                                        {enderecoConfigFormIdiomasAtivos.map((idioma) => (
+                                            <option key={idioma.id} value={idioma.id}>{idioma.nome}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                                    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <div>
+                                            <h3 className="text-sm font-black text-slate-800">Idiomas de trabalho</h3>
+                                            <p className="mt-1 text-xs font-medium text-slate-500">{enderecoConfigFormIdiomasAtivos.length} ativo(s)</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={adicionarEnderecoIdioma}
+                                            className="rounded-xl border border-teal-200 bg-white px-3 py-2 text-xs font-bold uppercase text-teal-700 transition-all hover:bg-teal-50"
+                                        >
+                                            Adicionar idioma
+                                        </button>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {enderecoConfigFormIdiomas.map((idioma, index) => (
+                                            <div key={`${idioma.id || 'novo'}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                                                <div className="mb-3 flex items-center justify-between gap-3">
+                                                    <label className="inline-flex items-center gap-2 text-xs font-bold uppercase text-slate-500">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={idioma.ativo}
+                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'ativo', event.target.checked)}
+                                                            className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-500"
+                                                        />
+                                                        Ativo
+                                                    </label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removerEnderecoIdioma(index)}
+                                                        disabled={enderecoConfigFormIdiomas.length <= 1}
+                                                        className={`rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-500 transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                                    >
+                                                        Remover
+                                                    </button>
+                                                </div>
+                                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                                    <div>
+                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">ID</label>
+                                                        <input
+                                                            type="text"
+                                                            value={idioma.id}
+                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'id', event.target.value)}
+                                                            maxLength={32}
+                                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                                            placeholder="es"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome</label>
+                                                        <input
+                                                            type="text"
+                                                            value={idioma.nome}
+                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'nome', event.target.value)}
+                                                            maxLength={80}
+                                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                                            placeholder="Espanhol"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Prefixo de endereço</label>
+                                                        <input
+                                                            type="text"
+                                                            value={idioma.codigoPrefixoEndereco}
+                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'codigoPrefixoEndereco', event.target.value)}
+                                                            maxLength={40}
+                                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                                            placeholder="ES-SBS-"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Prefixo de território</label>
+                                                        <input
+                                                            type="text"
+                                                            value={idioma.codigoPrefixoTerritorio}
+                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'codigoPrefixoTerritorio', event.target.value)}
+                                                            maxLength={40}
+                                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                                            placeholder="ES-SBS-T"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
                                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">ID do idioma</label>
-                                        <input
-                                            type="text"
-                                            value={enderecoConfigForm.idiomaPadraoId}
-                                            onChange={(event) => handleEnderecoConfigChange('idiomaPadraoId', event.target.value.trim().toLowerCase())}
-                                            maxLength={32}
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do idioma</label>
-                                        <input
-                                            type="text"
-                                            value={enderecoConfigForm.idiomaPadraoNome}
-                                            onChange={(event) => handleEnderecoConfigChange('idiomaPadraoNome', event.target.value)}
-                                            maxLength={80}
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Prefixo de endereço</label>
-                                        <input
-                                            type="text"
-                                            value={enderecoConfigForm.prefixoEnderecoPadrao}
-                                            onChange={(event) => handleEnderecoConfigChange('prefixoEnderecoPadrao', event.target.value.toUpperCase())}
-                                            maxLength={40}
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Prefixo de território</label>
-                                        <input
-                                            type="text"
-                                            value={enderecoConfigForm.prefixoTerritorioPadrao}
-                                            onChange={(event) => handleEnderecoConfigChange('prefixoTerritorioPadrao', event.target.value.toUpperCase())}
-                                            maxLength={40}
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                        />
-                                    </div>
                                     <div>
                                         <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Classe padrão</label>
                                         <select

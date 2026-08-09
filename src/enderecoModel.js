@@ -222,16 +222,12 @@ function normalizeGrupoNome(value, fallback) {
     return normalizeText(value, 120) || fallback;
 }
 
-function normalizeGrupoMetadata(input = {}) {
-    return {
-        idiomaId: normalizeText(input.idiomaId, 32) || IDIOMA_PADRAO_ENDERECOS.id,
-        idiomaNome: normalizeText(input.idiomaNome, 80) || IDIOMA_PADRAO_ENDERECOS.nome,
+function resolveGrupoMetadataFromEnderecos(enderecos = [], input = {}) {
+    const metadata = {
+        idiomaId: normalizeText(input.idiomaId, 32),
+        idiomaNome: normalizeText(input.idiomaNome, 80),
         bairro: normalizeText(input.bairro, 120)
     };
-}
-
-function resolveGrupoMetadataFromEnderecos(enderecos = [], input = {}) {
-    const metadata = normalizeGrupoMetadata(input);
     const idiomaIds = [...new Set(enderecos.map((endereco) => normalizeText(endereco.idiomaId, 32) || IDIOMA_PADRAO_ENDERECOS.id))];
     const idiomaNomes = [...new Set(enderecos.map((endereco) => normalizeText(endereco.idiomaNome, 80) || IDIOMA_PADRAO_ENDERECOS.nome))];
     const bairros = [...new Set(enderecos.map((endereco) => normalizeText(endereco.bairro, 120)).filter(Boolean))];

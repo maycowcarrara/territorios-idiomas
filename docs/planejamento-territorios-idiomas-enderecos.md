@@ -377,7 +377,14 @@ Arquivos principais:
 - [x] Preparar mensagem/WhatsApp ao designar territorio.
 - [ ] Notificar admins na devolucao/finalizacao, seguindo padrao atual.
 
-### Fase 4 - Relatorios e refinamentos
+### Fase 4 - Alternador controlado de idiomas
+
+- [x] Permitir mais de um idioma ativo na configuração de cadastros.
+- [x] Mostrar alternador no mapa somente quando houver múltiplos idiomas ativos.
+- [x] Aplicar prefixos de endereço/território conforme o idioma selecionado.
+- [x] Filtrar o contexto administrativo de endereços e grupos pelo idioma ativo.
+
+### Fase 5 - Relatorios e refinamentos
 
 - [x] Remover outbox/modo offline e manter escrita online-first.
 - [x] Resumo geral agregado no header para territorios, enderecos e pessoas.

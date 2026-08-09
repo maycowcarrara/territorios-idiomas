@@ -67,6 +67,8 @@ import {
     DEFAULT_ENDERECO_CONFIG,
     getEnderecoCodigoPadraoFromConfig,
     getEnderecoConfigRef,
+    getEnderecoConfigForIdioma,
+    getEnderecoIdiomasAtivos,
     getGrupoEnderecoCodigoPadraoFromConfig,
     normalizeEnderecoConfig
 } from './enderecoConfig';
@@ -78,6 +80,7 @@ import { MAP_COLORS, getTerritorioDisponivelColors } from './mapLegend';
 import { ensureUsuarioAprovado, isValidUsuarioEmail, isValidWhatsappDigits } from './usuariosModel';
 
 const normalizeEmailValue = (value) => String(value || '').trim().toLowerCase();
+const ENDERECO_IDIOMA_ATIVO_STORAGE_KEY = 'territorios-idiomas.enderecoIdiomaAtivo';
 
 const stopMapDomEvent = (event) => {
     event?.stopPropagation?.();
@@ -3444,6 +3447,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     const [enderecosGruposDesignados, setEnderecosGruposDesignados] = useState([]);
     const [gruposEndereco, setGruposEndereco] = useState([]);
     const [enderecoConfig, setEnderecoConfig] = useState(DEFAULT_ENDERECO_CONFIG);
+    const [enderecoIdiomaAtivoId, setEnderecoIdiomaAtivoId] = useState('');
     const [mostrarEnderecosArquivados, setMostrarEnderecosArquivados] = useState(false);
     const [mostrarGruposArquivados, setMostrarGruposArquivados] = useState(false);
     const [enderecosSelecionadosGrupo, setEnderecosSelecionadosGrupo] = useState([]);
@@ -3479,6 +3483,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     useEffect(() => {
         if (!isAdmin) {
             setEnderecoConfig(DEFAULT_ENDERECO_CONFIG);
+            setEnderecoIdiomaAtivoId('');
             return undefined;
         }
 
@@ -3491,6 +3496,54 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
 
         return unsubscribe;
     }, [isAdmin]);
+
+    const enderecoConfigNormalizada = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
+    const enderecoIdiomasAtivos = useMemo(() => getEnderecoIdiomasAtivos(enderecoConfigNormalizada), [enderecoConfigNormalizada]);
+    const idiomaAtivoEndereco = useMemo(() => {
+        const idiomaId = String(enderecoIdiomaAtivoId || '').trim().toLowerCase();
+        return enderecoIdiomasAtivos.find((idioma) => idioma.id === idiomaId) ||
+            enderecoIdiomasAtivos.find((idioma) => idioma.id === enderecoConfigNormalizada.idiomaPadraoId) ||
+            enderecoIdiomasAtivos[0] ||
+            null;
+    }, [enderecoConfigNormalizada.idiomaPadraoId, enderecoIdiomaAtivoId, enderecoIdiomasAtivos]);
+    const enderecoConfigAtiva = useMemo(() => (
+        getEnderecoConfigForIdioma(enderecoConfigNormalizada, idiomaAtivoEndereco?.id)
+    ), [enderecoConfigNormalizada, idiomaAtivoEndereco?.id]);
+    const mostrarAlternadorIdiomaEndereco = isAdmin && enderecoIdiomasAtivos.length > 1;
+    const filtrarPorIdiomaEndereco = mostrarAlternadorIdiomaEndereco && Boolean(idiomaAtivoEndereco?.id);
+    const getItemIdiomaId = useCallback((item) => (
+        String(item?.idiomaId || IDIOMA_PADRAO_ENDERECOS.id).trim().toLowerCase()
+    ), []);
+    const pertenceAoIdiomaAtivoEndereco = useCallback((item) => (
+        !filtrarPorIdiomaEndereco || getItemIdiomaId(item) === idiomaAtivoEndereco.id
+    ), [filtrarPorIdiomaEndereco, getItemIdiomaId, idiomaAtivoEndereco?.id]);
+
+    useEffect(() => {
+        if (!isAdmin || !enderecoIdiomasAtivos.length) return;
+
+        setEnderecoIdiomaAtivoId((current) => {
+            const currentId = String(current || '').trim().toLowerCase();
+            if (enderecoIdiomasAtivos.some((idioma) => idioma.id === currentId)) {
+                return currentId;
+            }
+
+            const storedId = String(window.localStorage?.getItem(ENDERECO_IDIOMA_ATIVO_STORAGE_KEY) || '').trim().toLowerCase();
+            if (enderecoIdiomasAtivos.some((idioma) => idioma.id === storedId)) {
+                return storedId;
+            }
+
+            return enderecoConfigNormalizada.idiomaPadraoId;
+        });
+    }, [enderecoConfigNormalizada.idiomaPadraoId, enderecoIdiomasAtivos, isAdmin]);
+
+    const selecionarIdiomaAtivoEndereco = (idiomaId) => {
+        const normalizedIdiomaId = String(idiomaId || '').trim().toLowerCase();
+        setEnderecoIdiomaAtivoId(normalizedIdiomaId);
+        window.localStorage?.setItem(ENDERECO_IDIOMA_ATIVO_STORAGE_KEY, normalizedIdiomaId);
+        setPontoMapaSelecionado(null);
+        setGrupoEnderecoFocadoId(null);
+        setEnderecosSelecionadosGrupo([]);
+    };
 
     const tiposPontosDisponiveis = useMemo(() => {
         const todosPontos = geoJsonData?.features?.flatMap((feature) => feature.properties?.pontos || []) || [];
@@ -3624,9 +3677,11 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         };
     }, [enderecoIdsGruposDesignados, enderecoIdsGruposDesignadosKey, isAdmin, notify]);
 
-    const enderecosOperacionais = useMemo(() => (
-        isAdmin ? enderecos : mergeEnderecosUnicos(enderecos, enderecosGruposDesignados)
-    ), [enderecos, enderecosGruposDesignados, isAdmin]);
+    const enderecosOperacionais = useMemo(() => {
+        const lista = isAdmin ? enderecos : mergeEnderecosUnicos(enderecos, enderecosGruposDesignados);
+        if (!isAdmin || !filtrarPorIdiomaEndereco) return lista;
+        return lista.filter(pertenceAoIdiomaAtivoEndereco);
+    }, [enderecos, enderecosGruposDesignados, filtrarPorIdiomaEndereco, isAdmin, pertenceAoIdiomaAtivoEndereco]);
 
     useEffect(() => {
         const userEmail = normalizeEmailValue(user?.email);
@@ -3917,7 +3972,10 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     }, [enderecosOperacionais]);
 
     const gruposEnderecoCompletos = useMemo(() => {
-        const grupos = gruposEndereco.map((grupo) => (
+        const gruposBase = isAdmin && filtrarPorIdiomaEndereco
+            ? gruposEndereco.filter(pertenceAoIdiomaAtivoEndereco)
+            : gruposEndereco;
+        const grupos = gruposBase.map((grupo) => (
             mergeGrupoEnderecoRuntimeStats(
                 grupo,
                 resolveEnderecosGrupoFromMaps(grupo, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId)
@@ -3937,7 +3995,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         });
 
         return grupos.sort((a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id)));
-    }, [enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId, gruposEndereco]);
+    }, [enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId, filtrarPorIdiomaEndereco, gruposEndereco, isAdmin, pertenceAoIdiomaAtivoEndereco]);
 
     const podeFocarGrupoEndereco = useCallback((grupo) => {
         if (!grupo) return false;
@@ -4797,7 +4855,21 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         hasBairros={Boolean(bairrosGeoJson?.features?.length)}
                     />
                     {isAdmin && (
-                        <div ref={adminControlsRef} className="absolute top-20 right-4 z-[400] flex max-w-[150px] flex-col gap-2" onClick={stopMapDomEvent}>
+                        <div ref={adminControlsRef} className="absolute top-20 right-4 z-[400] flex max-w-[190px] flex-col gap-2" onClick={stopMapDomEvent}>
+                            {mostrarAlternadorIdiomaEndereco && (
+                                <div className="rounded-lg border border-teal-200 bg-white p-2 shadow-xl">
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-teal-700">Idioma</label>
+                                    <select
+                                        value={idiomaAtivoEndereco?.id || ''}
+                                        onChange={(event) => selecionarIdiomaAtivoEndereco(event.target.value)}
+                                        className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                    >
+                                        {enderecoIdiomasAtivos.map((idioma) => (
+                                            <option key={idioma.id} value={idioma.id}>{idioma.nome}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             {enderecosSelecionadosDados.length > 0 && (
                                 <div className="rounded-lg border border-indigo-200 bg-white p-2 shadow-xl">
                                     <div className="mb-2 text-center text-xs font-extrabold text-indigo-700">
@@ -4950,7 +5022,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         endereco={enderecoModal.endereco}
                         ponto={enderecoModal.ponto}
                         gruposDisponiveis={gruposEnderecoParaCadastroEndereco}
-                        enderecoConfig={enderecoConfig}
+                        enderecoConfig={enderecoConfigAtiva}
                         loading={salvandoEndereco}
                         onClose={fecharEnderecoModal}
                         onSubmit={salvarEndereco}
@@ -4959,7 +5031,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         isOpen={grupoEnderecoModalAberto}
                         selectedEnderecos={enderecosSelecionadosDados}
                         gruposDisponiveis={gruposEnderecoParaVinculo}
-                        enderecoConfig={enderecoConfig}
+                        enderecoConfig={enderecoConfigAtiva}
                         loading={salvandoGrupoEndereco}
                         onClose={() => {
                             if (!salvandoGrupoEndereco) setGrupoEnderecoModalAberto(false);

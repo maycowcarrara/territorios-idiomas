@@ -342,10 +342,10 @@ Requisitos:
 
 ### Fase 4 - Alternador controlado de idiomas
 
-- Permitir mais de um idioma ativo na configuracao.
-- Carregar idioma ativo no contexto administrativo.
-- Aplicar prefixos e classes conforme o idioma selecionado.
-- Manter o alternador visivel somente quando houver mais de um idioma ativo.
+- [x] Permitir mais de um idioma ativo na configuracao.
+- [x] Carregar idioma ativo no contexto administrativo.
+- [x] Aplicar prefixos e classes conforme o idioma selecionado.
+- [x] Manter o alternador visivel somente quando houver mais de um idioma ativo.
 
 ### Fase 5 - Relatorios e refinamentos
 

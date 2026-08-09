@@ -34,6 +34,8 @@ import {
     DEFAULT_ENDERECO_CONFIG,
     getEnderecoCodigoPadraoFromConfig,
     getEnderecoConfigRef,
+    getEnderecoConfigForIdioma,
+    getEnderecoIdiomasAtivos,
     getGrupoEnderecoCodigoPadraoFromConfig,
     normalizeEnderecoConfig
 } from '../src/enderecoConfig.js';
@@ -160,7 +162,25 @@ async function main() {
             prefixoEnderecoPadrao: 'ES-SBS-',
             prefixoTerritorioPadrao: 'ES-SBS-T',
             classeEnderecoPadrao: 'confirmado',
-            quantidadeEstrangeirosPadrao: 1
+            quantidadeEstrangeirosPadrao: 1,
+            idiomas: [
+                {
+                    id: 'es',
+                    nome: 'Espanhol',
+                    codigoPrefixoEndereco: 'ES-SBS-',
+                    codigoPrefixoTerritorio: 'ES-SBS-T',
+                    ativo: true,
+                    ordem: 1
+                },
+                {
+                    id: 'en',
+                    nome: 'Inglês',
+                    codigoPrefixoEndereco: 'EN-SBS-',
+                    codigoPrefixoTerritorio: 'EN-SBS-T',
+                    ativo: true,
+                    ordem: 2
+                }
+            ]
         });
 
         await setDoc(getEnderecoConfigRef(adminClient.db), {
@@ -173,6 +193,10 @@ async function main() {
         const configPublicador = normalizeEnderecoConfig(configPublicadorDoc.data());
         assert(getEnderecoCodigoPadraoFromConfig(configPublicador) === 'ES-SBS-001', 'Config deveria sugerir ES-SBS-001.');
         assert(getGrupoEnderecoCodigoPadraoFromConfig(configPublicador) === 'ES-SBS-T01', 'Config deveria sugerir ES-SBS-T01.');
+        assert(getEnderecoIdiomasAtivos(configPublicador).length === 2, 'Config deveria permitir dois idiomas ativos.');
+        const configIngles = getEnderecoConfigForIdioma(configPublicador, 'en');
+        assert(getEnderecoCodigoPadraoFromConfig(configIngles) === 'EN-SBS-001', 'Config deveria sugerir EN-SBS-001 para inglês.');
+        assert(getGrupoEnderecoCodigoPadraoFromConfig(configIngles) === 'EN-SBS-T01', 'Config deveria sugerir EN-SBS-T01 para inglês.');
 
         const enderecoA = await createEnderecoManual(adminClient.db, {
             user: adminUser,
@@ -237,8 +261,22 @@ async function main() {
             informacao: 'Classe excluido deve arquivar',
             classe: 'excluido'
         });
+        const enderecoIngles = await createEnderecoManual(adminClient.db, {
+            user: adminUser,
+            codigo: 'en-sbs-001',
+            idiomaId: 'en',
+            idiomaNome: 'Inglês',
+            bairro: 'Centro',
+            lat: -10.1852,
+            lng: -48.3346,
+            endereco: 'Rua Smoke English, 40',
+            quantidadeEstrangeiros: 1,
+            informacao: 'Criado pelo smoke multi-idioma',
+            classe: 'confirmado'
+        });
         assert(enderecoA.codigo === 'ES-SBS-001', 'Primeiro endereço deveria salvar ES-SBS-001 normalizado.');
         assert(enderecoB.codigo === 'ES-SBS-002', 'Segundo endereço deveria salvar ES-SBS-002.');
+        assert(enderecoIngles.codigo === 'EN-SBS-001', 'Endereço em inglês deveria salvar EN-SBS-001 normalizado.');
 
         await updateEnderecoBasico(adminClient.db, enderecoA.id, {
             lat: -10.1841,
@@ -258,11 +296,32 @@ async function main() {
         const enderecoADoc = await getDoc(getEnderecoRef(adminClient.db, enderecoA.id));
         const enderecoBDoc = await getDoc(getEnderecoRef(adminClient.db, enderecoB.id));
         const enderecoExcluidoDoc = await getDoc(getEnderecoRef(adminClient.db, enderecoExcluido.id));
+        const enderecoInglesDoc = await getDoc(getEnderecoRef(adminClient.db, enderecoIngles.id));
         assert(enderecoADoc.data().codigo === 'ES-SBS-001', 'Endereço atualizado deveria preservar codigo manual.');
         assert(enderecoADoc.data().bairro === 'Serra Alta', 'Endereço atualizado deveria salvar bairro.');
         assert(enderecoADoc.data().informacao === 'Atualizado pelo smoke local', 'Endereço atualizado deveria salvar informação.');
         assert(enderecoADoc.data().classe === 'estudo', 'Endereço atualizado deveria salvar classe.');
         assert(enderecoExcluidoDoc.data().status === 'arquivado', 'Classe excluido deveria arquivar o endereço.');
+        await expectDomainBlocked('território misturando idiomas', () => (
+            createGrupoEnderecoManual(adminClient.db, {
+                user: adminUser,
+                codigo: 'MIX-SBS-T01',
+                nome: 'Grupo Smoke Misturado',
+                enderecos: [
+                    { id: enderecoADoc.id, ...enderecoADoc.data() },
+                    { id: enderecoInglesDoc.id, ...enderecoInglesDoc.data() }
+                ]
+            })
+        ), 'mesmo idioma');
+        const grupoIngles = await createGrupoEnderecoManual(adminClient.db, {
+            user: adminUser,
+            codigo: 'en-sbs-t01',
+            nome: 'Grupo Smoke Inglês',
+            enderecos: [{ id: enderecoInglesDoc.id, ...enderecoInglesDoc.data() }]
+        });
+        const grupoInglesDoc = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoIngles.id));
+        assert(grupoIngles.codigo === 'EN-SBS-T01', 'Território em inglês deveria salvar EN-SBS-T01 normalizado.');
+        assert(grupoInglesDoc.data().idiomaId === 'en', 'Território em inglês deveria herdar idiomaId do endereço.');
         const grupo = await createGrupoEnderecoManual(adminClient.db, {
             user: adminUser,
             codigo: 'es-sbs-t01',

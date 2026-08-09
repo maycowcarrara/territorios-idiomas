@@ -105,7 +105,7 @@ export function normalizeEnderecoConfig(data = {}) {
 
     return {
         idiomaPadraoId: idiomaPadrao.id,
-        idiomaPadraoNome: normalizeText(data.idiomaPadraoNome, idiomaPadrao.nome, 80),
+        idiomaPadraoNome: idiomaPadrao.nome,
         prefixoEnderecoPadrao: normalizePrefix(data.prefixoEnderecoPadrao, idiomaPadrao.codigoPrefixoEndereco),
         prefixoTerritorioPadrao: normalizePrefix(data.prefixoTerritorioPadrao, idiomaPadrao.codigoPrefixoTerritorio),
         classeEnderecoPadrao: normalizeEnderecoClasse(data.classeEnderecoPadrao),
@@ -120,6 +120,32 @@ export function normalizeEnderecoConfig(data = {}) {
         idiomas,
         tiposEndereco
     };
+}
+
+export function getEnderecoIdiomasAtivos(config) {
+    return normalizeEnderecoConfig(config).idiomas.filter((idioma) => idioma.ativo);
+}
+
+export function getEnderecoConfigForIdioma(config, idiomaId) {
+    const normalized = normalizeEnderecoConfig(config);
+    const idiomasAtivos = getEnderecoIdiomasAtivos(normalized);
+    const normalizedIdiomaId = normalizeText(idiomaId, '', 32).toLowerCase();
+    const idiomaSelecionado = idiomasAtivos.find((idioma) => idioma.id === normalizedIdiomaId) ||
+        idiomasAtivos.find((idioma) => idioma.id === normalized.idiomaPadraoId) ||
+        idiomasAtivos[0] ||
+        normalized.idiomas[0];
+
+    if (!idiomaSelecionado) return normalized;
+
+    return normalizeEnderecoConfig({
+        ...normalized,
+        idiomaPadraoId: idiomaSelecionado.id,
+        idiomaPadraoNome: idiomaSelecionado.nome,
+        prefixoEnderecoPadrao: idiomaSelecionado.codigoPrefixoEndereco,
+        prefixoTerritorioPadrao: idiomaSelecionado.codigoPrefixoTerritorio,
+        idiomas: normalized.idiomas,
+        tiposEndereco: normalized.tiposEndereco
+    });
 }
 
 function appendDefaultSuffix(prefix, suffix) {
