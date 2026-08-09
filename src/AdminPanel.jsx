@@ -11,11 +11,20 @@ import { useOnlineStatus } from './useOnlineStatus';
 import { AppPage, PageHeader } from './uiPrimitives';
 import { buttonClass } from './uiClasses';
 import { ensureUsuarioAprovado, formatWhatsappDigits, isValidUsuarioEmail, isValidWhatsappDigits } from './usuariosModel';
+import {
+    DEFAULT_ENDERECO_CONFIG,
+    getEnderecoCodigoPadraoFromConfig,
+    getEnderecoConfigRef,
+    getGrupoEnderecoCodigoPadraoFromConfig,
+    normalizeEnderecoConfig
+} from './enderecoConfig';
+import { isCodigoManualValido } from './enderecoModel';
 
 const ADMIN_OFFLINE_MESSAGE = 'Você está offline. Ações administrativas precisam de conexão para evitar conflito de designações. Conecte-se para continuar.';
 const ADMIN_OFFLINE_ACTION_CLASS = 'disabled:cursor-not-allowed disabled:opacity-50';
 const ADMIN_TABS = [
     { id: 'usuarios', label: 'Usuários', icon: '👥' },
+    { id: 'padroes', label: 'Padrões', icon: '⚙️' },
     { id: 'campanhas', label: 'Campanhas', icon: '📢' },
     { id: 'comunicados', label: 'Comunicados', icon: '🔔' }
 ];
@@ -60,6 +69,9 @@ const AdminPanel = () => {
     const [userSearch, setUserSearch] = useState('');
     const [userRoleFilter, setUserRoleFilter] = useState('todos');
     const [cadastroAberto, setCadastroAberto] = useState(false);
+    const [enderecoConfig, setEnderecoConfig] = useState(DEFAULT_ENDERECO_CONFIG);
+    const [enderecoConfigForm, setEnderecoConfigForm] = useState(DEFAULT_ENDERECO_CONFIG);
+    const [salvandoEnderecoConfig, setSalvandoEnderecoConfig] = useState(false);
 
     // Estados para EDIÇÃO inline
     const [editandoId, setEditandoId] = useState(null);
@@ -98,6 +110,21 @@ const AdminPanel = () => {
             });
 
             setCampanhas(lista);
+        });
+
+        return () => unsub();
+    }, []);
+
+    useEffect(() => {
+        const unsub = onSnapshot(getEnderecoConfigRef(db), (snapshot) => {
+            const config = normalizeEnderecoConfig(snapshot.exists() ? snapshot.data() : DEFAULT_ENDERECO_CONFIG);
+            setEnderecoConfig(config);
+            setEnderecoConfigForm(config);
+        }, (error) => {
+            console.error('Erro ao carregar padrões de endereços:', error);
+            const config = normalizeEnderecoConfig(DEFAULT_ENDERECO_CONFIG);
+            setEnderecoConfig(config);
+            setEnderecoConfigForm(config);
         });
 
         return () => unsub();
@@ -289,6 +316,69 @@ const AdminPanel = () => {
 
     const handleEditChange = (campo, valor) => {
         setDadosEditados(prev => ({ ...prev, [campo]: valor }));
+    };
+
+    const handleEnderecoConfigChange = (campo, valor) => {
+        setEnderecoConfigForm((current) => ({
+            ...current,
+            [campo]: valor
+        }));
+    };
+
+    const salvarEnderecoConfig = async (event) => {
+        event.preventDefault();
+        if (!ensureOnlineAdminAction()) return;
+
+        const configNormalizada = normalizeEnderecoConfig({
+            ...enderecoConfig,
+            ...enderecoConfigForm,
+            idiomas: [
+                {
+                    id: enderecoConfigForm.idiomaPadraoId,
+                    nome: enderecoConfigForm.idiomaPadraoNome,
+                    codigoPrefixoEndereco: enderecoConfigForm.prefixoEnderecoPadrao,
+                    codigoPrefixoTerritorio: enderecoConfigForm.prefixoTerritorioPadrao,
+                    ativo: true,
+                    ordem: 1
+                }
+            ],
+            tiposEndereco: enderecoConfig.tiposEndereco
+        });
+        const codigoEnderecoSugerido = getEnderecoCodigoPadraoFromConfig(configNormalizada);
+        const codigoTerritorioSugerido = getGrupoEnderecoCodigoPadraoFromConfig(configNormalizada);
+
+        if (!isCodigoManualValido(codigoEnderecoSugerido) || !isCodigoManualValido(codigoTerritorioSugerido)) {
+            notify({
+                title: 'Prefixo inválido',
+                message: 'Os prefixos precisam gerar códigos com hífen, como ES-SBS-001 e ES-SBS-T01.',
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        setSalvandoEnderecoConfig(true);
+        try {
+            await setDoc(getEnderecoConfigRef(db), {
+                ...configNormalizada,
+                atualizadaEm: new Date()
+            }, { merge: true });
+            notify({
+                title: 'Padrões salvos',
+                message: 'Os próximos cadastros de endereço e território usarão estes padrões.',
+                variant: 'success'
+            });
+        } catch (error) {
+            console.error('Erro ao salvar padrões de cadastro:', error);
+            notify({
+                title: 'Padrões não salvos',
+                message: String(error?.message || 'Não foi possível salvar os padrões agora.'),
+                variant: 'error',
+                durationMs: 7000
+            });
+        } finally {
+            setSalvandoEnderecoConfig(false);
+        }
     };
 
     const enviarComunicadoGeral = async (e) => {
@@ -622,6 +712,13 @@ const AdminPanel = () => {
             return {
                 ...tab,
                 badge: contextoSistema.campanhaAtiva ? 'ativa' : `${campanhas.length}`
+            };
+        }
+
+        if (tab.id === 'padroes') {
+            return {
+                ...tab,
+                badge: enderecoConfig.idiomaPadraoId.toUpperCase()
             };
         }
 
@@ -1172,6 +1269,162 @@ const AdminPanel = () => {
                                 )}
                             </div>
                         </div>
+                    </section>
+                )}
+
+                {activeTab === 'padroes' && (
+                    <section role="tabpanel" aria-labelledby="tab-padroes" className="space-y-6">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                    <h2 className="text-xl font-black text-slate-900">Padrões operacionais</h2>
+                                    <p className="mt-1 text-sm text-slate-500">
+                                        {enderecoConfig.idiomaPadraoNome} · {enderecoConfig.prefixoEnderecoPadrao} · {enderecoConfig.prefixoTerritorioPadrao}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setEnderecoConfigForm(normalizeEnderecoConfig(DEFAULT_ENDERECO_CONFIG))}
+                                    disabled={salvandoEnderecoConfig || adminActionsDisabled}
+                                    className={`rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                >
+                                    Restaurar inicial
+                                </button>
+                            </div>
+                            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <div className="rounded-xl border border-teal-100 bg-teal-50 px-3 py-2">
+                                    <p className="text-[11px] font-bold uppercase tracking-wide text-teal-600">Endereço sugerido</p>
+                                    <p className="mt-1 font-mono text-lg font-black text-teal-900">{getEnderecoCodigoPadraoFromConfig(enderecoConfigForm)}</p>
+                                </div>
+                                <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2">
+                                    <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-600">Território sugerido</p>
+                                    <p className="mt-1 font-mono text-lg font-black text-indigo-900">{getGrupoEnderecoCodigoPadraoFromConfig(enderecoConfigForm)}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <form onSubmit={salvarEnderecoConfig} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <fieldset disabled={adminActionsDisabled || salvandoEnderecoConfig} className={`space-y-5 ${adminActionsDisabled ? 'opacity-60' : ''}`}>
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                    <div>
+                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">ID do idioma</label>
+                                        <input
+                                            type="text"
+                                            value={enderecoConfigForm.idiomaPadraoId}
+                                            onChange={(event) => handleEnderecoConfigChange('idiomaPadraoId', event.target.value.trim().toLowerCase())}
+                                            maxLength={32}
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do idioma</label>
+                                        <input
+                                            type="text"
+                                            value={enderecoConfigForm.idiomaPadraoNome}
+                                            onChange={(event) => handleEnderecoConfigChange('idiomaPadraoNome', event.target.value)}
+                                            maxLength={80}
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Prefixo de endereço</label>
+                                        <input
+                                            type="text"
+                                            value={enderecoConfigForm.prefixoEnderecoPadrao}
+                                            onChange={(event) => handleEnderecoConfigChange('prefixoEnderecoPadrao', event.target.value.toUpperCase())}
+                                            maxLength={40}
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Prefixo de território</label>
+                                        <input
+                                            type="text"
+                                            value={enderecoConfigForm.prefixoTerritorioPadrao}
+                                            onChange={(event) => handleEnderecoConfigChange('prefixoTerritorioPadrao', event.target.value.toUpperCase())}
+                                            maxLength={40}
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Classe padrão</label>
+                                        <select
+                                            value={enderecoConfigForm.classeEnderecoPadrao}
+                                            onChange={(event) => handleEnderecoConfigChange('classeEnderecoPadrao', event.target.value)}
+                                            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                        >
+                                            {enderecoConfig.tiposEndereco.filter((tipo) => tipo.ativo).map((tipo) => (
+                                                <option key={tipo.id} value={tipo.id}>{tipo.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Quantidade padrão</label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="99"
+                                            value={enderecoConfigForm.quantidadeEstrangeirosPadrao}
+                                            onChange={(event) => handleEnderecoConfigChange('quantidadeEstrangeirosPadrao', event.target.value)}
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Cidade padrão</label>
+                                        <input
+                                            type="text"
+                                            value={enderecoConfigForm.cidadePadrao}
+                                            onChange={(event) => handleEnderecoConfigChange('cidadePadrao', event.target.value)}
+                                            maxLength={120}
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">UF padrão</label>
+                                        <input
+                                            type="text"
+                                            value={enderecoConfigForm.ufPadrao}
+                                            onChange={(event) => handleEnderecoConfigChange('ufPadrao', event.target.value.toUpperCase())}
+                                            maxLength={2}
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 md:grid-cols-2">
+                                    <div>
+                                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Idiomas ativos</p>
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                            {enderecoConfig.idiomas.filter((idioma) => idioma.ativo).map((idioma) => (
+                                                <span key={idioma.id} className="rounded-full border border-teal-100 bg-white px-3 py-1 text-xs font-bold text-teal-700">
+                                                    {idioma.nome}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Classes ativas</p>
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                            {enderecoConfig.tiposEndereco.filter((tipo) => tipo.ativo).map((tipo) => (
+                                                <span key={tipo.id} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
+                                                    {tipo.label}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end">
+                                    <button
+                                        type="submit"
+                                        disabled={salvandoEnderecoConfig || adminActionsDisabled}
+                                        className={`rounded-xl bg-teal-700 px-6 py-3 text-sm font-bold text-white transition-all hover:bg-teal-800 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                    >
+                                        {salvandoEnderecoConfig ? 'Salvando...' : 'Salvar padrões'}
+                                    </button>
+                                </div>
+                            </fieldset>
+                        </form>
                     </section>
                 )}
 

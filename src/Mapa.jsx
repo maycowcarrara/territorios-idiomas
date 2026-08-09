@@ -63,6 +63,13 @@ import {
     toggleEnderecoVisitadoGrupo,
     updateEnderecoBasico
 } from './enderecoModel';
+import {
+    DEFAULT_ENDERECO_CONFIG,
+    getEnderecoCodigoPadraoFromConfig,
+    getEnderecoConfigRef,
+    getGrupoEnderecoCodigoPadraoFromConfig,
+    normalizeEnderecoConfig
+} from './enderecoConfig';
 import { extractTerritorioCodigo, normalizeTerritorioNome } from './territorioNome';
 import L from 'leaflet';
 import { useUiFeedback } from './uiFeedback';
@@ -1102,31 +1109,33 @@ const ModalConfirmacaoFinalizacao = ({ isOpen, onConfirmar, onRecusar, loading, 
     );
 };
 
-const getEnderecoInitialForm = (endereco, ponto) => ({
-    codigo: endereco?.codigo || ENDERECO_CODIGO_PADRAO,
-    idiomaId: endereco?.idiomaId || IDIOMA_PADRAO_ENDERECOS.id,
-    idiomaNome: endereco?.idiomaNome || IDIOMA_PADRAO_ENDERECOS.nome,
+const getEnderecoInitialForm = (endereco, ponto, enderecoConfig = DEFAULT_ENDERECO_CONFIG) => ({
+    codigo: endereco?.codigo || getEnderecoCodigoPadraoFromConfig(enderecoConfig),
+    idiomaId: endereco?.idiomaId || enderecoConfig.idiomaPadraoId || IDIOMA_PADRAO_ENDERECOS.id,
+    idiomaNome: endereco?.idiomaNome || enderecoConfig.idiomaPadraoNome || IDIOMA_PADRAO_ENDERECOS.nome,
     bairro: endereco?.bairro || '',
     endereco: endereco?.endereco || '',
     informacao: endereco?.informacao ?? endereco?.observacao ?? '',
-    classe: endereco?.classe || ENDERECO_CLASSES.CONFIRMADO,
-    quantidadeEstrangeiros: String(endereco?.quantidadeEstrangeiros ?? 1),
+    classe: endereco?.classe || enderecoConfig.classeEnderecoPadrao || ENDERECO_CLASSES.CONFIRMADO,
+    quantidadeEstrangeiros: String(endereco?.quantidadeEstrangeiros ?? enderecoConfig.quantidadeEstrangeirosPadrao ?? 1),
     observacao: endereco?.observacao || '',
     lat: endereco?.lat ?? ponto?.lat ?? '',
     lng: endereco?.lng ?? ponto?.lng ?? '',
     grupoEscolha: '',
-    grupoCodigo: GRUPO_ENDERECO_CODIGO_PADRAO,
+    grupoCodigo: getGrupoEnderecoCodigoPadraoFromConfig(enderecoConfig),
     grupoNome: ''
 });
 
-const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = [], loading, onClose, onSubmit }) => {
+const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = [], enderecoConfig, loading, onClose, onSubmit }) => {
     const modalRef = useLeafletDomEventIsolation();
-    const [form, setForm] = useState(getEnderecoInitialForm(endereco, ponto));
+    const config = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
+    const tiposEnderecoAtivos = config.tiposEndereco.filter((tipo) => tipo.ativo);
+    const [form, setForm] = useState(getEnderecoInitialForm(endereco, ponto, config));
 
     useEffect(() => {
         if (!isOpen) return;
-        setForm(getEnderecoInitialForm(endereco, ponto));
-    }, [endereco, isOpen, ponto]);
+        setForm(getEnderecoInitialForm(endereco, ponto, config));
+    }, [config, endereco, isOpen, ponto]);
 
     if (!isOpen) return null;
 
@@ -1179,7 +1188,7 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
                             required
                             disabled={loading || isEdit}
                             className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                            placeholder={ENDERECO_CODIGO_PADRAO}
+                            placeholder={getEnderecoCodigoPadraoFromConfig(config)}
                         />
                     </label>
                     {!isEdit && (
@@ -1212,7 +1221,7 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
                                     required
                                     disabled={loading}
                                     className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                    placeholder={GRUPO_ENDERECO_CODIGO_PADRAO}
+                                    placeholder={getGrupoEnderecoCodigoPadraoFromConfig(config)}
                                 />
                             </label>
                             <label className="block">
@@ -1259,8 +1268,8 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
                             disabled={loading}
                             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
                         >
-                            {Object.values(ENDERECO_CLASSES).map((classe) => (
-                                <option key={classe} value={classe}>{getEnderecoClasseLabel(classe)}</option>
+                            {(tiposEnderecoAtivos.length ? tiposEnderecoAtivos : config.tiposEndereco).map((tipo) => (
+                                <option key={tipo.id} value={tipo.id}>{tipo.label}</option>
                             ))}
                         </select>
                     </label>
@@ -1311,19 +1320,21 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
     );
 };
 
-const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, gruposDisponiveis, loading, onClose, onSubmit }) => {
-    const [codigo, setCodigo] = useState(GRUPO_ENDERECO_CODIGO_PADRAO);
+const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, gruposDisponiveis, enderecoConfig, loading, onClose, onSubmit }) => {
+    const config = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
+    const codigoPadrao = getGrupoEnderecoCodigoPadraoFromConfig(config);
+    const [codigo, setCodigo] = useState(codigoPadrao);
     const [nome, setNome] = useState('');
     const [modo, setModo] = useState('novo');
     const [grupoIdSelecionado, setGrupoIdSelecionado] = useState('');
 
     useEffect(() => {
         if (!isOpen) return;
-        setCodigo(GRUPO_ENDERECO_CODIGO_PADRAO);
+        setCodigo(codigoPadrao);
         setNome('');
         setModo(gruposDisponiveis.length ? 'existente' : 'novo');
         setGrupoIdSelecionado(gruposDisponiveis[0]?.id || '');
-    }, [gruposDisponiveis, isOpen]);
+    }, [codigoPadrao, gruposDisponiveis, isOpen]);
 
     if (!isOpen) return null;
 
@@ -1389,7 +1400,7 @@ const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, gruposDisponiveis, 
                                     required
                                     disabled={loading}
                                     className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
-                                    placeholder={GRUPO_ENDERECO_CODIGO_PADRAO}
+                                    placeholder={codigoPadrao}
                                 />
                             </label>
                             <label className="block">
@@ -3432,6 +3443,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     const [enderecos, setEnderecos] = useState([]);
     const [enderecosGruposDesignados, setEnderecosGruposDesignados] = useState([]);
     const [gruposEndereco, setGruposEndereco] = useState([]);
+    const [enderecoConfig, setEnderecoConfig] = useState(DEFAULT_ENDERECO_CONFIG);
     const [mostrarEnderecosArquivados, setMostrarEnderecosArquivados] = useState(false);
     const [mostrarGruposArquivados, setMostrarGruposArquivados] = useState(false);
     const [enderecosSelecionadosGrupo, setEnderecosSelecionadosGrupo] = useState([]);
@@ -3463,6 +3475,22 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         const params = new URLSearchParams(location.search);
         return params.get('grupoId') || params.get('grupoEnderecoId') || '';
     }, [location.search]);
+
+    useEffect(() => {
+        if (!isAdmin) {
+            setEnderecoConfig(DEFAULT_ENDERECO_CONFIG);
+            return undefined;
+        }
+
+        const unsubscribe = onSnapshot(getEnderecoConfigRef(db), (snapshot) => {
+            setEnderecoConfig(normalizeEnderecoConfig(snapshot.exists() ? snapshot.data() : DEFAULT_ENDERECO_CONFIG));
+        }, (error) => {
+            console.error('Erro ao carregar padrões de cadastro:', error);
+            setEnderecoConfig(DEFAULT_ENDERECO_CONFIG);
+        });
+
+        return unsubscribe;
+    }, [isAdmin]);
 
     const tiposPontosDisponiveis = useMemo(() => {
         const todosPontos = geoJsonData?.features?.flatMap((feature) => feature.properties?.pontos || []) || [];
@@ -4922,6 +4950,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         endereco={enderecoModal.endereco}
                         ponto={enderecoModal.ponto}
                         gruposDisponiveis={gruposEnderecoParaCadastroEndereco}
+                        enderecoConfig={enderecoConfig}
                         loading={salvandoEndereco}
                         onClose={fecharEnderecoModal}
                         onSubmit={salvarEndereco}
@@ -4930,6 +4959,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         isOpen={grupoEnderecoModalAberto}
                         selectedEnderecos={enderecosSelecionadosDados}
                         gruposDisponiveis={gruposEnderecoParaVinculo}
+                        enderecoConfig={enderecoConfig}
                         loading={salvandoGrupoEndereco}
                         onClose={() => {
                             if (!salvandoGrupoEndereco) setGrupoEnderecoModalAberto(false);

@@ -12,6 +12,7 @@ import {
     getDocs,
     getFirestore,
     query,
+    setDoc,
     updateDoc,
     where
 } from 'firebase/firestore';
@@ -29,6 +30,13 @@ import {
     toggleEnderecoVisitadoGrupo,
     updateEnderecoBasico
 } from '../src/enderecoModel.js';
+import {
+    DEFAULT_ENDERECO_CONFIG,
+    getEnderecoCodigoPadraoFromConfig,
+    getEnderecoConfigRef,
+    getGrupoEnderecoCodigoPadraoFromConfig,
+    normalizeEnderecoConfig
+} from '../src/enderecoConfig.js';
 
 const projectId = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT || 'territorios-idiomas-smoke';
 const firestoreEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
@@ -147,6 +155,24 @@ async function main() {
         const adminUser = await signIn(adminClient, adminInfo.email);
         const publicadorUser = await signIn(publicadorClient, publicadorInfo.email);
         const outroUser = await signIn(outroClient, outroInfo.email);
+        const configCadastros = normalizeEnderecoConfig({
+            ...DEFAULT_ENDERECO_CONFIG,
+            prefixoEnderecoPadrao: 'ES-SBS-',
+            prefixoTerritorioPadrao: 'ES-SBS-T',
+            classeEnderecoPadrao: 'confirmado',
+            quantidadeEstrangeirosPadrao: 1
+        });
+
+        await setDoc(getEnderecoConfigRef(adminClient.db), {
+            ...configCadastros,
+            atualizadaEm: new Date()
+        }, { merge: true });
+
+        const configPublicadorDoc = await getDoc(getEnderecoConfigRef(publicadorClient.db));
+        assert(configPublicadorDoc.exists(), 'Publicador aprovado deveria ler padrões de cadastro.');
+        const configPublicador = normalizeEnderecoConfig(configPublicadorDoc.data());
+        assert(getEnderecoCodigoPadraoFromConfig(configPublicador) === 'ES-SBS-001', 'Config deveria sugerir ES-SBS-001.');
+        assert(getGrupoEnderecoCodigoPadraoFromConfig(configPublicador) === 'ES-SBS-T01', 'Config deveria sugerir ES-SBS-T01.');
 
         const enderecoA = await createEnderecoManual(adminClient.db, {
             user: adminUser,

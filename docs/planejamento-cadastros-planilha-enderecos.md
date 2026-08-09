@@ -333,20 +333,31 @@ Requisitos:
 - Aplicar prefixos, classe padrao e quantidade padrao automaticamente no formulario.
 - Permitir futuro alternador de idioma apenas quando houver mais de um idioma ativo.
 
-### Fase 3 - Importador da planilha
+### Fase 3 - Publicacao e configuracao em producao
 
-- Criar importador com dry-run.
-- Mapear colunas da planilha.
-- Validar duplicados e invalidos antes de gravar.
-- Aplicar updates idempotentes por codigo.
-- Gerar relatorio de importacao.
+- Publicar a Fase 2 no Hosting quando autorizado.
+- Criar ou revisar `configuracoes/cadastros_enderecos` em producao.
+- Confirmar que os formularios usam os padroes publicados.
+- Validar manualmente cadastro de endereco e territorio com os padroes configurados.
 
-### Fase 4 - Relatorios e refinamentos
+### Fase 4 - Alternador controlado de idiomas
+
+- Permitir mais de um idioma ativo na configuracao.
+- Carregar idioma ativo no contexto administrativo.
+- Aplicar prefixos e classes conforme o idioma selecionado.
+- Manter o alternador visivel somente quando houver mais de um idioma ativo.
+
+### Fase 5 - Relatorios e refinamentos
 
 - Filtros por idioma, bairro, classe e arquivados.
 - Relatorio de enderecos.
 - Relatorio de territorios por idioma/bairro/classe.
 - Auditoria de alteracoes relevantes.
+
+### Fase futura sem prioridade - Importador da planilha
+
+- Importador fica adiado por enquanto.
+- Se voltar a ser necessario, deve continuar com dry-run padrao, validacao de duplicados/invalidos e gravacao idempotente por `codigo`.
 
 ## Validacoes esperadas
 

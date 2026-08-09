@@ -377,13 +377,17 @@ Arquivos principais:
 - [x] Preparar mensagem/WhatsApp ao designar territorio.
 - [ ] Notificar admins na devolucao/finalizacao, seguindo padrao atual.
 
-### Fase 4 - Relatorios e importacao
+### Fase 4 - Relatorios e refinamentos
 
 - [x] Remover outbox/modo offline e manter escrita online-first.
 - [x] Resumo geral agregado no header para territorios, enderecos e pessoas.
 - [ ] Relatorios administrativos de grupos/endereco.
-- [ ] Importador JSON idempotente.
 - [x] Ajustar Ajuda/manual.
+
+### Fase futura sem prioridade - Importador
+
+- [ ] Importador JSON/planilha fica adiado por enquanto.
+- [ ] Reavaliar somente se a entrada manual e os cadastros configuraveis deixarem de atender o fluxo operacional.
 
 ### Camada local de bairros urbanos
 
