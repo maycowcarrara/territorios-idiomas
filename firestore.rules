@@ -455,10 +455,7 @@ service cloud.firestore {
       return camposAlteradosApenas(camposProgressoGrupoEndereco()) &&
              enderecosVisitadosGrupoEnderecoValidos() &&
              metadadosExecucaoGrupoEnderecoValidos() &&
-             statusGrupoEnderecoExecutavel() &&
-             mantemDesignacaoGrupoEndereco() &&
-             request.resource.data.historico == resource.data.historico &&
-             request.resource.data.ultimaConclusao == resource.data.ultimaConclusao;
+             statusGrupoEnderecoExecutavel();
     }
 
     function podeFinalizarGrupoEnderecoDesignado() {
@@ -474,13 +471,15 @@ service cloud.firestore {
 
     function podeAtualizarGrupoEnderecoDesignado() {
       return isAprovado() &&
-             resource.data.designadoPara == meuEmail() &&
+             (
+               isAdmin() ||
+               resource.data.designadoPara == meuEmail()
+             ) &&
              (
                !('status' in resource.data) ||
                resource.data.status == null ||
                resource.data.status == 'ativo'
              ) &&
-             mantemEstruturaGrupoEndereco() &&
              (
                podeAtualizarProgressoGrupoEnderecoDesignado() ||
                podeFinalizarGrupoEnderecoDesignado()
@@ -721,7 +720,7 @@ service cloud.firestore {
       allow read: if podeLerGrupoEndereco();
       allow create: if podeCriarGrupoEndereco();
       allow update: if isAdmin() && atualizacaoAdminGrupoEnderecoValida();
-      allow update: if !isAdmin() && podeAtualizarGrupoEnderecoDesignado();
+      allow update: if podeAtualizarGrupoEnderecoDesignado();
       allow delete: if false;
     }
 

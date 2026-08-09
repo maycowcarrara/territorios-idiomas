@@ -355,6 +355,91 @@ async function main() {
             ]
         });
         assert(grupo.codigo === 'ES-SBS-T01', 'Primeiro grupo deveria salvar ES-SBS-T01 normalizado.');
+        const enderecoAdminDesignado = await createEnderecoManual(adminClient.db, {
+            user: adminUser,
+            codigo: 'es-sbs-004',
+            idiomaId: 'es',
+            idiomaNome: 'Espanhol',
+            bairro: 'Serra Alta',
+            lat: -10.186,
+            lng: -48.335,
+            endereco: 'Rua Smoke Admin, 40',
+            quantidadeEstrangeiros: 1,
+            informacao: '',
+            classe: 'confirmado'
+        });
+        const enderecoAdminDesignadoDoc = await getDoc(getEnderecoRef(adminClient.db, enderecoAdminDesignado.id));
+        const grupoAdminDesignado = await createGrupoEnderecoManual(adminClient.db, {
+            user: adminUser,
+            codigo: 'es-sbs-t02',
+            nome: 'Grupo Smoke Admin Designado',
+            enderecos: [{ id: enderecoAdminDesignadoDoc.id, ...enderecoAdminDesignadoDoc.data() }]
+        });
+        await designarGrupoEndereco(adminClient.db, {
+            grupoId: grupoAdminDesignado.id,
+            usuario: adminInfo,
+            user: adminUser
+        });
+        await getAdminFirestore()
+            .collection('grupos_enderecos')
+            .doc(grupoAdminDesignado.id)
+            .update({
+                bairro: FieldValue.delete(),
+                bounds: FieldValue.delete(),
+                centro: FieldValue.delete(),
+                idiomaId: FieldValue.delete(),
+                idiomaNome: FieldValue.delete(),
+                status: FieldValue.delete()
+            });
+        await toggleEnderecoVisitadoGrupo(adminClient.db, {
+            grupoId: grupoAdminDesignado.id,
+            enderecoId: enderecoAdminDesignado.id,
+            user: adminUser
+        });
+        const grupoAdminAposToggle = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoAdminDesignado.id));
+        assert(grupoAdminAposToggle.data()?.status === 'ativo', 'Admin designado deveria normalizar status ativo em grupo legado.');
+        const enderecoAdminNaoDesignado = await createEnderecoManual(adminClient.db, {
+            user: adminUser,
+            codigo: 'es-sbs-005',
+            idiomaId: 'es',
+            idiomaNome: 'Espanhol',
+            bairro: 'Serra Alta',
+            lat: -10.187,
+            lng: -48.336,
+            endereco: 'Rua Smoke Admin Não Designado, 50',
+            quantidadeEstrangeiros: 1,
+            informacao: '',
+            classe: 'confirmado'
+        });
+        const enderecoAdminNaoDesignadoDoc = await getDoc(getEnderecoRef(adminClient.db, enderecoAdminNaoDesignado.id));
+        const grupoAdminNaoDesignado = await createGrupoEnderecoManual(adminClient.db, {
+            user: adminUser,
+            codigo: 'es-sbs-t03',
+            nome: 'Grupo Smoke Admin Não Designado',
+            enderecos: [{ id: enderecoAdminNaoDesignadoDoc.id, ...enderecoAdminNaoDesignadoDoc.data() }]
+        });
+        await designarGrupoEndereco(adminClient.db, {
+            grupoId: grupoAdminNaoDesignado.id,
+            usuario: outroInfo,
+            user: adminUser
+        });
+        await getAdminFirestore()
+            .collection('grupos_enderecos')
+            .doc(grupoAdminNaoDesignado.id)
+            .update({
+                bairro: FieldValue.delete(),
+                status: FieldValue.delete()
+            });
+        await toggleEnderecoVisitadoGrupo(adminClient.db, {
+            grupoId: grupoAdminNaoDesignado.id,
+            enderecoId: enderecoAdminNaoDesignado.id,
+            user: { ...adminUser, isAdmin: true }
+        });
+        const grupoAdminNaoDesignadoAposToggle = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoAdminNaoDesignado.id));
+        assert(
+            grupoAdminNaoDesignadoAposToggle.data()?.enderecos_visitados?.includes(enderecoAdminNaoDesignado.id),
+            'Admin deveria atualizar progresso de grupo ativo designado a outro usuário.'
+        );
         await expectDomainBlocked('trocar idioma de endereço agrupado', () => (
             updateEnderecoBasico(adminClient.db, enderecoA.id, {
                 lat: -10.1841,
@@ -392,7 +477,7 @@ async function main() {
             collection(publicadorClient.db, 'grupos_enderecos'),
             where('designadoPara', '==', publicadorInfo.email)
         ));
-        assert(meusGrupos.size === 1, 'Publicador deveria encontrar o grupo designado.');
+        assert(meusGrupos.docs.some((docSnapshot) => docSnapshot.id === grupo.id), 'Publicador deveria encontrar o grupo designado.');
 
         await expectPermissionDenied('rule impede publicador designado marcar endereço fora do grupo', () => (
             updateDoc(getGrupoEnderecoRef(publicadorClient.db, grupo.id), {
