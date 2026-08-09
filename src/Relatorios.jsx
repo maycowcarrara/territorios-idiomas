@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getDocs, query, where } from 'firebase/firestore';
+import { getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { exportarPdfParaDispositivo } from './pdfExport';
 import { buildPublicAppRouteUrl } from './publicAppUrl';
@@ -12,7 +12,10 @@ import { buttonClass, cardBaseClass, cn } from './uiClasses';
 import { TERRITORIO_STATUS } from './territorioContext';
 import {
     calculateGrupoEnderecoStats,
+    ENDERECO_CLASSES,
+    ENDERECO_CLASSE_LABELS,
     ENDERECO_STATUS,
+    formatEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoExibicao,
     formatGrupoEnderecoNomeExibicao,
     getEnderecosCollectionRef,
@@ -22,6 +25,11 @@ import {
 } from './enderecoModel';
 
 const STATUS_ARQUIVADO = 'arquivado';
+const RELATORIO_TERRITORIOS = 'territorios';
+const RELATORIO_ENDERECOS = 'enderecos';
+const FILTRO_TODOS = 'todos';
+const FILTRO_ARQUIVADOS_SEM = 'sem_arquivados';
+const FILTRO_ARQUIVADOS_SOMENTE = 'somente_arquivados';
 
 const toDateValue = (value) => {
     if (!value) return null;
@@ -169,8 +177,38 @@ const buildMapaLinkSearch = (registro) => {
     return '';
 };
 
+const getEnderecoClasseLabel = (classe) => (
+    ENDERECO_CLASSE_LABELS[classe] || ENDERECO_CLASSE_LABELS[ENDERECO_CLASSES.CONFIRMADO]
+);
+
+const normalizeFiltroOptionValue = (value) => String(value || '').trim().toLowerCase();
+
+const uniqueSortedOptions = (items, getValue, getLabel = getValue) => {
+    const optionsMap = new Map();
+
+    items.forEach((item) => {
+        const value = normalizeFiltroOptionValue(getValue(item));
+        if (!value) return;
+        if (!optionsMap.has(value)) {
+            optionsMap.set(value, String(getLabel(item) || getValue(item) || '').trim());
+        }
+    });
+
+    return [...optionsMap.entries()]
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+};
+
+const getStatusArquivadoFiltroMatch = (registro, filtro) => {
+    const isArquivado = registro.status === STATUS_ARQUIVADO;
+    if (filtro === FILTRO_ARQUIVADOS_SEM) return !isArquivado;
+    if (filtro === FILTRO_ARQUIVADOS_SOMENTE) return isArquivado;
+    return true;
+};
+
 const Relatorios = () => {
     const [territorios, setTerritorios] = useState([]);
+    const [enderecosRelatorio, setEnderecosRelatorio] = useState([]);
     const [loading, setLoading] = useState(true);
     const [exportandoPdf, setExportandoPdf] = useState(false);
     const [erroCarregamento, setErroCarregamento] = useState('');
@@ -183,9 +221,14 @@ const Relatorios = () => {
     const [linhasExpandidas, setLinhasExpandidas] = useState([]);
 
     // --- ESTADOS DE FILTRO E ORDENAÇÃO ---
+    const [relatorioAtivo, setRelatorioAtivo] = useState(RELATORIO_TERRITORIOS);
     const [busca, setBusca] = useState('');
-    const [statusFiltro, setStatusFiltro] = useState('todos');
-    const [tempoFiltro, setTempoFiltro] = useState('todos');
+    const [statusFiltro, setStatusFiltro] = useState(FILTRO_TODOS);
+    const [tempoFiltro, setTempoFiltro] = useState(FILTRO_TODOS);
+    const [idiomaFiltro, setIdiomaFiltro] = useState(FILTRO_TODOS);
+    const [bairroFiltro, setBairroFiltro] = useState(FILTRO_TODOS);
+    const [classeFiltro, setClasseFiltro] = useState(FILTRO_TODOS);
+    const [arquivadosFiltro, setArquivadosFiltro] = useState(FILTRO_ARQUIVADOS_SEM);
     const [sortConfig, setSortConfig] = useState({ key: 'diasParado', direction: 'desc' });
 
     const getStatusVisual = (status, porcentagem) => {
@@ -257,26 +300,30 @@ const Relatorios = () => {
                     enderecosSnapshot
                 ] = await Promise.all([
                     getDocs(getGruposEnderecoCollectionRef(db)),
-                    getDocs(query(
-                        getEnderecosCollectionRef(db),
-                        where('status', '==', ENDERECO_STATUS.ATIVO)
-                    ))
+                    getDocs(getEnderecosCollectionRef(db))
                 ]);
 
                 const enderecos = enderecosSnapshot.docs.map((enderecoDoc) => ({
                     id: enderecoDoc.id,
                     ...enderecoDoc.data()
                 }));
+                const enderecosPorId = new Map(enderecos.map((endereco) => [endereco.id, endereco]));
                 const enderecosPorGrupo = new Map();
-
-                enderecos.forEach((endereco) => {
-                    if (endereco.status === ENDERECO_STATUS.ARQUIVADO) return;
+                const enderecosAtivosPorGrupo = new Map();
+                const addEnderecoGrupo = (mapa, endereco) => {
                     const key = getGrupoEnderecoIdentityKey(endereco.grupoId || endereco.grupoCodigo);
                     if (!key) return;
-                    if (!enderecosPorGrupo.has(key)) {
-                        enderecosPorGrupo.set(key, []);
+                    if (!mapa.has(key)) {
+                        mapa.set(key, []);
                     }
-                    enderecosPorGrupo.get(key).push(endereco);
+                    mapa.get(key).push(endereco);
+                };
+
+                enderecos.forEach((endereco) => {
+                    addEnderecoGrupo(enderecosPorGrupo, endereco);
+                    if (endereco.status !== ENDERECO_STATUS.ARQUIVADO) {
+                        addEnderecoGrupo(enderecosAtivosPorGrupo, endereco);
+                    }
                 });
 
                 const gruposRegistrados = new Set();
@@ -290,7 +337,7 @@ const Relatorios = () => {
                 });
 
                 const gruposSinteticos = [];
-                enderecosPorGrupo.forEach((enderecosGrupo, grupoKey) => {
+                enderecosAtivosPorGrupo.forEach((enderecosGrupo, grupoKey) => {
                     if (gruposRegistrados.has(grupoKey)) return;
                     const primeiroEndereco = enderecosGrupo[0] || {};
                     const codigo = primeiroEndereco.grupoCodigo || primeiroEndereco.grupoId || grupoKey;
@@ -306,10 +353,15 @@ const Relatorios = () => {
                 });
 
                 const gruposEnderecoRelatorio = [...gruposEnderecoDocs, ...gruposSinteticos].map((grupo) => {
-                    const enderecosGrupo = getGrupoEnderecoCanonicalKeys(grupo)
+                    const enderecoIdsGrupo = Array.isArray(grupo.enderecoIds) ? grupo.enderecoIds : [];
+                    const enderecosPorIds = enderecoIdsGrupo.map((enderecoId) => enderecosPorId.get(enderecoId)).filter(Boolean);
+                    const enderecosPorChaves = getGrupoEnderecoCanonicalKeys(grupo)
                         .flatMap((key) => enderecosPorGrupo.get(key) || []);
-                    const enderecosUnicos = [...new Map(enderecosGrupo.map((endereco) => [endereco.id, endereco])).values()];
-                    const statsRuntime = enderecosUnicos.length ? calculateGrupoEnderecoStats(enderecosUnicos) : null;
+                    const enderecosRelacionados = [...new Map(
+                        [...enderecosPorIds, ...enderecosPorChaves].map((endereco) => [endereco.id, endereco])
+                    ).values()];
+                    const enderecosAtivosGrupo = enderecosRelacionados.filter((endereco) => endereco.status !== ENDERECO_STATUS.ARQUIVADO);
+                    const statsRuntime = enderecosAtivosGrupo.length ? calculateGrupoEnderecoStats(enderecosAtivosGrupo) : null;
                     const grupoCompleto = statsRuntime ? { ...grupo, ...statsRuntime } : grupo;
                     const progresso = getGrupoEnderecoProgresso(grupoCompleto);
                     const statusOperacional = getGrupoEnderecoStatusRelatorio(grupoCompleto);
@@ -335,14 +387,38 @@ const Relatorios = () => {
                     });
                     const centro = getGrupoEnderecoCentro(grupoCompleto);
                     const totalEstrangeiros = Math.max(0, Math.trunc(Number(grupoCompleto.totalEstrangeiros) || 0));
+                    const idiomaId = normalizeFiltroOptionValue(grupoCompleto.idiomaId || enderecosRelacionados[0]?.idiomaId);
+                    const idiomaNome = String(grupoCompleto.idiomaNome || enderecosRelacionados[0]?.idiomaNome || '').trim();
+                    const bairrosGrupo = uniqueSortedOptions(
+                        enderecosRelacionados,
+                        (endereco) => endereco.bairro,
+                        (endereco) => endereco.bairro
+                    );
+                    const bairro = String(grupoCompleto.bairro || (bairrosGrupo.length === 1 ? bairrosGrupo[0].label : '')).trim();
+                    const classeOptions = uniqueSortedOptions(
+                        enderecosRelacionados,
+                        (endereco) => endereco.classe || ENDERECO_CLASSES.CONFIRMADO,
+                        (endereco) => getEnderecoClasseLabel(endereco.classe || ENDERECO_CLASSES.CONFIRMADO)
+                    );
+                    const classeIds = classeOptions.map((option) => option.value);
+                    const classeResumo = classeOptions.length
+                        ? classeOptions.map((option) => option.label).join(', ')
+                        : '-';
+                    const totalEnderecosArquivados = enderecosRelacionados.filter((endereco) => endereco.status === ENDERECO_STATUS.ARQUIVADO).length;
 
                     return {
-                        id: `grupo_endereco__${grupo.id}`,
-                        numeroId: codigoExibicao || grupo.id,
                         ...grupoCompleto,
+                        id: `grupo_endereco__${grupo.id}`,
+                        grupoDocId: grupo.id,
+                        numeroId: codigoExibicao || grupo.id,
                         tipoRelatorio: 'grupo_endereco',
                         codigoOrdenacao: getCodigoOrdenacao(codigoExibicao || grupo.id),
                         nome: nomeExibicao,
+                        idiomaId,
+                        idiomaNome,
+                        bairro,
+                        classeIds,
+                        classeResumo,
                         lat: centro?.lat,
                         lng: centro?.lng,
                         diasParado,
@@ -363,21 +439,89 @@ const Relatorios = () => {
                         statusDetailClass: statusVisual.detailClass,
                         statusStyle: statusVisual.style,
                         progressoTexto: `${visitadosExibicao}/${totalEnderecos} endereços`,
-                        resumoOperacional: `${totalEnderecos} endereço${totalEnderecos === 1 ? '' : 's'} | ${totalEstrangeiros} pessoa${totalEstrangeiros === 1 ? '' : 's'}`,
+                        resumoOperacional: `${totalEnderecos} endereço${totalEnderecos === 1 ? '' : 's'} ativo${totalEnderecos === 1 ? '' : 's'} | ${totalEstrangeiros} pessoa${totalEstrangeiros === 1 ? '' : 's'}`,
+                        totalEnderecosCadastrados: enderecosRelacionados.length,
+                        totalEnderecosArquivados,
                         boundsStr: getGrupoEnderecoBoundsStr(grupoCompleto)
                     };
                 });
 
-                const lista = gruposEnderecoRelatorio;
+                const gruposPorChave = new Map();
+                gruposEnderecoRelatorio.forEach((grupo) => {
+                    [
+                        grupo.grupoDocId,
+                        grupo.codigo,
+                        grupo.numeroId
+                    ].filter(Boolean).forEach((value) => {
+                        gruposPorChave.set(getGrupoEnderecoIdentityKey(value), grupo);
+                    });
+                });
+
+                const enderecosRelatorioLista = enderecos.map((endereco) => {
+                    const codigoExibicao = formatEnderecoCodigoExibicao(endereco.codigo || endereco.id);
+                    const statusArquivado = endereco.status === ENDERECO_STATUS.ARQUIVADO;
+                    const classe = normalizeFiltroOptionValue(endereco.classe || ENDERECO_CLASSES.CONFIRMADO);
+                    const grupoKey = getGrupoEnderecoIdentityKey(endereco.grupoId || endereco.grupoCodigo);
+                    const grupo = grupoKey ? gruposPorChave.get(grupoKey) : null;
+                    const dataUltimaObj = toDateValue(endereco.atualizadoEm) || toDateValue(endereco.criadoEm);
+                    const idiomaNome = String(endereco.idiomaNome || '').trim();
+                    const bairro = String(endereco.bairro || '').trim();
+                    const totalEstrangeiros = Math.max(0, Math.trunc(Number(endereco.quantidadeEstrangeiros) || 0));
+
+                    return {
+                        id: `endereco__${endereco.id}`,
+                        enderecoDocId: endereco.id,
+                        tipoRelatorio: 'endereco',
+                        numeroId: codigoExibicao || endereco.codigo || endereco.id,
+                        codigoOrdenacao: getCodigoOrdenacao(codigoExibicao || endereco.codigo || endereco.id),
+                        nome: endereco.endereco || `Endereço ${codigoExibicao || endereco.id}`,
+                        enderecoTexto: endereco.endereco || '-',
+                        informacao: endereco.informacao || endereco.observacao || '',
+                        idiomaId: normalizeFiltroOptionValue(endereco.idiomaId),
+                        idiomaNome,
+                        bairro,
+                        classeIds: [classe],
+                        classeResumo: getEnderecoClasseLabel(classe),
+                        status: statusArquivado ? STATUS_ARQUIVADO : ENDERECO_STATUS.ATIVO,
+                        statusLabel: statusArquivado ? 'Arquivado' : 'Ativo',
+                        statusBadgeClass: statusArquivado
+                            ? 'bg-slate-100 text-slate-500 border border-slate-200'
+                            : 'bg-teal-100 text-teal-700 border border-teal-200',
+                        statusDetailClass: statusArquivado ? 'text-slate-500' : 'text-teal-700',
+                        statusStyle: null,
+                        lat: endereco.lat,
+                        lng: endereco.lng,
+                        grupoCodigo: endereco.grupoCodigo || grupo?.numeroId || '',
+                        grupoNome: grupo?.nome || '',
+                        designadoNome: grupo?.designadoNome || endereco.grupoDesignadoPara || '',
+                        dataDesigStr: grupo?.dataDesigStr || '-',
+                        dataDesigObj: grupo?.dataDesigObj || null,
+                        dataUltimaStr: formatDateValue(dataUltimaObj),
+                        dataUltimaObj,
+                        diasParado: dataUltimaObj ? getDiasDesde(dataUltimaObj) : Number.POSITIVE_INFINITY,
+                        nuncaTrabalhado: !dataUltimaObj,
+                        diasSemEdicao: 0,
+                        ultimaEdicaoTexto: dataUltimaObj ? formatarTempo(getDiasDesde(dataUltimaObj)) : 'Sem dados',
+                        totalEnderecos: 1,
+                        totalEstrangeiros,
+                        porcentagem: statusArquivado ? 0 : 100,
+                        progressoTexto: `${totalEstrangeiros} pessoa${totalEstrangeiros === 1 ? '' : 's'}`,
+                        resumoOperacional: `${idiomaNome || 'Idioma não informado'} | ${bairro || 'Bairro não informado'} | ${getEnderecoClasseLabel(classe)}`,
+                        historicoLista: [],
+                        boundsStr: null
+                    };
+                });
 
                 if (ativo) {
-                    setTerritorios(lista);
+                    setTerritorios(gruposEnderecoRelatorio);
+                    setEnderecosRelatorio(enderecosRelatorioLista);
                     setLoading(false);
                 }
             } catch (error) {
                 console.error("Erro ao carregar dados:", error);
                 if (ativo) {
                     setTerritorios([]);
+                    setEnderecosRelatorio([]);
                     setErroCarregamento(String(error?.message || 'Não foi possível carregar o relatório agora.'));
                     setLoading(false);
                 }
@@ -422,25 +566,74 @@ const Relatorios = () => {
 
     const limparFiltros = () => {
         setBusca('');
-        setStatusFiltro('todos');
-        setTempoFiltro('todos');
+        setStatusFiltro(FILTRO_TODOS);
+        setTempoFiltro(FILTRO_TODOS);
+        setIdiomaFiltro(FILTRO_TODOS);
+        setBairroFiltro(FILTRO_TODOS);
+        setClasseFiltro(FILTRO_TODOS);
+        setArquivadosFiltro(FILTRO_ARQUIVADOS_SEM);
         setSortConfig({ key: 'diasParado', direction: 'desc' });
         setLinhasExpandidas([]);
     };
 
+    const trocarRelatorio = (tipo) => {
+        setRelatorioAtivo(tipo);
+        setStatusFiltro(FILTRO_TODOS);
+        setTempoFiltro(FILTRO_TODOS);
+        setLinhasExpandidas([]);
+        setSortConfig(tipo === RELATORIO_ENDERECOS
+            ? { key: 'numeroId', direction: 'asc' }
+            : { key: 'diasParado', direction: 'desc' });
+    };
+
+    const alterarStatusFiltro = (value) => {
+        setStatusFiltro(value);
+        if (value === STATUS_ARQUIVADO) {
+            setArquivadosFiltro(FILTRO_ARQUIVADOS_SOMENTE);
+        } else if (arquivadosFiltro === FILTRO_ARQUIVADOS_SOMENTE) {
+            setArquivadosFiltro(FILTRO_ARQUIVADOS_SEM);
+        }
+    };
+
+    const alterarArquivadosFiltro = (value) => {
+        setArquivadosFiltro(value);
+        if (value === FILTRO_ARQUIVADOS_SOMENTE && statusFiltro !== STATUS_ARQUIVADO) {
+            setStatusFiltro(FILTRO_TODOS);
+        }
+        if (value === FILTRO_ARQUIVADOS_SEM && statusFiltro === STATUS_ARQUIVADO) {
+            setStatusFiltro(FILTRO_TODOS);
+        }
+    };
+
     const aplicarFiltroRapido = (tipo) => {
         limparFiltros();
+        if (tipo === 'total') setArquivadosFiltro(FILTRO_TODOS);
         if (tipo === 'livre') setStatusFiltro('livre');
         if (tipo === 'ocupado') setStatusFiltro('ocupado');
         if (tipo === 'aguardando_finalizacao') setStatusFiltro(TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO);
         if (tipo === 'finalizado') setStatusFiltro(TERRITORIO_STATUS.FINALIZADO);
-        if (tipo === STATUS_ARQUIVADO) setStatusFiltro(STATUS_ARQUIVADO);
+        if (tipo === STATUS_ARQUIVADO) {
+            setStatusFiltro(STATUS_ARQUIVADO);
+            setArquivadosFiltro(FILTRO_ARQUIVADOS_SOMENTE);
+        }
         if (tipo === 'criticos') setTempoFiltro('4_meses');
     };
 
+    const dadosBase = relatorioAtivo === RELATORIO_ENDERECOS ? enderecosRelatorio : territorios;
+    const opcoesIdioma = uniqueSortedOptions([...territorios, ...enderecosRelatorio], (item) => item.idiomaId, (item) => item.idiomaNome || item.idiomaId);
+    const opcoesBairro = uniqueSortedOptions([...territorios, ...enderecosRelatorio], (item) => item.bairro, (item) => item.bairro);
+    const opcoesClasse = Object.values(ENDERECO_CLASSES).map((classe) => ({
+        value: classe,
+        label: getEnderecoClasseLabel(classe)
+    }));
+
     const dadosProcessados = (() => {
-        let dados = [...territorios];
-        if (statusFiltro !== 'todos') dados = dados.filter(t => t.status === statusFiltro);
+        let dados = [...dadosBase];
+        if (statusFiltro !== FILTRO_TODOS) dados = dados.filter(t => t.status === statusFiltro);
+        dados = dados.filter(t => getStatusArquivadoFiltroMatch(t, arquivadosFiltro));
+        if (idiomaFiltro !== FILTRO_TODOS) dados = dados.filter(t => normalizeFiltroOptionValue(t.idiomaId) === idiomaFiltro);
+        if (bairroFiltro !== FILTRO_TODOS) dados = dados.filter(t => normalizeFiltroOptionValue(t.bairro) === bairroFiltro);
+        if (classeFiltro !== FILTRO_TODOS) dados = dados.filter(t => Array.isArray(t.classeIds) && t.classeIds.includes(classeFiltro));
         if (tempoFiltro === '2_meses') dados = dados.filter(t => t.diasParado > 60);
         if (tempoFiltro === '4_meses') dados = dados.filter(t => t.diasParado > 120);
         if (tempoFiltro === '6_meses') dados = dados.filter(t => t.diasParado > 180);
@@ -451,7 +644,17 @@ const Relatorios = () => {
                 const nomeLower = t.nome ? t.nome.toLowerCase() : '';
                 const idString = t.numeroId ? t.numeroId.toString() : '';
                 const responsavelLower = t.designadoNome ? t.designadoNome.toLowerCase() : '';
-                return nomeLower.includes(termo) || idString.includes(termo) || responsavelLower.includes(termo);
+                const bairroLower = t.bairro ? t.bairro.toLowerCase() : '';
+                const idiomaLower = t.idiomaNome ? t.idiomaNome.toLowerCase() : '';
+                const classeLower = t.classeResumo ? t.classeResumo.toLowerCase() : '';
+                const enderecoLower = t.enderecoTexto ? t.enderecoTexto.toLowerCase() : '';
+                return nomeLower.includes(termo) ||
+                    idString.includes(termo) ||
+                    responsavelLower.includes(termo) ||
+                    bairroLower.includes(termo) ||
+                    idiomaLower.includes(termo) ||
+                    classeLower.includes(termo) ||
+                    enderecoLower.includes(termo);
             });
         }
 
@@ -480,11 +683,20 @@ const Relatorios = () => {
         return sortConfig.direction === 'asc' ? <span className="text-blue-600 ml-1 text-[10px]">▲</span> : <span className="text-blue-600 ml-1 text-[10px]">▼</span>;
     };
 
-    const total = territorios.length;
+    const total = dadosBase.length;
     const ocupados = territorios.filter(t => t.status === 'ocupado' || t.status === TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO).length;
     const livres = territorios.filter(t => t.status === 'livre').length;
     const finalizados = territorios.filter(t => t.status === TERRITORIO_STATUS.FINALIZADO).length;
-    const arquivados = territorios.filter(t => t.status === STATUS_ARQUIVADO).length;
+    const arquivados = dadosBase.filter(t => t.status === STATUS_ARQUIVADO).length;
+    const enderecosAtivos = enderecosRelatorio.filter(t => t.status !== STATUS_ARQUIVADO).length;
+    const pessoasFiltradas = dadosProcessados.reduce((totalPessoas, item) => totalPessoas + (Number(item.totalEstrangeiros) || 0), 0);
+    const filtrosAtivos = busca ||
+        statusFiltro !== FILTRO_TODOS ||
+        tempoFiltro !== FILTRO_TODOS ||
+        idiomaFiltro !== FILTRO_TODOS ||
+        bairroFiltro !== FILTRO_TODOS ||
+        classeFiltro !== FILTRO_TODOS ||
+        arquivadosFiltro !== FILTRO_ARQUIVADOS_SEM;
     const getCorTempo = (dias) => {
         if (!Number.isFinite(Number(dias))) return 'bg-orange-600 text-white';
         if (dias > 180) return 'bg-orange-600 text-white';
@@ -506,7 +718,9 @@ const Relatorios = () => {
             ]);
 
             const doc = new jsPDF();
-            const tituloRelatorio = 'Relatório de Territórios de Idiomas';
+            const tituloRelatorio = relatorioAtivo === RELATORIO_ENDERECOS
+                ? 'Relatório de Endereços'
+                : 'Relatório de Territórios de Idiomas';
 
             doc.setFontSize(18);
             doc.text(tituloRelatorio, 14, 20);
@@ -523,12 +737,34 @@ const Relatorios = () => {
             if (tempoFiltro === '6_meses') textoTempoFiltro = "+6 Meses";
 
             const textoFiltro = busca ? `Busca: "${busca}"` : "Sem busca";
-            doc.text(`Filtros: Status (${statusFiltro}) | Tempo (${textoTempoFiltro}) | ${textoFiltro}`, 14, 36);
+            const textoArquivados = arquivadosFiltro === FILTRO_ARQUIVADOS_SEM
+                ? 'Ocultar arquivados'
+                : (arquivadosFiltro === FILTRO_ARQUIVADOS_SOMENTE ? 'Somente arquivados' : 'Todos');
+            doc.text(`Filtros: Status (${statusFiltro}) | Tempo (${textoTempoFiltro}) | Arquivados (${textoArquivados}) | ${textoFiltro}`, 14, 36);
+            doc.text(`Idioma (${idiomaFiltro}) | Bairro (${bairroFiltro}) | Classe (${classeFiltro})`, 14, 41);
 
-            const tableColumn = ["Cód.", "Nome", "Status", "Progresso", "Histórico / Ciclos", "Ult. Conclusão", "Tempo Parado"];
+            const tableColumn = relatorioAtivo === RELATORIO_ENDERECOS
+                ? ["Cód.", "Endereço", "Status", "Idioma", "Bairro", "Classe", "Pessoas", "Território"]
+                : ["Cód.", "Nome", "Status", "Idioma", "Bairro", "Classes", "Progresso", "Histórico / Ciclos", "Ult. Conclusão", "Tempo Parado"];
             const tableRows = [];
 
             dadosProcessados.forEach(t => {
+                if (relatorioAtivo === RELATORIO_ENDERECOS) {
+                    const mapSearch = buildMapaLinkSearch(t);
+                    const hasLink = !!mapSearch;
+                    tableRows.push([
+                        t.numeroId,
+                        { content: t.enderecoTexto || t.nome, styles: { textColor: hasLink ? [0, 0, 255] : [0, 0, 0] } },
+                        t.statusLabel,
+                        t.idiomaNome || '-',
+                        t.bairro || '-',
+                        t.classeResumo || '-',
+                        String(t.totalEstrangeiros || 0),
+                        t.grupoCodigo || '-'
+                    ]);
+                    return;
+                }
+
                 let textoHistorico = "";
                 let statusTexto = 'Livre';
 
@@ -572,6 +808,9 @@ const Relatorios = () => {
                     t.numeroId,
                     { content: t.nome, styles: { textColor: hasLink ? [0, 0, 255] : [0, 0, 0] } },
                     statusTexto,
+                    t.idiomaNome || '-',
+                    t.bairro || '-',
+                    t.classeResumo || '-',
                     t.progressoTexto,
                     textoHistorico,
                     t.dataUltimaStr,
@@ -582,13 +821,13 @@ const Relatorios = () => {
             autoTable(doc, {
                 head: [tableColumn],
                 body: tableRows,
-                startY: 40,
+                startY: 45,
                 theme: 'grid',
                 styles: { fontSize: 8, cellPadding: 2, valign: 'top' },
                 headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
-                columnStyles: {
-                    4: { cellWidth: 72 }
-                },
+                columnStyles: relatorioAtivo === RELATORIO_ENDERECOS
+                    ? { 1: { cellWidth: 62 } }
+                    : { 7: { cellWidth: 58 } },
                 didDrawCell: (data) => {
                     if (data.section === 'body' && data.column.index === 1) {
                         const t = dadosProcessados[data.row.index];
@@ -601,7 +840,9 @@ const Relatorios = () => {
                 }
             });
 
-            const nomeArquivo = 'Relatorio_Territorios_Idiomas.pdf';
+            const nomeArquivo = relatorioAtivo === RELATORIO_ENDERECOS
+                ? 'Relatorio_Enderecos_Idiomas.pdf'
+                : 'Relatorio_Territorios_Idiomas.pdf';
             const resultadoExportacao = await exportarPdfParaDispositivo(doc, nomeArquivo);
 
             if (resultadoExportacao.modo === 'share') {
@@ -630,17 +871,17 @@ const Relatorios = () => {
         <AppPage>
                 <PageHeader
                     eyebrow="Relatórios"
-                    title="Relatório de Territórios"
-                    subtitle="Gerencie, filtre e veja o histórico com a mesma leitura visual do restante do app."
+                    title={relatorioAtivo === RELATORIO_ENDERECOS ? 'Relatório de Endereços' : 'Relatório de Territórios'}
+                    subtitle="Filtre a base administrativa por idioma, bairro, classe e arquivamento sem alterar os fluxos operacionais."
                     chips={(
                         <>
                             <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
                                 <span>Relatório:</span>
-                                <span>Territórios de idiomas</span>
+                                <span>{relatorioAtivo === RELATORIO_ENDERECOS ? 'Endereços cadastrados' : 'Territórios de idiomas'}</span>
                             </span>
                             <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${temaSistema.panelBg} ${temaSistema.panelText} ${temaSistema.panelBorder}`}>
                                 <span>Fonte</span>
-                                <span>Endereços cadastrados</span>
+                                <span>Firestore atual</span>
                             </span>
                         </>
                     )}
@@ -681,6 +922,25 @@ const Relatorios = () => {
                     )}
                 />
 
+                <div className="mb-6 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                    <button
+                        type="button"
+                        onClick={() => trocarRelatorio(RELATORIO_TERRITORIOS)}
+                        className={`rounded-lg px-4 py-2 text-sm font-extrabold transition ${relatorioAtivo === RELATORIO_TERRITORIOS ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+                    >
+                        Territórios
+                        <span className="ml-2 rounded-md bg-white/20 px-2 py-0.5 text-xs">{territorios.length}</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => trocarRelatorio(RELATORIO_ENDERECOS)}
+                        className={`rounded-lg px-4 py-2 text-sm font-extrabold transition ${relatorioAtivo === RELATORIO_ENDERECOS ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+                    >
+                        Endereços
+                        <span className="ml-2 rounded-md bg-white/20 px-2 py-0.5 text-xs">{enderecosRelatorio.length}</span>
+                    </button>
+                </div>
+
                 {erroCarregamento && (
                     <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -702,36 +962,36 @@ const Relatorios = () => {
                 {/* CARDS DE RESUMO */}
                 <div className="grid grid-cols-2 gap-4 mb-6 md:grid-cols-5">
                     <div onClick={() => aplicarFiltroRapido('total')} className={`${cardBaseClass} cursor-pointer p-4 transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md`}>
-                        <p className="text-xs font-bold text-slate-400 uppercase">Total</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase">Total da visão</p>
                         <p className="text-3xl font-black text-slate-700">{total}</p>
-                        <p className="text-[10px] text-slate-400 mt-1">Clique para ver todos</p>
+                        <p className="text-[10px] text-slate-400 mt-1">Clique para incluir arquivados</p>
                     </div>
-                    <div onClick={() => aplicarFiltroRapido('ocupado')} className="cursor-pointer rounded-2xl border border-blue-100 bg-blue-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-md">
-                        <p className="text-xs font-bold text-blue-400 uppercase">Em trabalho</p>
-                        <p className="text-3xl font-black text-blue-700">{ocupados}</p>
-                        <p className="text-[10px] text-blue-400 mt-1">Clique para filtrar</p>
+                    <div onClick={() => trocarRelatorio(RELATORIO_TERRITORIOS)} className="cursor-pointer rounded-2xl border border-blue-100 bg-blue-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-md">
+                        <p className="text-xs font-bold text-blue-400 uppercase">Territórios</p>
+                        <p className="text-3xl font-black text-blue-700">{territorios.length}</p>
+                        <p className="text-[10px] text-blue-400 mt-1">{ocupados} em trabalho</p>
                     </div>
-                    <div onClick={() => aplicarFiltroRapido('livre')} className="cursor-pointer rounded-2xl border border-green-100 bg-green-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-green-100 hover:shadow-md">
-                        <p className="text-xs font-bold text-green-500 uppercase">Disponíveis</p>
-                        <p className="text-3xl font-black text-green-700">{livres}</p>
-                        <p className="text-[10px] text-green-500 mt-1">Clique para filtrar</p>
+                    <div onClick={() => trocarRelatorio(RELATORIO_ENDERECOS)} className="cursor-pointer rounded-2xl border border-green-100 bg-green-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-green-100 hover:shadow-md">
+                        <p className="text-xs font-bold text-green-500 uppercase">Endereços ativos</p>
+                        <p className="text-3xl font-black text-green-700">{enderecosAtivos}</p>
+                        <p className="text-[10px] text-green-500 mt-1">{enderecosRelatorio.length} cadastrados</p>
                     </div>
-                    <div onClick={() => aplicarFiltroRapido('finalizado')} className="cursor-pointer rounded-2xl border border-emerald-100 bg-emerald-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-emerald-100 hover:shadow-md">
-                        <p className="text-xs font-bold text-emerald-500 uppercase">Finalizados</p>
-                        <p className="text-3xl font-black text-emerald-700">{finalizados}</p>
-                        <p className="text-[10px] text-emerald-500 mt-1">Clique para filtrar</p>
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 shadow-sm">
+                        <p className="text-xs font-bold text-emerald-500 uppercase">Pessoas filtradas</p>
+                        <p className="text-3xl font-black text-emerald-700">{pessoasFiltradas}</p>
+                        <p className="text-[10px] text-emerald-500 mt-1">{finalizados} territórios finalizados</p>
                     </div>
                     <div onClick={() => aplicarFiltroRapido(STATUS_ARQUIVADO)} className="cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md">
                         <p className="text-xs font-bold text-slate-500 uppercase">Arquivados</p>
                         <p className="text-3xl font-black text-slate-700">{arquivados}</p>
-                        <p className="text-[10px] text-slate-500 mt-1">Clique para filtrar</p>
+                        <p className="text-[10px] text-slate-500 mt-1">{livres} territórios disponíveis</p>
                     </div>
                 </div>
 
                 {/* BARRA DE FILTROS */}
                 <div className={`${cardBaseClass} mb-6 p-4`}>
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr),210px,150px,auto] lg:items-end">
-                        <div className="w-full">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr),150px,150px,150px,160px,150px,auto] xl:items-end">
+                        <div className="w-full md:col-span-2 xl:col-span-1">
                             <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
                                 Busca
                             </label>
@@ -739,43 +999,89 @@ const Relatorios = () => {
                                 <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                 </span>
-                                <input type="text" placeholder="Buscar nome, código ou dirigente..." className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                                <input type="text" placeholder="Buscar código, endereço, bairro ou dirigente..." className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={busca} onChange={(e) => setBusca(e.target.value)} />
                             </div>
                         </div>
                         <div className="w-full">
                             <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
                                 Status
                             </label>
-                            <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
-                                <option value="todos">Status: Todos</option>
-                                <option value="livre">Apenas Livres</option>
-                                <option value="ocupado">Em andamento</option>
-                                <option value={TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO}>Aguardando finalização</option>
-                                <option value={TERRITORIO_STATUS.FINALIZADO}>Finalizados</option>
-                                <option value={STATUS_ARQUIVADO}>Arquivados</option>
+                            <select value={statusFiltro} onChange={(e) => alterarStatusFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
+                                <option value={FILTRO_TODOS}>Todos</option>
+                                {relatorioAtivo === RELATORIO_TERRITORIOS ? (
+                                    <>
+                                        <option value="livre">Livres</option>
+                                        <option value="ocupado">Em andamento</option>
+                                        <option value={TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO}>Aguardando finalização</option>
+                                        <option value={TERRITORIO_STATUS.FINALIZADO}>Finalizados</option>
+                                        <option value={STATUS_ARQUIVADO}>Arquivados</option>
+                                    </>
+                                ) : (
+                                    <>
+                                        <option value={ENDERECO_STATUS.ATIVO}>Ativos</option>
+                                        <option value={STATUS_ARQUIVADO}>Arquivados</option>
+                                    </>
+                                )}
                             </select>
                         </div>
                         <div className="w-full">
                             <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
-                                Tempo
+                                Idioma
                             </label>
-                            <select value={tempoFiltro} onChange={(e) => setTempoFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
-                                <option value="todos">Tempo: Todos</option>
-                                <option value="2_meses">+2 Meses</option>
-                                <option value="4_meses">+4 Meses</option>
-                                <option value="6_meses">+6 Meses</option>
+                            <select value={idiomaFiltro} onChange={(e) => setIdiomaFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
+                                <option value={FILTRO_TODOS}>Todos</option>
+                                {opcoesIdioma.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
                             </select>
                         </div>
-                        <div className="w-full lg:w-auto">
-                            <div className="hidden lg:block text-[11px] font-bold uppercase tracking-wide text-transparent mb-1 select-none">
+                        <div className="w-full">
+                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
+                                Bairro
+                            </label>
+                            <select value={bairroFiltro} onChange={(e) => setBairroFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
+                                <option value={FILTRO_TODOS}>Todos</option>
+                                {opcoesBairro.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="w-full">
+                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
+                                Classe
+                            </label>
+                            <select value={classeFiltro} onChange={(e) => setClasseFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
+                                <option value={FILTRO_TODOS}>Todas</option>
+                                {opcoesClasse.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="w-full">
+                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
+                                Arquivados
+                            </label>
+                            <select value={arquivadosFiltro} onChange={(e) => alterarArquivadosFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
+                                <option value={FILTRO_ARQUIVADOS_SEM}>Ocultar</option>
+                                <option value={FILTRO_TODOS}>Incluir</option>
+                                <option value={FILTRO_ARQUIVADOS_SOMENTE}>Somente</option>
+                            </select>
+                        </div>
+                        <div className="w-full xl:w-auto">
+                            <div className="hidden xl:block text-[11px] font-bold uppercase tracking-wide text-transparent mb-1 select-none">
                                 Ações
                             </div>
-                            {(busca || statusFiltro !== 'todos' || tempoFiltro !== 'todos') ? (
+                            {filtrosAtivos ? (
                                 <button onClick={limparFiltros} className="w-full px-3 py-2 bg-red-50 text-red-600 border border-red-100 rounded-lg text-sm hover:bg-red-100 transition-colors flex items-center justify-center gap-1 font-semibold">✕ Limpar</button>
                             ) : (
-                                <div className="hidden lg:block h-[42px]"></div>
+                                <div className="hidden xl:block h-[42px]"></div>
                             )}
                         </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-400">
+                        <span>{dadosProcessados.length} registro{dadosProcessados.length === 1 ? '' : 's'} exibido{dadosProcessados.length === 1 ? '' : 's'}</span>
+                        <span className="text-slate-300">|</span>
+                        <span>{pessoasFiltradas} pessoa{pessoasFiltradas === 1 ? '' : 's'} no filtro atual</span>
                     </div>
                 </div>
 
@@ -823,14 +1129,41 @@ const Relatorios = () => {
                             </div>
 
                             <div className="space-y-2 text-sm text-slate-600 mb-4">
-                                <div className="flex justify-between border-b border-slate-50 pb-1">
-                                    <span className="text-slate-400 text-xs">Responsável</span>
-                                    <span className="font-medium text-right max-w-[60%] truncate">{t.designadoNome || '-'}</span>
-                                </div>
-                                <div className="flex justify-between border-b border-slate-50 pb-1">
-                                    <span className="text-slate-400 text-xs">Designado em</span>
-                                    <span className="font-medium">{t.dataDesigStr}</span>
-                                </div>
+                                {relatorioAtivo === RELATORIO_ENDERECOS ? (
+                                    <>
+                                        <div className="flex justify-between border-b border-slate-50 pb-1">
+                                            <span className="text-slate-400 text-xs">Idioma</span>
+                                            <span className="font-medium text-right max-w-[60%] truncate">{t.idiomaNome || '-'}</span>
+                                        </div>
+                                        <div className="flex justify-between border-b border-slate-50 pb-1">
+                                            <span className="text-slate-400 text-xs">Bairro</span>
+                                            <span className="font-medium text-right max-w-[60%] truncate">{t.bairro || '-'}</span>
+                                        </div>
+                                        <div className="flex justify-between border-b border-slate-50 pb-1">
+                                            <span className="text-slate-400 text-xs">Classe</span>
+                                            <span className="font-medium">{t.classeResumo}</span>
+                                        </div>
+                                        <div className="flex justify-between border-b border-slate-50 pb-1">
+                                            <span className="text-slate-400 text-xs">Território</span>
+                                            <span className="font-medium text-right max-w-[60%] truncate">{t.grupoCodigo || '-'}</span>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="flex justify-between border-b border-slate-50 pb-1">
+                                            <span className="text-slate-400 text-xs">Responsável</span>
+                                            <span className="font-medium text-right max-w-[60%] truncate">{t.designadoNome || '-'}</span>
+                                        </div>
+                                        <div className="flex justify-between border-b border-slate-50 pb-1">
+                                            <span className="text-slate-400 text-xs">Designado em</span>
+                                            <span className="font-medium">{t.dataDesigStr}</span>
+                                        </div>
+                                        <div className="flex justify-between border-b border-slate-50 pb-1">
+                                            <span className="text-slate-400 text-xs">Classe(s)</span>
+                                            <span className="font-medium text-right max-w-[60%]">{t.classeResumo}</span>
+                                        </div>
+                                    </>
+                                )}
                                 {t.resumoOperacional && (
                                     <div className="flex justify-between border-b border-slate-50 pb-1">
                                         <span className="text-slate-400 text-xs">Resumo</span>
@@ -863,15 +1196,17 @@ const Relatorios = () => {
                                 )}
                             </div>
 
-                            <button 
-                                onClick={() => toggleLinha(t.id)}
-                                className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-500 text-xs font-bold uppercase rounded flex items-center justify-center gap-2 transition-colors"
-                            >
-                                {linhasExpandidas.includes(t.id) ? 'Ocultar Histórico' : 'Ver Histórico'}
-                                <span>{linhasExpandidas.includes(t.id) ? '▲' : '▼'}</span>
-                            </button>
+                            {relatorioAtivo === RELATORIO_TERRITORIOS && (
+                                <button
+                                    onClick={() => toggleLinha(t.id)}
+                                    className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-500 text-xs font-bold uppercase rounded flex items-center justify-center gap-2 transition-colors"
+                                >
+                                    {linhasExpandidas.includes(t.id) ? 'Ocultar Histórico' : 'Ver Histórico'}
+                                    <span>{linhasExpandidas.includes(t.id) ? '▲' : '▼'}</span>
+                                </button>
+                            )}
 
-                            {linhasExpandidas.includes(t.id) && (
+                            {relatorioAtivo === RELATORIO_TERRITORIOS && linhasExpandidas.includes(t.id) && (
                                 <div className="mt-3 pt-3 border-t border-slate-100 animate-fade-in">
                                     <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2">Histórico Recente</h4>
                                     {t.historicoLista.length > 0 ? (
@@ -906,30 +1241,52 @@ const Relatorios = () => {
                         <table className="w-full text-left text-sm whitespace-nowrap">
                             <thead className="bg-slate-50 text-slate-500 font-semibold uppercase text-xs">
                                 <tr>
-                                    <th className="px-4 py-3 w-10 text-center cursor-pointer hover:bg-slate-100" onClick={toggleTodas} title="Expandir/Recolher Todos">
-                                        <span className="text-lg font-bold">
-                                            {linhasExpandidas.length > 0 && linhasExpandidas.length === dadosProcessados.length ? '−' : '+'}
-                                        </span>
-                                    </th>
+                                    {relatorioAtivo === RELATORIO_TERRITORIOS && (
+                                        <th className="px-4 py-3 w-10 text-center cursor-pointer hover:bg-slate-100" onClick={toggleTodas} title="Expandir/Recolher Todos">
+                                            <span className="text-lg font-bold">
+                                                {linhasExpandidas.length > 0 && linhasExpandidas.length === dadosProcessados.length ? '−' : '+'}
+                                            </span>
+                                        </th>
+                                    )}
                                     <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('numeroId')}>Cód. {getSortIcon('numeroId')}</th>
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('nome')}>Nome {getSortIcon('nome')}</th>
+                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('nome')}>{relatorioAtivo === RELATORIO_ENDERECOS ? 'Endereço' : 'Nome'} {getSortIcon('nome')}</th>
                                     <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('status')}>Status {getSortIcon('status')}</th>
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('porcentagem')}>Progresso {getSortIcon('porcentagem')}</th>
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('designadoNome')}>Responsável {getSortIcon('designadoNome')}</th>
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataDesigObj')}>Designado em {getSortIcon('dataDesigObj')}</th>
-                                    <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataUltimaObj')}>Conclusão {getSortIcon('dataUltimaObj')}</th>
-                                    <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('diasParado')}>Tempo Parado {getSortIcon('diasParado')}</th>
+                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('idiomaNome')}>Idioma {getSortIcon('idiomaNome')}</th>
+                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('bairro')}>Bairro {getSortIcon('bairro')}</th>
+                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('classeResumo')}>Classe {getSortIcon('classeResumo')}</th>
+                                    {relatorioAtivo === RELATORIO_TERRITORIOS ? (
+                                        <>
+                                            <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('porcentagem')}>Progresso {getSortIcon('porcentagem')}</th>
+                                            <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('designadoNome')}>Responsável {getSortIcon('designadoNome')}</th>
+                                            <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataDesigObj')}>Designado em {getSortIcon('dataDesigObj')}</th>
+                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataUltimaObj')}>Conclusão {getSortIcon('dataUltimaObj')}</th>
+                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('diasParado')}>Tempo Parado {getSortIcon('diasParado')}</th>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('totalEstrangeiros')}>Pessoas {getSortIcon('totalEstrangeiros')}</th>
+                                            <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('grupoCodigo')}>Território {getSortIcon('grupoCodigo')}</th>
+                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataUltimaObj')}>Atualização {getSortIcon('dataUltimaObj')}</th>
+                                        </>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {dadosProcessados.map((t) => (
                                     <React.Fragment key={t.id}>
-                                        <tr className={`hover:bg-slate-50 transition-colors cursor-pointer ${linhasExpandidas.includes(t.id) ? 'bg-blue-50' : ''}`} onClick={() => toggleLinha(t.id)}>
-                                            <td className="px-4 py-3 text-center text-slate-400">
-                                                {t.historicoLista.length > 0
-                                                    ? (linhasExpandidas.includes(t.id) ? '▼' : '▶')
-                                                    : <span className="opacity-20">●</span>}
-                                            </td>
+                                        <tr
+                                            className={`hover:bg-slate-50 transition-colors ${relatorioAtivo === RELATORIO_TERRITORIOS ? 'cursor-pointer' : ''} ${linhasExpandidas.includes(t.id) ? 'bg-blue-50' : ''}`}
+                                            onClick={() => {
+                                                if (relatorioAtivo === RELATORIO_TERRITORIOS) toggleLinha(t.id);
+                                            }}
+                                        >
+                                            {relatorioAtivo === RELATORIO_TERRITORIOS && (
+                                                <td className="px-4 py-3 text-center text-slate-400">
+                                                    {t.historicoLista.length > 0
+                                                        ? (linhasExpandidas.includes(t.id) ? '▼' : '▶')
+                                                        : <span className="opacity-20">●</span>}
+                                                </td>
+                                            )}
                                             <td className="px-4 py-3 text-xs font-mono text-slate-400 font-bold">{t.numeroId}</td>
                                             
                                             <td className="px-4 py-3 font-bold text-slate-700">
@@ -965,26 +1322,38 @@ const Relatorios = () => {
                                                     <span className={`inline-flex items-center justify-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase min-w-[100px] ${t.statusBadgeClass}`}>{t.statusLabel}</span>
                                                 )}
                                             </td>
-                                            <td className="px-4 py-3 text-xs font-semibold text-slate-600">{t.progressoTexto}</td>
-                                            <td className="px-4 py-3 text-slate-600">
-                                                {t.designadoNome || '-'}
-                                                {(t.status === 'ocupado' || t.status === TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO) && t.cicloAtual && t.cicloAtual.responsaveis && t.cicloAtual.responsaveis.length > 1 && (
-                                                    <span className="text-[10px] text-blue-500 ml-1">(+ {t.cicloAtual.responsaveis.length - 1} outros)</span>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-500 text-xs">{t.dataDesigStr}</td>
-                                            <td className="px-4 py-3 text-right text-slate-500 text-xs">{t.dataUltimaStr}</td>
-
-                                            <td className="px-4 py-3 text-right">
-                                                <span className={`px-2 py-1 rounded text-xs font-bold ${getCorTempo(t.diasParado)}`}>
-                                                    {formatarTempoTerritorio(t)}
-                                                </span>
-                                            </td>
+                                            <td className="px-4 py-3 text-xs font-semibold text-slate-600">{t.idiomaNome || '-'}</td>
+                                            <td className="px-4 py-3 text-xs text-slate-600">{t.bairro || '-'}</td>
+                                            <td className="px-4 py-3 text-xs text-slate-600">{t.classeResumo || '-'}</td>
+                                            {relatorioAtivo === RELATORIO_TERRITORIOS ? (
+                                                <>
+                                                    <td className="px-4 py-3 text-xs font-semibold text-slate-600">{t.progressoTexto}</td>
+                                                    <td className="px-4 py-3 text-slate-600">
+                                                        {t.designadoNome || '-'}
+                                                        {(t.status === 'ocupado' || t.status === TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO) && t.cicloAtual && t.cicloAtual.responsaveis && t.cicloAtual.responsaveis.length > 1 && (
+                                                            <span className="text-[10px] text-blue-500 ml-1">(+ {t.cicloAtual.responsaveis.length - 1} outros)</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-slate-500 text-xs">{t.dataDesigStr}</td>
+                                                    <td className="px-4 py-3 text-right text-slate-500 text-xs">{t.dataUltimaStr}</td>
+                                                    <td className="px-4 py-3 text-right">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${getCorTempo(t.diasParado)}`}>
+                                                            {formatarTempoTerritorio(t)}
+                                                        </span>
+                                                    </td>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <td className="px-4 py-3 text-right text-xs font-semibold text-slate-600">{t.totalEstrangeiros}</td>
+                                                    <td className="px-4 py-3 text-xs text-slate-600">{t.grupoCodigo || '-'}</td>
+                                                    <td className="px-4 py-3 text-right text-slate-500 text-xs">{t.dataUltimaStr}</td>
+                                                </>
+                                            )}
                                         </tr>
 
-                                        {linhasExpandidas.includes(t.id) && (
+                                        {relatorioAtivo === RELATORIO_TERRITORIOS && linhasExpandidas.includes(t.id) && (
                                             <tr className="bg-slate-50 animate-fade-in">
-                                                <td colSpan="9" className="p-0">
+                                                <td colSpan="12" className="p-0">
                                                     <div className="p-4 border-b border-slate-200 shadow-inner">
                                                         <div className="bg-white rounded-lg border border-slate-200 p-3">
                                                             <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
@@ -1025,7 +1394,7 @@ const Relatorios = () => {
                                     </React.Fragment>
                                 ))}
                                 {dadosProcessados.length === 0 && (
-                                    <tr><td colSpan="9" className="p-8 text-center text-slate-400">Nenhum território encontrado com os filtros atuais.</td></tr>
+                                    <tr><td colSpan={relatorioAtivo === RELATORIO_TERRITORIOS ? 12 : 9} className="p-8 text-center text-slate-400">Nenhum registro encontrado com os filtros atuais.</td></tr>
                                 )}
                             </tbody>
                         </table>
