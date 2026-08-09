@@ -383,6 +383,11 @@ async function main() {
             user: adminUser
         });
 
+        await getAdminFirestore()
+            .collection('grupos_enderecos')
+            .doc(grupo.id)
+            .update({ status: FieldValue.delete() });
+
         const meusGrupos = await getDocs(query(
             collection(publicadorClient.db, 'grupos_enderecos'),
             where('designadoPara', '==', publicadorInfo.email)
@@ -432,6 +437,8 @@ async function main() {
             enderecoId: enderecoA.id,
             user: publicadorUser
         });
+        const grupoAposPrimeiroToggle = await getDoc(getGrupoEnderecoRef(publicadorClient.db, grupo.id));
+        assert(grupoAposPrimeiroToggle.data()?.status === 'ativo', 'Toggle deveria normalizar status ativo em grupo legado.');
         await toggleEnderecoVisitadoGrupo(publicadorClient.db, {
             grupoId: grupo.id,
             enderecoId: enderecoB.id,

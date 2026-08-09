@@ -375,6 +375,7 @@ service cloud.firestore {
     function camposProgressoGrupoEndereco() {
       return [
         'enderecos_visitados',
+        'status',
         'ultimaAlteracao',
         'atualizadoEm',
         'atualizadoPor'
@@ -441,11 +442,20 @@ service cloud.firestore {
              resource.data.enderecos_visitados.hasOnly(resource.data.enderecoIds);
     }
 
+    function statusGrupoEnderecoExecutavel() {
+      return (
+               !('status' in resource.data) ||
+               resource.data.status == null ||
+               resource.data.status == 'ativo'
+             ) &&
+             request.resource.data.status == 'ativo';
+    }
+
     function podeAtualizarProgressoGrupoEnderecoDesignado() {
       return camposAlteradosApenas(camposProgressoGrupoEndereco()) &&
              enderecosVisitadosGrupoEnderecoValidos() &&
              metadadosExecucaoGrupoEnderecoValidos() &&
-             request.resource.data.status == 'ativo' &&
+             statusGrupoEnderecoExecutavel() &&
              mantemDesignacaoGrupoEndereco() &&
              request.resource.data.historico == resource.data.historico &&
              request.resource.data.ultimaConclusao == resource.data.ultimaConclusao;
@@ -465,7 +475,11 @@ service cloud.firestore {
     function podeAtualizarGrupoEnderecoDesignado() {
       return isAprovado() &&
              resource.data.designadoPara == meuEmail() &&
-             resource.data.status == 'ativo' &&
+             (
+               !('status' in resource.data) ||
+               resource.data.status == null ||
+               resource.data.status == 'ativo'
+             ) &&
              mantemEstruturaGrupoEndereco() &&
              (
                podeAtualizarProgressoGrupoEnderecoDesignado() ||
