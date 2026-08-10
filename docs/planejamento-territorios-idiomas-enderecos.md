@@ -12,7 +12,7 @@ O territorio designavel para o publicador passa a ser um grupo de enderecos prox
 
 ## Status atual da implementacao
 
-Atualizado em 2026-07-21. Complemento local em 2026-08-09: busca manual de endereco por OpenStreetMap/Nominatim adicionada ao MVP controlado, ainda sem publicacao/deploy nesta etapa.
+Atualizado em 2026-07-21. Complementos em 2026-08-09/10: busca manual de endereco por OpenStreetMap/Nominatim adicionada ao MVP controlado, com area regional configuravel na administracao.
 
 Ja implementado e publicado em Firebase Hosting/Firestore (`territ-es-sul-sbs`, site `territ-es-sbs`, ultima versao publicada confirmada neste plano: `3.0.340`):
 
@@ -55,7 +55,7 @@ Ainda pendente para fechar o plano completo:
 - relatorios de enderecos/grupos;
 - importador de enderecos idempotente para semear enderecos/grupos futuramente;
 - modo offline removido; execucao de grupos e territorios/quadras segue online-first;
-- validacao visual/publicacao da busca manual de endereco no mapa com OpenStreetMap/Nominatim, agora tratada como MVP controlado: sem autocomplete, por botao/Enter, limitado a Sao Bento do Sul/SC/Brasil, com cache local e throttle minimo no cliente.
+- validacao visual da busca manual de endereco no mapa com OpenStreetMap/Nominatim, agora tratada como MVP controlado: sem autocomplete, por botao/Enter, limitado a regiao atendida configurada, com cache local e throttle minimo no cliente.
 
 ## Decisao de modelo
 
@@ -231,8 +231,10 @@ MVP controlado para reduzir atrito no cadastro manual:
 
 - barra `Buscar endereco` visivel para admin no mapa;
 - consulta somente por botao `Buscar` ou Enter, sem autocomplete;
-- provider inicial: OpenStreetMap/Nominatim publico, com query reforcada por Sao Bento do Sul/SC/Brasil e ate 5 resultados;
-- limite geografico inicial do Nominatim: viewbox de Sao Bento do Sul em torno de longitudes `-49.x` e latitudes `-26.x`, configuravel por `VITE_ADDRESS_SEARCH_VIEWBOX_*`;
+- provider inicial: OpenStreetMap/Nominatim publico, com query reforcada pela primeira cidade atendida/UF configurada quando o usuario nao informa uma cidade atendida, e ate 7 resultados;
+- limite geografico inicial do Nominatim: areas separadas por municipio, com preset para Sao Bento do Sul, Campo Alegre e Rio Negrinho; `VITE_ADDRESS_SEARCH_VIEWBOX_*` fica como fallback tecnico;
+- configuracao administrativa da area de busca: UF por dropdown, municipios por lista/autocomplete do IBGE, margem em km por cidade e viewbox consolidada apenas para conferencia;
+- municipios fora do preset tentam obter `boundingbox` via Nominatim no momento em que o admin adiciona a cidade, sem autocomplete de geocoding textual;
 - uso leve no browser com cache em `sessionStorage` por texto normalizado e throttle minimo de 1 segundo entre chamadas reais;
 - resultado escolhido centraliza o mapa, cria um pin temporario distinto e libera `Cadastrar neste ponto`;
 - admin pode ajustar o ponto depois, escolhendo outro local no mapa antes de cadastrar;

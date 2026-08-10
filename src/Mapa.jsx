@@ -1545,7 +1545,7 @@ const GrupoEnderecosModal = ({
     );
 };
 
-const AddressSearchControl = ({ isOnline, onSelect }) => {
+const AddressSearchControl = ({ isOnline, searchConfig, onSelect }) => {
     const map = useMap();
     const controlRef = useLeafletDomEventIsolation();
     const { notify } = useUiFeedback();
@@ -1586,9 +1586,14 @@ const AddressSearchControl = ({ isOnline, onSelect }) => {
         setSelectedId('');
 
         try {
-            const found = await searchAddresses(text, { signal: controller.signal });
+            const found = await searchAddresses(text, { signal: controller.signal, searchConfig });
             setResults(found);
-            setMessage(found.length ? '' : 'Nenhum resultado encontrado em São Bento do Sul.');
+            if (found.length === 1 && found[0].origem === 'coordenadas') {
+                selecionarResultado(found[0]);
+                setMessage('Coordenadas localizadas no mapa.');
+                return;
+            }
+            setMessage(found.length ? '' : 'Nenhum resultado encontrado na região atendida.');
         } catch (error) {
             if (error?.name === 'AbortError') return;
             console.error('Erro ao buscar endereço:', error);
@@ -1686,7 +1691,7 @@ const PontoMapaClicado = ({ ponto, canCreate, onCreate, onShare, onClose }) => {
                         Compartilhar localização
                     </button>
                     {canCreate && (
-                        <button onClick={onCreate} className="popup-btn-action bg-teal-700 text-white hover:bg-teal-800">
+                        <button onClick={() => onCreate(ponto)} className="popup-btn-action bg-teal-700 text-white hover:bg-teal-800">
                             {isSearchPoint ? 'Cadastrar neste ponto' : 'Cadastrar endereço'}
                         </button>
                     )}
@@ -4994,6 +4999,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                     {isAdmin && (
                         <AddressSearchControl
                             isOnline={isOnline}
+                            searchConfig={enderecoConfigNormalizada.buscaEndereco}
                             onSelect={selecionarResultadoBuscaEndereco}
                         />
                     )}

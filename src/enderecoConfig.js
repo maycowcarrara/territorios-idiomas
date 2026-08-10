@@ -8,6 +8,7 @@ import {
     normalizeCodigoManual,
     normalizeEnderecoClasse
 } from './enderecoModel.js';
+import { DEFAULT_ADDRESS_SEARCH_CONFIG, normalizeAddressSearchConfig } from './addressSearchConfig.js';
 
 export const ENDERECO_CONFIG_COLLECTION = 'configuracoes';
 export const ENDERECO_CONFIG_DOC_ID = 'cadastros_enderecos';
@@ -24,6 +25,7 @@ export const DEFAULT_ENDERECO_CONFIG = Object.freeze({
     quantidadeEstrangeirosPadrao: 1,
     cidadePadrao: 'Sao Bento do Sul',
     ufPadrao: 'SC',
+    buscaEndereco: DEFAULT_ADDRESS_SEARCH_CONFIG,
     idiomas: [
         {
             id: IDIOMA_PADRAO_ENDERECOS.id,
@@ -118,6 +120,7 @@ export function normalizeEnderecoConfig(data = {}) {
         ),
         cidadePadrao: normalizeText(data.cidadePadrao, DEFAULT_ENDERECO_CONFIG.cidadePadrao, 120),
         ufPadrao: normalizeText(data.ufPadrao, DEFAULT_ENDERECO_CONFIG.ufPadrao, 2).toUpperCase(),
+        buscaEndereco: normalizeAddressSearchConfig(data.buscaEndereco),
         idiomas,
         tiposEndereco
     };
