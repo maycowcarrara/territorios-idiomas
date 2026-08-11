@@ -270,16 +270,31 @@ service cloud.firestore {
              );
     }
 
-    function podeAtualizarEndereco() {
+    function camposAdminOperacionaisEndereco() {
+      return [
+        'status',
+        'grupoId',
+        'grupoCodigo',
+        'grupoDesignadoPara',
+        'idiomaId',
+        'idiomaNome',
+        'bairro',
+        'endereco',
+        'informacao',
+        'quantidadeEstrangeiros',
+        'observacao',
+        'classe',
+        'atualizadoEm',
+        'atualizadoPor',
+        'arquivadoEm',
+        'arquivadoPor'
+      ];
+    }
+
+    function atualizacaoAdminOperacionalEnderecoValida() {
       return isAdmin() &&
-             enderecoDocumentoValido() &&
-             request.resource.data.codigo == resource.data.codigo &&
-             request.resource.data.lat == resource.data.lat &&
-             request.resource.data.lng == resource.data.lng &&
-             request.resource.data.origem == resource.data.origem &&
-             request.resource.data.importacaoId == resource.data.importacaoId &&
-             request.resource.data.criadoEm == resource.data.criadoEm &&
-             request.resource.data.criadoPor == resource.data.criadoPor &&
+             camposAlteradosApenas(camposAdminOperacionaisEndereco()) &&
+             request.resource.data.atualizadoEm is timestamp &&
              request.resource.data.atualizadoPor == meuEmail();
     }
 
@@ -351,11 +366,38 @@ service cloud.firestore {
              request.resource.data.arquivadoPor == null;
     }
 
-    function atualizacaoAdminGrupoEnderecoValida() {
-      return grupoEnderecoDocumentoValido() &&
-             request.resource.data.codigo == resource.data.codigo &&
-             request.resource.data.criadoEm == resource.data.criadoEm &&
-             request.resource.data.criadoPor == resource.data.criadoPor &&
+    function camposAdminOperacionaisGrupoEndereco() {
+      return [
+        'idiomaId',
+        'idiomaNome',
+        'bairro',
+        'nome',
+        'status',
+        'enderecoIds',
+        'totalEnderecos',
+        'totalEstrangeiros',
+        'centro',
+        'bounds',
+        'designadoPara',
+        'designadoNome',
+        'dataDesignacao',
+        'designacaoId',
+        'cicloAtual',
+        'enderecos_visitados',
+        'historico',
+        'ultimaConclusao',
+        'ultimaAlteracao',
+        'atualizadoEm',
+        'atualizadoPor',
+        'arquivadoEm',
+        'arquivadoPor'
+      ];
+    }
+
+    function atualizacaoAdminOperacionalGrupoEnderecoValida() {
+      return isAdmin() &&
+             camposAlteradosApenas(camposAdminOperacionaisGrupoEndereco()) &&
+             request.resource.data.atualizadoEm is timestamp &&
              request.resource.data.atualizadoPor == meuEmail();
     }
 
@@ -473,9 +515,9 @@ service cloud.firestore {
     }
 
     function podeAtualizarGrupoEnderecoDesignado() {
-      return isAprovado() &&
+      return !isAdmin() &&
+             isAprovado() &&
              (
-               isAdmin() ||
                resource.data.designadoPara == meuEmail()
              ) &&
              (
@@ -715,14 +757,15 @@ service cloud.firestore {
     match /enderecos/{enderecoId} {
       allow read: if podeLerEndereco(enderecoId);
       allow create: if podeCriarEndereco();
-      allow update: if podeLimparDesignacaoEndereco(enderecoId) || podeAtualizarEndereco();
+      allow update: if podeLimparDesignacaoEndereco(enderecoId) ||
+                       atualizacaoAdminOperacionalEnderecoValida();
       allow delete: if false;
     }
 
     match /grupos_enderecos/{grupoId} {
       allow read: if podeLerGrupoEndereco();
       allow create: if podeCriarGrupoEndereco();
-      allow update: if isAdmin() && atualizacaoAdminGrupoEnderecoValida();
+      allow update: if atualizacaoAdminOperacionalGrupoEnderecoValida();
       allow update: if podeAtualizarGrupoEnderecoDesignado();
       allow delete: if false;
     }

@@ -505,6 +505,58 @@ async function main() {
         });
         const grupoAdminRedesignado = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoAdminFinalizaLegado.id));
         assert(grupoAdminRedesignado.data()?.designadoPara === outroInfo.email, 'Grupo disponibilizado deveria aceitar nova designação.');
+
+        const legacyEnderecoId = 'e_legacy_admin_disponibilizar';
+        const legacyGrupoId = 'g_legacy_admin_disponibilizar';
+        await getAdminFirestore()
+            .collection('enderecos')
+            .doc(legacyEnderecoId)
+            .set({
+                codigo: 'ES-SBS-998',
+                status: 'ativo',
+                grupoId: legacyGrupoId,
+                grupoCodigo: 'ES-SBS-T998',
+                grupoDesignadoPara: outroInfo.email,
+                lat: -10.187,
+                lng: -48.338,
+                endereco: 'Rua Smoke Legado Disponibilizar, 998',
+                quantidadeEstrangeiros: 1,
+                origem: 'manual',
+                atualizadoEm: new Date(),
+                atualizadoPor: adminInfo.email,
+                campoLegado: true
+            });
+        await getAdminFirestore()
+            .collection('grupos_enderecos')
+            .doc(legacyGrupoId)
+            .set({
+                codigo: 'ES-SBS-T998',
+                nome: 'Grupo Smoke Legado Disponibilizar',
+                status: 'finalizado',
+                enderecoIds: [legacyEnderecoId],
+                totalEnderecos: 1,
+                totalEstrangeiros: 1,
+                designadoPara: null,
+                designadoNome: null,
+                dataDesignacao: null,
+                designacaoId: null,
+                cicloAtual: null,
+                enderecos_visitados: [],
+                historico: [],
+                ultimaConclusao: new Date(),
+                atualizadoEm: new Date(),
+                atualizadoPor: adminInfo.email,
+                campoLegado: true
+            });
+        await devolverGrupoEndereco(adminClient.db, {
+            grupoId: legacyGrupoId,
+            user: adminUser
+        });
+        const grupoLegadoDisponibilizado = await getDoc(getGrupoEnderecoRef(adminClient.db, legacyGrupoId));
+        const enderecoLegadoDisponibilizado = await getDoc(getEnderecoRef(adminClient.db, legacyEnderecoId));
+        assert(grupoLegadoDisponibilizado.data()?.status === 'ativo', 'Admin deveria disponibilizar grupo legado mesmo sem metadados de criação.');
+        assert(enderecoLegadoDisponibilizado.data()?.grupoDesignadoPara === null, 'Admin deveria limpar designação de endereço legado com campo extra.');
+
         await expectDomainBlocked('trocar idioma de endereço agrupado', () => (
             updateEnderecoBasico(adminClient.db, enderecoA.id, {
                 lat: -10.1841,
