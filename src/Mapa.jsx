@@ -294,6 +294,7 @@ const cssTooltip = `
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button { top: 7px; right: 7px; width: 22px; height: 22px; border-radius: 999px; color: #64748b; font-size: 16px; line-height: 21px; transition: background-color 0.2s, color 0.2s; }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button:hover { background: rgba(15,23,42,0.08); color: #0f172a; }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-tip { box-shadow: 0 8px 18px rgba(15,23,42,0.16); }
+  .leaflet-popup-pane { z-index: 760; }
   .address-admin-actions { display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); transition: grid-template-rows 180ms ease, opacity 160ms ease, transform 180ms ease; }
   .address-admin-actions.open { grid-template-rows: 1fr; opacity: 1; transform: translateY(0); }
   .address-admin-actions-inner { min-height: 0; overflow: hidden; }
@@ -1559,6 +1560,15 @@ const AddressSearchControl = ({ isOnline, searchConfig, onSelect }) => {
 
     useEffect(() => () => abortRef.current?.abort(), []);
 
+    useEffect(() => {
+        const closeMobileSearch = () => setMobileSearchOpen(false);
+        map.on('popupopen', closeMobileSearch);
+
+        return () => {
+            map.off('popupopen', closeMobileSearch);
+        };
+    }, [map]);
+
     const handleSubmit = async (event) => {
         event.preventDefault();
         const text = query.trim();
@@ -1619,7 +1629,7 @@ const AddressSearchControl = ({ isOnline, searchConfig, onSelect }) => {
     };
 
     return (
-        <div ref={controlRef} className="pointer-events-auto absolute left-3 right-3 top-4 z-[350] max-w-[440px] sm:right-auto" onClick={stopMapDomEvent}>
+        <div ref={controlRef} className="pointer-events-auto absolute left-3 right-3 top-4 z-[650] max-w-[440px] sm:right-auto" onClick={stopMapDomEvent}>
             <button
                 type="button"
                 onClick={() => setMobileSearchOpen(true)}
