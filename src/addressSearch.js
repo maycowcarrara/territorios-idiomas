@@ -46,6 +46,9 @@ const isInsideSearchViewbox = ({ lat, lng }, searchConfig = ADDRESS_SEARCH_DEFAU
 
 const normalizeCoordinateNumber = (value) => Number.parseFloat(String(value || '').replace(',', '.'));
 
+const COORDINATE_DECIMAL_COMMA_PAIR_PATTERN = /(-?\d{1,3},\d+)\s*(?:[,;/|]|\s)\s*(-?\d{1,3},\d+)/;
+const COORDINATE_DECIMAL_POINT_PAIR_PATTERN = /(-?\d{1,3}(?:\.\d+)?)\s*(?:[,;/|]|\s)\s*(-?\d{1,3}(?:\.\d+)?)/;
+
 const buildCoordinateResult = (lat, lng) => ({
     id: `coord-${lat.toFixed(7)}-${lng.toFixed(7)}`,
     label: `Coordenadas: ${lat.toFixed(6)}, ${lng.toFixed(6)}`,
@@ -78,13 +81,13 @@ export const parseAddressCoordinates = (value, runtimeSearchConfig) => {
     const raw = String(value || '').trim();
     if (!raw) return null;
 
-    const decimalCommaMatch = raw.match(/(-?\d{1,3},\d+)\s+(-?\d{1,3},\d+)/);
+    const decimalCommaMatch = raw.match(COORDINATE_DECIMAL_COMMA_PAIR_PATTERN);
     if (decimalCommaMatch) {
         const pair = resolveCoordinatePair(decimalCommaMatch[1], decimalCommaMatch[2], searchConfig);
         return pair ? buildCoordinateResult(pair.lat, pair.lng) : null;
     }
 
-    const decimalPointMatch = raw.match(/(-?\d{1,3}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)/);
+    const decimalPointMatch = raw.match(COORDINATE_DECIMAL_POINT_PAIR_PATTERN);
     if (decimalPointMatch) {
         const pair = resolveCoordinatePair(decimalPointMatch[1], decimalPointMatch[2], searchConfig);
         return pair ? buildCoordinateResult(pair.lat, pair.lng) : null;

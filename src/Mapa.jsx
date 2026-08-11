@@ -1555,6 +1555,7 @@ const AddressSearchControl = ({ isOnline, searchConfig, onSelect }) => {
     const [selectedId, setSelectedId] = useState('');
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('');
+    const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
     useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -1614,11 +1615,26 @@ const AddressSearchControl = ({ isOnline, searchConfig, onSelect }) => {
             duration: 0.9
         });
         onSelect(result);
+        setMobileSearchOpen(false);
     };
 
     return (
-        <div ref={controlRef} className="pointer-events-auto absolute left-3 right-3 top-4 z-[500] max-w-[440px] sm:right-auto" onClick={stopMapDomEvent}>
-            <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur">
+        <div ref={controlRef} className="pointer-events-auto absolute left-3 right-3 top-4 z-[350] max-w-[440px] sm:right-auto" onClick={stopMapDomEvent}>
+            <button
+                type="button"
+                onClick={() => setMobileSearchOpen(true)}
+                className={`flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-xl transition duration-150 hover:bg-slate-50 sm:hidden ${mobileSearchOpen ? 'pointer-events-none scale-90 opacity-0' : 'scale-100 opacity-100'}`}
+                aria-label="Abrir busca de endereço"
+                title="Buscar endereço"
+            >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35m1.1-5.15a6.25 6.25 0 1 1-12.5 0 6.25 6.25 0 0 1 12.5 0Z" />
+                </svg>
+            </button>
+            <form
+                onSubmit={handleSubmit}
+                className={`absolute left-0 right-0 top-0 origin-top-left rounded-lg border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur transition duration-150 ease-out sm:static sm:pointer-events-auto sm:scale-100 sm:opacity-100 ${mobileSearchOpen ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-95 opacity-0'}`}
+            >
                 <div className="flex gap-2">
                     <input
                         type="search"
@@ -1633,6 +1649,15 @@ const AddressSearchControl = ({ isOnline, searchConfig, onSelect }) => {
                         className="rounded-md bg-teal-700 px-3 py-2 text-sm font-extrabold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-wait disabled:bg-teal-400"
                     >
                         {loading ? 'Buscando' : 'Buscar'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setMobileSearchOpen(false)}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 sm:hidden"
+                        aria-label="Fechar busca de endereço"
+                        title="Fechar"
+                    >
+                        <span aria-hidden="true" className="text-lg font-black leading-none">×</span>
                     </button>
                 </div>
                 {message && (
@@ -2445,78 +2470,86 @@ const GrupoEnderecoLayer = ({
                                                     Sem responsável
                                                 </div>
                                             )}
-                                            <select
-                                                className="mb-2 w-full rounded-lg border border-slate-300 bg-white p-2 text-xs font-semibold outline-none disabled:bg-slate-100"
-                                                value={usuarioSelecionado}
-                                                onChange={(event) => {
-                                                    setUsuarioSelecionado(event.target.value);
-                                                    setMensagemDesignacaoPronta(null);
-                                                }}
-                                                disabled={loadingAction || !isOnline}
-                                            >
-                                                <option value="">Escolher publicador</option>
-                                                {listaUsuarios.map((usuario) => (
-                                                    <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
-                                                ))}
-                                            </select>
-                                            <button
-                                                onClick={() => executarAcaoGrupo(designarTerritorio)}
-                                                disabled={!usuarioSelecionado || loadingAction || !isOnline}
-                                                className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
-                                            >
-                                                {loadingAction ? 'Salvando...' : 'Designar território'}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setConviteAberto((aberto) => !aberto)}
-                                                disabled={loadingAction || !isOnline}
-                                                className="mt-2 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-extrabold text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
-                                            >
-                                                {conviteAberto ? 'Fechar envio para nova pessoa' : 'Enviar para nova pessoa'}
-                                            </button>
-                                            {conviteAberto && (
-                                                <div className="mt-2 rounded-lg border border-indigo-100 bg-white p-2">
-                                                    <input
-                                                        type="text"
-                                                        className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
-                                                        placeholder="Nome"
-                                                        value={conviteNome}
-                                                        onChange={(event) => setConviteNome(event.target.value)}
+                                            {finalizado ? (
+                                                <div className="mb-2 rounded-md border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-center text-xs font-bold text-emerald-700">
+                                                    Disponibilize o território antes de uma nova designação.
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <select
+                                                        className="mb-2 w-full rounded-lg border border-slate-300 bg-white p-2 text-xs font-semibold outline-none disabled:bg-slate-100"
+                                                        value={usuarioSelecionado}
+                                                        onChange={(event) => {
+                                                            setUsuarioSelecionado(event.target.value);
+                                                            setMensagemDesignacaoPronta(null);
+                                                        }}
                                                         disabled={loadingAction || !isOnline}
-                                                    />
-                                                    <input
-                                                        type="email"
-                                                        className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
-                                                        placeholder="E-mail"
-                                                        value={conviteEmail}
-                                                        onChange={(event) => setConviteEmail(event.target.value)}
-                                                        disabled={loadingAction || !isOnline}
-                                                    />
-                                                    <input
-                                                        type="tel"
-                                                        className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
-                                                        placeholder="WhatsApp"
-                                                        value={conviteWhatsapp}
-                                                        onChange={(event) => setConviteWhatsapp(event.target.value)}
-                                                        disabled={loadingAction || !isOnline}
-                                                    />
+                                                    >
+                                                        <option value="">Escolher publicador</option>
+                                                        {listaUsuarios.map((usuario) => (
+                                                            <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
+                                                        ))}
+                                                    </select>
                                                     <button
-                                                        type="button"
-                                                        onClick={() => executarAcaoGrupo(convidarEDesignarTerritorio)}
-                                                        disabled={!isValidUsuarioEmail(conviteEmail) || !conviteWhatsapp.replace(/\D/g, '') || !isValidWhatsappDigits(conviteWhatsapp) || loadingAction || !isOnline}
+                                                        onClick={() => executarAcaoGrupo(designarTerritorio)}
+                                                        disabled={!usuarioSelecionado || loadingAction || !isOnline}
                                                         className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
                                                     >
-                                                        {loadingAction ? 'Salvando...' : 'Liberar acesso e preparar WhatsApp'}
+                                                        {loadingAction ? 'Salvando...' : 'Designar território'}
                                                     </button>
-                                                </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setConviteAberto((aberto) => !aberto)}
+                                                        disabled={loadingAction || !isOnline}
+                                                        className="mt-2 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-extrabold text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
+                                                    >
+                                                        {conviteAberto ? 'Fechar envio para nova pessoa' : 'Enviar para nova pessoa'}
+                                                    </button>
+                                                    {conviteAberto && (
+                                                        <div className="mt-2 rounded-lg border border-indigo-100 bg-white p-2">
+                                                            <input
+                                                                type="text"
+                                                                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                                placeholder="Nome"
+                                                                value={conviteNome}
+                                                                onChange={(event) => setConviteNome(event.target.value)}
+                                                                disabled={loadingAction || !isOnline}
+                                                            />
+                                                            <input
+                                                                type="email"
+                                                                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                                placeholder="E-mail"
+                                                                value={conviteEmail}
+                                                                onChange={(event) => setConviteEmail(event.target.value)}
+                                                                disabled={loadingAction || !isOnline}
+                                                            />
+                                                            <input
+                                                                type="tel"
+                                                                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                                placeholder="WhatsApp"
+                                                                value={conviteWhatsapp}
+                                                                onChange={(event) => setConviteWhatsapp(event.target.value)}
+                                                                disabled={loadingAction || !isOnline}
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => executarAcaoGrupo(convidarEDesignarTerritorio)}
+                                                                disabled={!isValidUsuarioEmail(conviteEmail) || !conviteWhatsapp.replace(/\D/g, '') || !isValidWhatsappDigits(conviteWhatsapp) || loadingAction || !isOnline}
+                                                                className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
+                                                            >
+                                                                {loadingAction ? 'Salvando...' : 'Liberar acesso e preparar WhatsApp'}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </>
                                             )}
-                                            {grupo.designadoPara && (
+                                            {(grupo.designadoPara || finalizado) && (
                                                 <button
                                                     onClick={() => executarAcaoGrupo(() => onDevolver(grupo))}
                                                     disabled={loadingAction || !isOnline}
-                                                    className="mt-2 w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-extrabold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                                                    className={`mt-2 w-full rounded-lg border px-3 py-2 text-xs font-extrabold transition disabled:opacity-50 ${finalizado ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-red-200 bg-white text-red-700 hover:bg-red-50'}`}
                                                 >
-                                                    Devolver território
+                                                    {finalizado ? 'Disponibilizar território' : 'Devolver território'}
                                                 </button>
                                             )}
                                         </>
@@ -4818,11 +4851,14 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         }
 
         const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id);
+        const finalizado = grupo.status === GRUPO_ENDERECO_STATUS.FINALIZADO;
         const confirmar = await confirm({
-            title: 'Devolver território',
-            message: `Confirmar devolução do território ${codigoExibicao}?`,
+            title: finalizado ? 'Disponibilizar território' : 'Devolver território',
+            message: finalizado
+                ? `Disponibilizar ${codigoExibicao} para uma nova designação?`
+                : `Confirmar devolução do território ${codigoExibicao}?`,
             tone: 'warning',
-            confirmLabel: 'Devolver'
+            confirmLabel: finalizado ? 'Disponibilizar' : 'Devolver'
         });
 
         if (!confirmar) return;
@@ -4833,15 +4869,17 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                 user
             });
             notify({
-                title: 'Território devolvido',
+                title: finalizado ? 'Território disponibilizado' : 'Território devolvido',
                 message: `${codigoExibicao} ficou livre para nova designação.`,
                 variant: 'success'
             });
         } catch (error) {
             console.error('Erro ao devolver grupo:', error);
             notify({
-                title: 'Devolução não salva',
-                message: String(error?.message || 'Não foi possível devolver o território agora.'),
+                title: finalizado ? 'Disponibilização não salva' : 'Devolução não salva',
+                message: String(error?.message || (finalizado
+                    ? 'Não foi possível disponibilizar o território agora.'
+                    : 'Não foi possível devolver o território agora.')),
                 variant: 'error',
                 durationMs: 7000
             });

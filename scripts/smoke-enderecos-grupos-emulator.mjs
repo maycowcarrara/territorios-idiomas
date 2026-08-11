@@ -10,6 +10,7 @@ import {
     doc,
     getDoc,
     getDocs,
+    getDocsFromServer,
     getFirestore,
     query,
     setDoc,
@@ -24,6 +25,7 @@ import {
     createEnderecoManual,
     createGrupoEnderecoManual,
     designarGrupoEndereco,
+    devolverGrupoEndereco,
     finalizarGrupoEnderecoDesignado,
     getEnderecoRef,
     getGrupoEnderecoRef,
@@ -440,6 +442,69 @@ async function main() {
             grupoAdminNaoDesignadoAposToggle.data()?.enderecos_visitados?.includes(enderecoAdminNaoDesignado.id),
             'Admin deveria atualizar progresso de grupo ativo designado a outro usuário.'
         );
+        const enderecoAdminFinalizaLegado = await createEnderecoManual(adminClient.db, {
+            user: adminUser,
+            codigo: 'es-sbs-006',
+            idiomaId: 'es',
+            idiomaNome: 'Espanhol',
+            bairro: 'Serra Alta',
+            lat: -10.188,
+            lng: -48.337,
+            endereco: 'Rua Smoke Admin Finaliza Legado, 60',
+            quantidadeEstrangeiros: 1,
+            informacao: '',
+            classe: 'confirmado'
+        });
+        const enderecoAdminFinalizaLegadoDoc = await getDoc(getEnderecoRef(adminClient.db, enderecoAdminFinalizaLegado.id));
+        const grupoAdminFinalizaLegado = await createGrupoEnderecoManual(adminClient.db, {
+            user: adminUser,
+            codigo: 'es-sbs-t04',
+            nome: 'Grupo Smoke Admin Finaliza Legado',
+            enderecos: [{ id: enderecoAdminFinalizaLegadoDoc.id, ...enderecoAdminFinalizaLegadoDoc.data() }]
+        });
+        await designarGrupoEndereco(adminClient.db, {
+            grupoId: grupoAdminFinalizaLegado.id,
+            usuario: outroInfo,
+            user: adminUser
+        });
+        await getAdminFirestore()
+            .collection('enderecos')
+            .doc(enderecoAdminFinalizaLegado.id)
+            .update({ classe: FieldValue.delete() });
+        await toggleEnderecoVisitadoGrupo(adminClient.db, {
+            grupoId: grupoAdminFinalizaLegado.id,
+            enderecoId: enderecoAdminFinalizaLegado.id,
+            user: { ...adminUser, isAdmin: true }
+        });
+        await finalizarGrupoEnderecoDesignado(adminClient.db, {
+            grupoId: grupoAdminFinalizaLegado.id,
+            user: { ...adminUser, isAdmin: true }
+        });
+        const grupoAdminFinalizado = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoAdminFinalizaLegado.id));
+        const enderecoAdminFinalizado = await getDoc(getEnderecoRef(adminClient.db, enderecoAdminFinalizaLegado.id));
+        assert(grupoAdminFinalizado.data()?.status === 'finalizado', 'Admin deveria finalizar grupo designado a outro usuário.');
+        assert(enderecoAdminFinalizado.data()?.grupoDesignadoPara === null, 'Admin deveria limpar designação de endereço legado ao finalizar.');
+        await expectDomainBlocked('designar grupo finalizado sem disponibilizar', () => (
+            designarGrupoEndereco(adminClient.db, {
+                grupoId: grupoAdminFinalizaLegado.id,
+                usuario: publicadorInfo,
+                user: adminUser
+            })
+        ), 'Território finalizado precisa ser disponibilizado antes de uma nova designação.');
+        await devolverGrupoEndereco(adminClient.db, {
+            grupoId: grupoAdminFinalizaLegado.id,
+            user: adminUser
+        });
+        const grupoAdminDisponibilizado = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoAdminFinalizaLegado.id));
+        assert(grupoAdminDisponibilizado.data()?.status === 'ativo', 'Admin deveria disponibilizar grupo finalizado novamente.');
+        assert(grupoAdminDisponibilizado.data()?.designadoPara === null, 'Grupo disponibilizado deveria continuar sem responsável.');
+        await designarGrupoEndereco(adminClient.db, {
+            grupoId: grupoAdminFinalizaLegado.id,
+            usuario: outroInfo,
+            user: adminUser
+        });
+        const grupoAdminRedesignado = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoAdminFinalizaLegado.id));
+        assert(grupoAdminRedesignado.data()?.designadoPara === outroInfo.email, 'Grupo disponibilizado deveria aceitar nova designação.');
         await expectDomainBlocked('trocar idioma de endereço agrupado', () => (
             updateEnderecoBasico(adminClient.db, enderecoA.id, {
                 lat: -10.1841,
@@ -577,7 +642,7 @@ async function main() {
         assert(enderecoAFinal.data().grupoDesignadoPara === null, 'Finalização deveria limpar endereço legado sem grupoDesignadoPara.');
         assert(enderecoBFinal.data().grupoDesignadoPara === null, 'Finalização deveria limpar endereço com grupoDesignadoPara.');
 
-        const enderecosAposFinalizacao = await getDocs(query(
+        const enderecosAposFinalizacao = await getDocsFromServer(query(
             collection(publicadorClient.db, 'enderecos'),
             where('grupoDesignadoPara', '==', publicadorInfo.email)
         ));

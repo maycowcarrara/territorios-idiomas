@@ -163,11 +163,12 @@ service cloud.firestore {
     }
 
     function classeEnderecoValida() {
-      return request.resource.data.classe in ['confirmado', 'verificar', 'estudo', 'excluido'] &&
+      return !('classe' in request.resource.data) ||
+             (request.resource.data.classe in ['confirmado', 'verificar', 'estudo', 'excluido'] &&
              (
                request.resource.data.classe != 'excluido' ||
                request.resource.data.status == 'arquivado'
-             );
+             ));
     }
 
     function pontoMapaValido(valor) {
@@ -242,6 +243,7 @@ service cloud.firestore {
 
     function podeCriarEndereco() {
       return isAdmin() &&
+             ('classe' in request.resource.data) &&
              enderecoDocumentoValido() &&
              (
                request.resource.data.status == 'ativo' ||
@@ -285,6 +287,7 @@ service cloud.firestore {
       return isAprovado() &&
              camposAlteradosApenas(['grupoDesignadoPara', 'atualizadoEm', 'atualizadoPor']) &&
              (
+               isAdmin() ||
                resource.data.grupoDesignadoPara == meuEmail() ||
                enderecoPertenceAGrupoDesignadoParaMim(enderecoId)
              ) &&
@@ -712,7 +715,7 @@ service cloud.firestore {
     match /enderecos/{enderecoId} {
       allow read: if podeLerEndereco(enderecoId);
       allow create: if podeCriarEndereco();
-      allow update: if podeAtualizarEndereco() || podeLimparDesignacaoEndereco(enderecoId);
+      allow update: if podeLimparDesignacaoEndereco(enderecoId) || podeAtualizarEndereco();
       allow delete: if false;
     }
 

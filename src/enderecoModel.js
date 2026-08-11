@@ -166,6 +166,13 @@ export function getGrupoEnderecoRef(db, grupoId) {
     return doc(db, GRUPOS_ENDERECOS_COLLECTION, grupoId);
 }
 
+async function getEnderecoSnapshotsForGrupo(transaction, db, grupo) {
+    return Promise.all(ensureArray(grupo.enderecoIds).map(async (enderecoId) => ({
+        id: enderecoId,
+        snapshot: await transaction.get(getEnderecoRef(db, enderecoId))
+    })));
+}
+
 export function getCodigosCounterRef(db) {
     return doc(db, CONTADORES_COLLECTION, CODIGOS_COUNTER_DOC);
 }
@@ -892,30 +899,38 @@ export async function devolverGrupoEndereco(db, { grupoId, user }) {
         }
 
         const grupo = grupoSnapshot.data();
-        if (!grupo.designadoPara) {
+        const statusAtual = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
+        const isFinalizado = statusAtual === GRUPO_ENDERECO_STATUS.FINALIZADO;
+        if (!grupo.designadoPara && !isFinalizado) {
             return;
         }
 
+        const enderecoSnapshots = await getEnderecoSnapshotsForGrupo(transaction, db, grupo);
         const responsavelNome = grupo.designadoNome || grupo.designadoPara || 'Dirigente';
-
-        transaction.set(grupoRef, {
+        const grupoUpdates = {
             designadoPara: null,
             designadoNome: null,
             dataDesignacao: null,
             designacaoId: null,
             cicloAtual: null,
-            historico: arrayUnion(buildHistoricoGrupoEndereco({
-                grupo,
-                responsavelNome,
-                agora
-            })),
             status: GRUPO_ENDERECO_STATUS.ATIVO,
             ultimaAlteracao: agora,
             atualizadoEm: agora,
             atualizadoPor: actorEmail
-        }, { merge: true });
+        };
 
-        ensureArray(grupo.enderecoIds).forEach((enderecoId) => {
+        if (grupo.designadoPara) {
+            grupoUpdates.historico = arrayUnion(buildHistoricoGrupoEndereco({
+                grupo,
+                responsavelNome,
+                agora
+            }));
+        }
+
+        transaction.set(grupoRef, grupoUpdates, { merge: true });
+
+        enderecoSnapshots.forEach(({ id: enderecoId, snapshot }) => {
+            if (!snapshot.exists() || snapshot.data()?.grupoDesignadoPara === null) return;
             transaction.set(getEnderecoRef(db, enderecoId), {
                 grupoDesignadoPara: null,
                 atualizadoEm: agora,
@@ -984,6 +999,7 @@ export async function finalizarGrupoEnderecoDesignado(db, { grupoId, user }) {
             throw new Error('Este território não está designado para você.');
         }
 
+        const enderecoSnapshots = await getEnderecoSnapshotsForGrupo(transaction, db, grupo);
         const progresso = getGrupoEnderecoProgresso(grupo);
         if (!progresso.completo) {
             throw new Error('Marque todos os endereços ativos antes de finalizar.');
@@ -1010,7 +1026,8 @@ export async function finalizarGrupoEnderecoDesignado(db, { grupoId, user }) {
             atualizadoPor: actorEmail
         }, { merge: true });
 
-        ensureArray(grupo.enderecoIds).forEach((enderecoId) => {
+        enderecoSnapshots.forEach(({ id: enderecoId, snapshot }) => {
+            if (!snapshot.exists() || snapshot.data()?.grupoDesignadoPara === null) return;
             transaction.set(getEnderecoRef(db, enderecoId), {
                 grupoDesignadoPara: null,
                 atualizadoEm: agora,
