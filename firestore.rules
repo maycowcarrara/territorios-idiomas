@@ -444,37 +444,12 @@ service cloud.firestore {
       ];
     }
 
-    function mantemDesignacaoGrupoEndereco() {
-      return request.resource.data.designadoPara == resource.data.designadoPara &&
-             request.resource.data.designadoNome == resource.data.designadoNome &&
-             request.resource.data.dataDesignacao == resource.data.dataDesignacao &&
-             request.resource.data.designacaoId == resource.data.designacaoId &&
-             request.resource.data.cicloAtual == resource.data.cicloAtual;
-    }
-
     function limpaDesignacaoGrupoEndereco() {
       return request.resource.data.designadoPara == null &&
              request.resource.data.designadoNome == null &&
              request.resource.data.dataDesignacao == null &&
              request.resource.data.designacaoId == null &&
              request.resource.data.cicloAtual == null;
-    }
-
-    function mantemEstruturaGrupoEndereco() {
-      return request.resource.data.codigo == resource.data.codigo &&
-             request.resource.data.idiomaId == resource.data.idiomaId &&
-             request.resource.data.idiomaNome == resource.data.idiomaNome &&
-             request.resource.data.bairro == resource.data.bairro &&
-             request.resource.data.nome == resource.data.nome &&
-             request.resource.data.enderecoIds == resource.data.enderecoIds &&
-             request.resource.data.totalEnderecos == resource.data.totalEnderecos &&
-             request.resource.data.totalEstrangeiros == resource.data.totalEstrangeiros &&
-             request.resource.data.centro == resource.data.centro &&
-             request.resource.data.bounds == resource.data.bounds &&
-             request.resource.data.criadoEm == resource.data.criadoEm &&
-             request.resource.data.criadoPor == resource.data.criadoPor &&
-             request.resource.data.arquivadoEm == resource.data.arquivadoEm &&
-             request.resource.data.arquivadoPor == resource.data.arquivadoPor;
     }
 
     function grupoEnderecoCompletoAntesDaFinalizacao() {
