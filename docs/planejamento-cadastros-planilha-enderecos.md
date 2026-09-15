@@ -447,6 +447,86 @@ Requisitos:
 - Ajuste de Firestore Rules para permitir criacao admin com `origem: "importacao"`.
 - Smoke de emulator cobrindo importacao, territorio novo, territorio existente e conflitos.
 
+### Fase 7 - Refinamentos de mapa, importacao e execucao em campo
+
+Objetivo:
+
+- melhorar a leitura dos pins de endereco no mapa;
+- reduzir atrito na conferencia/importacao por planilha;
+- deixar o modo de execucao do publicador mais limpo;
+- expor auditoria basica da origem de importacao;
+- manter todos os contratos internos de dados.
+
+Fora do escopo:
+
+- nao implementar clusters de enderecos;
+- nao implementar contadores por territorio no mapa, como `T-3 · 12`;
+- nao criar resumo clicavel por territorio para substituir pins individuais;
+- nao alterar coordenadas reais, `grupoId`, `grupoCodigo`, designacao, progresso ou finalizacao.
+
+1. Pins compactos e resistentes a estouro:
+
+- o texto dentro do pin de endereco deve usar rotulo curto, por exemplo `ES-SBS-019` -> `E-19`;
+- o codigo completo deve continuar visivel em tooltip, popup, listas e mensagens quando fizer sentido;
+- adicionar protecao visual no CSS do pin (`max-width`, `overflow`, centralizacao e tamanho de fonte) para codigos inesperados nao estourarem a bolha;
+- nao alterar o codigo salvo no Firestore.
+
+2. Reducao de sobreposicao sem cluster:
+
+- detectar pins de endereco muito proximos na tela;
+- aplicar deslocamento visual leve, deterministico e reversivel somente na renderizacao;
+- manter cada endereco como pin individual;
+- manter popup, navegacao e acoes usando a coordenada real do endereco;
+- recalcular o deslocamento quando zoom/lista visivel mudar.
+
+3. Dry-run real da verificacao da planilha:
+
+- separar a acao de salvar a URL da planilha da acao de verificar;
+- criar botao/acao explicita para salvar `planilhaCsvUrl`;
+- fazer "Verificar planilha" baixar e validar o CSV sem gravar configuracao, enderecos ou territorios;
+- manter "Aplicar importacao" como acao separada para gravacao de enderecos/territorios;
+- ajustar textos da UI para deixar claro o que grava e o que nao grava.
+
+4. Previa melhor para linhas sem pin:
+
+- na secao "Sem coordenada", mostrar codigo, endereco, bairro, query usada e motivo/estado;
+- manter o botao geral "Buscar pins faltantes";
+- adicionar acao individual "Buscar pin" por linha, quando viavel;
+- garantir que `Informacion`/`Información` continue fora da geocodificacao;
+- deixar claro quando uma busca nao retorna resultado confiavel dentro da area configurada.
+
+5. Destaque da ultima importacao:
+
+- apos aplicar importacao, guardar localmente o `importacaoId` retornado;
+- destacar temporariamente no mapa os enderecos inseridos ou atualizados nessa importacao;
+- oferecer acao simples para limpar destaque;
+- nao criar nova colecao para esse destaque;
+- nao alterar regras de designacao/progresso por causa do destaque.
+
+6. Modo publicador mais limpo:
+
+- quando publicador estiver executando territorio designado, reduzir o popup/controles ao essencial;
+- priorizar codigo curto, endereco, informacao, navegar e marcar/desmarcar pregado;
+- esconder controles administrativos e informacoes que nao ajudam no campo;
+- manter acessibilidade e botoes com areas de toque confortaveis no celular.
+
+7. Auditoria visivel da importacao:
+
+- usar campos ja existentes, como `origem`, `importacaoId`, `atualizadoEm` e `atualizadoPor`;
+- mostrar no popup/cadastro uma indicacao discreta de origem/importacao quando existir;
+- preparar filtro administrativo para ultima importacao ou enderecos importados;
+- nao criar historico pesado nem nova colecao nesta fase.
+
+Validacoes especificas da Fase 7:
+
+- conferir visualmente que pins longos nao estouram a bolha;
+- conferir que pins proximos continuam clicaveis individualmente;
+- confirmar que "Verificar planilha" nao grava configuracao nem dados;
+- confirmar que "Salvar URL" grava somente a URL da planilha/configuracao;
+- confirmar que `Informacion`/`Información` nao entra na query de geocodificacao;
+- confirmar em modo publicador que as acoes essenciais continuam disponiveis;
+- se a validacao de navegador falhar na primeira tentativa por ambiente/login/navegador, parar e pedir ajuda.
+
 ## Validacoes esperadas
 
 Local:

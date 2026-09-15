@@ -428,6 +428,10 @@ async function main() {
         assert(previewImportacao.totals.duplicados === 2, 'Importação deveria apontar códigos duplicados pela posição da coluna.');
         assert(previewImportacao.totals.conflitos === 1, 'Importação deveria apontar conflito sem mover endereço existente.');
         assert(previewImportacao.territoriosCriar.includes('ES-SBS-T90'), 'Importação deveria prever criação de território novo.');
+        assert(
+            !previewImportacao.rows.some((row) => String(row.geocodeQuery || '').includes('Pessoa privada')),
+            'Informação da planilha não deveria entrar na query de geocodificação.'
+        );
 
         const resultadoImportacao = await importarEnderecosCsvNovos(adminClient.db, {
             preview: previewImportacao,
@@ -435,6 +439,7 @@ async function main() {
         });
         assert(resultadoImportacao.enderecosInseridos === 3, 'Importação deveria inserir somente os endereços novos prontos.');
         assert(resultadoImportacao.enderecosAtualizados === 1, 'Importação deveria atualizar endereço existente diferente.');
+        assert(resultadoImportacao.enderecosAfetadosIds.length === 4, 'Importação deveria retornar os endereços afetados para destaque local.');
         assert(resultadoImportacao.territoriosCriados === 1, 'Importação deveria criar um território novo.');
         assert(resultadoImportacao.territoriosAtualizados === 2, 'Importação deveria recalcular territórios existentes afetados.');
 

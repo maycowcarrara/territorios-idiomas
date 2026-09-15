@@ -41,6 +41,7 @@ import {
 
 const ADMIN_OFFLINE_MESSAGE = 'Você está offline. Ações administrativas precisam de conexão para evitar conflito de designações. Conecte-se para continuar.';
 const ADMIN_OFFLINE_ACTION_CLASS = 'disabled:cursor-not-allowed disabled:opacity-50';
+const LAST_IMPORT_HIGHLIGHT_STORAGE_KEY = 'territorios-idiomas.enderecos.lastImportHighlight';
 const ADMIN_TABS = [
     { id: 'usuarios', label: 'Usuários', icon: '👥' },
     { id: 'padroes', label: 'Padrões', icon: '⚙️' },
@@ -128,9 +129,11 @@ const AdminPanel = () => {
     const [municipioBuscaEnderecoTexto, setMunicipioBuscaEnderecoTexto] = useState('');
     const [enderecoCsvPreview, setEnderecoCsvPreview] = useState(null);
     const [enderecoCsvContext, setEnderecoCsvContext] = useState(null);
+    const [enderecoCsvGeocodeStatus, setEnderecoCsvGeocodeStatus] = useState({});
     const [verificandoPlanilha, setVerificandoPlanilha] = useState(false);
     const [buscandoPinsPlanilha, setBuscandoPinsPlanilha] = useState(false);
     const [importandoPlanilha, setImportandoPlanilha] = useState(false);
+    const [salvandoPlanilhaCsvUrl, setSalvandoPlanilhaCsvUrl] = useState(false);
     const enderecoBuscaUfSelecionada = normalizeAddressSearchConfig(enderecoConfigForm.buscaEndereco).uf;
 
     // Estados para EDIÇÃO inline
@@ -724,6 +727,44 @@ const AdminPanel = () => {
         }
     };
 
+    const salvarPlanilhaCsvUrl = async () => {
+        if (!ensureOnlineAdminAction()) return;
+
+        const planilhaCsvUrl = String(enderecoConfigForm.planilhaCsvUrl || '').trim();
+        if (!planilhaCsvUrl) {
+            notify({
+                title: 'Link da planilha obrigatório',
+                message: 'Informe o link CSV publicado antes de salvar.',
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        setSalvandoPlanilhaCsvUrl(true);
+        try {
+            await setDoc(getEnderecoConfigRef(db), {
+                planilhaCsvUrl,
+                planilhaCsvAtualizadaEm: new Date()
+            }, { merge: true });
+            notify({
+                title: 'URL da planilha salva',
+                message: 'Somente a configuração do link CSV foi gravada.',
+                variant: 'success'
+            });
+        } catch (error) {
+            console.error('Erro ao salvar URL da planilha:', error);
+            notify({
+                title: 'URL não salva',
+                message: String(error?.message || 'Não foi possível salvar o link da planilha agora.'),
+                variant: 'error',
+                durationMs: 7000
+            });
+        } finally {
+            setSalvandoPlanilhaCsvUrl(false);
+        }
+    };
+
     const carregarContextoImportacaoEnderecos = async () => {
         const [enderecosSnapshot, gruposSnapshot] = await Promise.all([
             getDocs(collection(db, ENDERECOS_COLLECTION)),
@@ -775,15 +816,11 @@ const AdminPanel = () => {
                 ...contexto
             });
 
-            await setDoc(getEnderecoConfigRef(db), {
-                planilhaCsvUrl,
-                planilhaCsvAtualizadaEm: new Date()
-            }, { merge: true });
-
             setEnderecoCsvContext({
                 ...contexto,
                 config
             });
+            setEnderecoCsvGeocodeStatus({});
             setEnderecoCsvPreview(preview);
             notify({
                 title: 'Planilha verificada',
@@ -805,20 +842,32 @@ const AdminPanel = () => {
         }
     };
 
-    const buscarPinsFaltantesPlanilha = async () => {
+    const buscarPinsPlanilhaRows = async (rows) => {
         if (!enderecoCsvPreview || !enderecoCsvContext) return;
         if (!ensureOnlineAdminAction()) return;
 
-        const semCoordenada = enderecoCsvPreview.rows.filter((row) => row.action === 'sem-coordenada');
-        if (!semCoordenada.length) return;
+        const rowsParaBusca = rows.filter((row) => row?.action === 'sem-coordenada' && row.geocodeQuery);
+        if (!rowsParaBusca.length) return;
 
         setBuscandoPinsPlanilha(true);
         const coordinatesByRowKey = {};
+        const statusUpdates = {};
         let resolvidos = 0;
         let pendentes = 0;
 
         try {
-            for (const row of semCoordenada) {
+            setEnderecoCsvGeocodeStatus((current) => {
+                const next = { ...current };
+                rowsParaBusca.forEach((row) => {
+                    next[row.rowKey] = {
+                        state: 'buscando',
+                        message: 'Buscando pin com a query preparada.'
+                    };
+                });
+                return next;
+            });
+
+            for (const row of rowsParaBusca) {
                 const results = await searchAddresses(row.geocodeQuery, {
                     searchConfig: enderecoCsvContext.config.buscaEndereco
                 });
@@ -827,8 +876,18 @@ const AdminPanel = () => {
                         lat: results[0].lat,
                         lng: results[0].lng
                     };
+                    statusUpdates[row.rowKey] = {
+                        state: 'resolvido',
+                        message: 'Resultado único aceito dentro da área configurada.'
+                    };
                     resolvidos += 1;
                 } else {
+                    statusUpdates[row.rowKey] = {
+                        state: 'pendente',
+                        message: results.length
+                            ? 'Mais de um resultado possível; revise manualmente.'
+                            : 'Nenhum resultado confiável dentro da área configurada.'
+                    };
                     pendentes += 1;
                 }
             }
@@ -836,6 +895,10 @@ const AdminPanel = () => {
             setEnderecoCsvPreview(applyEnderecoCsvGeocoding(enderecoCsvPreview, {
                 coordinatesByRowKey,
                 ...enderecoCsvContext
+            }));
+            setEnderecoCsvGeocodeStatus((current) => ({
+                ...current,
+                ...statusUpdates
             }));
             notify({
                 title: 'Busca de pins concluída',
@@ -845,6 +908,16 @@ const AdminPanel = () => {
             });
         } catch (error) {
             console.error('Erro ao buscar pins da planilha:', error);
+            setEnderecoCsvGeocodeStatus((current) => {
+                const next = { ...current };
+                rowsParaBusca.forEach((row) => {
+                    next[row.rowKey] = {
+                        state: 'erro',
+                        message: String(error?.message || 'Busca interrompida.')
+                    };
+                });
+                return next;
+            });
             notify({
                 title: 'Busca interrompida',
                 message: String(error?.message || 'Não foi possível buscar os pins faltantes agora.'),
@@ -854,6 +927,15 @@ const AdminPanel = () => {
         } finally {
             setBuscandoPinsPlanilha(false);
         }
+    };
+
+    const buscarPinsFaltantesPlanilha = async () => {
+        const semCoordenada = enderecoCsvPreview?.rows?.filter((row) => row.action === 'sem-coordenada') || [];
+        await buscarPinsPlanilhaRows(semCoordenada);
+    };
+
+    const buscarPinLinhaPlanilha = async (row) => {
+        await buscarPinsPlanilhaRows([row]);
     };
 
     const inserirNovosEnderecosPlanilha = async () => {
@@ -892,8 +974,19 @@ const AdminPanel = () => {
                 variant: 'success',
                 durationMs: 9000
             });
+            try {
+                window.localStorage?.setItem(LAST_IMPORT_HIGHLIGHT_STORAGE_KEY, JSON.stringify({
+                    importacaoId: resultado.importacaoId,
+                    enderecoIds: resultado.enderecosAfetadosIds || [],
+                    savedAt: Date.now()
+                }));
+                window.dispatchEvent(new CustomEvent('enderecos-importacao-highlight-updated'));
+            } catch {
+                // Destaque no mapa é apenas conveniência local.
+            }
             setEnderecoCsvPreview(null);
             setEnderecoCsvContext(null);
+            setEnderecoCsvGeocodeStatus({});
         } catch (error) {
             console.error('Erro ao importar endereços da planilha:', error);
             notify({
@@ -2005,8 +2098,16 @@ const AdminPanel = () => {
                                         <div className="flex flex-col gap-2 sm:flex-row">
                                             <button
                                                 type="button"
+                                                onClick={salvarPlanilhaCsvUrl}
+                                                disabled={salvandoPlanilhaCsvUrl || verificandoPlanilha || importandoPlanilha || adminActionsDisabled}
+                                                className={`rounded-xl border border-cyan-200 bg-white px-4 py-2 text-xs font-bold uppercase text-cyan-800 transition-all hover:bg-cyan-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                            >
+                                                {salvandoPlanilhaCsvUrl ? 'Salvando...' : 'Salvar URL'}
+                                            </button>
+                                            <button
+                                                type="button"
                                                 onClick={verificarPlanilhaEnderecos}
-                                                disabled={verificandoPlanilha || importandoPlanilha || adminActionsDisabled}
+                                                disabled={verificandoPlanilha || importandoPlanilha || salvandoPlanilhaCsvUrl || adminActionsDisabled}
                                                 className={`rounded-xl border border-cyan-200 bg-white px-4 py-2 text-xs font-bold uppercase text-cyan-800 transition-all hover:bg-cyan-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
                                             >
                                                 {verificandoPlanilha ? 'Verificando...' : 'Verificar planilha'}
@@ -2094,9 +2195,28 @@ const AdminPanel = () => {
                                                                     <div key={`${group.title}-${row.rowKey}`} className="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
                                                                         <span className="font-bold">Linha {row.rowNumber}</span>
                                                                         {row.codigo ? ` · ${row.codigo}` : ''}
-                                                                        <p className="mt-0.5">
-                                                                            {[...row.errors, ...row.conflicts].join(' ') || row.geocodeQuery || `${row.action === 'atualizar' ? 'Atualizar' : 'Inserir'} · ${row.endereco}`}
-                                                                        </p>
+                                                                        {group.title === 'Sem coordenada' ? (
+                                                                            <div className="mt-1 space-y-1">
+                                                                                <p className="font-semibold text-slate-700">{row.endereco || 'Endereço não informado'}</p>
+                                                                                {row.bairro && <p>Bairro: {row.bairro}</p>}
+                                                                                <p>Query: {row.geocodeQuery || 'indisponível'}</p>
+                                                                                <p>
+                                                                                    Estado: {enderecoCsvGeocodeStatus[row.rowKey]?.message || [...row.errors, ...row.conflicts].join(' ') || 'Aguardando busca de pin.'}
+                                                                                </p>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => buscarPinLinhaPlanilha(row)}
+                                                                                    disabled={!row.geocodeQuery || buscandoPinsPlanilha || verificandoPlanilha || adminActionsDisabled}
+                                                                                    className={`mt-1 rounded-lg border border-cyan-200 bg-white px-2 py-1 text-[11px] font-bold uppercase text-cyan-800 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                                                                >
+                                                                                    Buscar pin
+                                                                                </button>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="mt-0.5">
+                                                                                {[...row.errors, ...row.conflicts].join(' ') || `${row.action === 'atualizar' ? 'Atualizar' : 'Inserir'} · ${row.endereco}`}
+                                                                            </p>
+                                                                        )}
                                                                     </div>
                                                                 )) : (
                                                                     <p className="text-xs font-medium text-slate-400">Nenhuma linha.</p>

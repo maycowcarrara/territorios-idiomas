@@ -239,7 +239,7 @@ const resolveCoordinates = ({ latLong, latitude, longitude }, searchConfig) => {
 };
 
 const buildImportacaoId = () => {
-    const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+    const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
     return `csv_${stamp}`;
 };
 

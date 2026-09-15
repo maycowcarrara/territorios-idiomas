@@ -83,6 +83,8 @@ import { ensureUsuarioAprovado, isValidUsuarioEmail, isValidWhatsappDigits } fro
 
 const normalizeEmailValue = (value) => String(value || '').trim().toLowerCase();
 const ENDERECO_IDIOMA_ATIVO_STORAGE_KEY = 'territorios-idiomas.enderecoIdiomaAtivo';
+const LAST_IMPORT_HIGHLIGHT_STORAGE_KEY = 'territorios-idiomas.enderecos.lastImportHighlight';
+const IMPORT_HIGHLIGHT_MAX_AGE_MS = 60 * 60 * 1000;
 
 const stopMapDomEvent = (event) => {
     event?.stopPropagation?.();
@@ -102,6 +104,17 @@ const useLeafletDomEventIsolation = () => {
 const getGrupoEnderecoCanonicalKey = (value) => {
     const codigo = formatGrupoEnderecoCodigoExibicao(value);
     return String(codigo || value || '').trim().toLowerCase();
+};
+
+const formatEnderecoCodigoMarcador = (value) => {
+    const codigo = String(formatEnderecoCodigoExibicao(value) || value || '').trim();
+    const match = codigo.match(/(?:^|[-_])0*(\d+)$/);
+
+    if (match) {
+        return `E-${Number.parseInt(match[1], 10)}`;
+    }
+
+    return codigo || 'E';
 };
 
 const getGrupoEnderecoDocIdCandidate = (value) => {
@@ -260,6 +273,58 @@ const getEnderecoClasseLabel = (classe) => (
     ENDERECO_CLASSE_LABELS[classe] || ENDERECO_CLASSE_LABELS[ENDERECO_CLASSES.CONFIRMADO]
 );
 
+const formatAuditDateTime = (value) => {
+    const date = value?.toDate?.() || (value instanceof Date ? value : null);
+    if (!date || Number.isNaN(date.getTime())) return '';
+
+    return new Intl.DateTimeFormat('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    }).format(date);
+};
+
+const getEnderecoAuditOriginLabel = (endereco) => {
+    if (endereco?.importacaoId) {
+        return endereco?.origem === 'importacao' ? 'Importado por CSV' : 'Atualizado por CSV';
+    }
+
+    return `Origem: ${endereco?.origem || 'manual'}`;
+};
+
+const readLastImportHighlight = () => {
+    try {
+        const raw = window.localStorage?.getItem(LAST_IMPORT_HIGHLIGHT_STORAGE_KEY);
+        if (!raw) return null;
+
+        const parsed = JSON.parse(raw);
+        const savedAt = Number(parsed?.savedAt) || 0;
+        if (!parsed?.importacaoId || Date.now() - savedAt > IMPORT_HIGHLIGHT_MAX_AGE_MS) {
+            window.localStorage?.removeItem(LAST_IMPORT_HIGHLIGHT_STORAGE_KEY);
+            return null;
+        }
+
+        return {
+            importacaoId: String(parsed.importacaoId),
+            enderecoIds: Array.isArray(parsed.enderecoIds) ? parsed.enderecoIds.filter(Boolean) : [],
+            savedAt
+        };
+    } catch {
+        return null;
+    }
+};
+
+const clearLastImportHighlight = () => {
+    try {
+        window.localStorage?.removeItem(LAST_IMPORT_HIGHLIGHT_STORAGE_KEY);
+        window.dispatchEvent(new CustomEvent('enderecos-importacao-highlight-updated'));
+    } catch {
+        // Destaque local é opcional.
+    }
+};
+
 // --- CSS ---
 const cssTooltip = `
   @keyframes gps-pulse {
@@ -277,10 +342,11 @@ const cssTooltip = `
   .map-poi-marker { width: 26px; height: 26px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.94); border: 2px solid rgba(255,255,255,0.98); box-shadow: 0 3px 10px rgba(15,23,42,0.32), 0 0 0 1px rgba(15,23,42,0.08); font-size: 18px; line-height: 1; cursor: help; }
   .map-poi-marker.ref { border-color: ${MAP_COLORS.apoio.referencia}; }
   .map-poi-marker.condo { border-color: ${MAP_COLORS.apoio.condominio}; }
-  .map-address-marker { min-width: 30px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.endereco.ativo}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(15,23,42,0.35); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 6px; white-space: nowrap; }
+  .map-address-marker { width: 34px; max-width: 34px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.endereco.ativo}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(15,23,42,0.35); font-size: 11px; line-height: 1; font-weight: 900; padding: 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; letter-spacing: 0; }
   .map-address-marker.grouped { background: ${MAP_COLORS.endereco.agrupado}; }
   .map-address-marker.selected { background: ${MAP_COLORS.endereco.selecionado}; color: #111827; }
   .map-address-marker.archived { background: ${MAP_COLORS.endereco.arquivado}; opacity: 0.82; }
+  .map-address-marker.import-highlight { box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.72), 0 5px 16px rgba(15,23,42,0.38); border-color: #fef3c7; }
   .map-address-marker.focus-pending { background: ${MAP_COLORS.endereco.ativo}; transform: scale(1.08); }
   .map-address-marker.focus-done { background: ${MAP_COLORS.endereco.visitado}; transform: scale(1.08); }
   .map-group-marker { min-width: 44px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.grupoEndereco.ativo.marker}; color: white; border: 3px solid white; box-shadow: 0 4px 14px rgba(15,23,42,0.38); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 7px; white-space: nowrap; }
@@ -294,7 +360,9 @@ const cssTooltip = `
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button { top: 7px; right: 7px; width: 22px; height: 22px; border-radius: 999px; color: #64748b; font-size: 16px; line-height: 21px; transition: background-color 0.2s, color 0.2s; }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button:hover { background: rgba(15,23,42,0.08); color: #0f172a; }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-tip { box-shadow: 0 8px 18px rgba(15,23,42,0.16); }
-  .leaflet-popup-pane { z-index: 760; }
+  .leaflet-container:has(.leaflet-popup) .leaflet-map-pane,
+  .leaflet-container.has-popup .leaflet-map-pane { z-index: 1001 !important; }
+  .leaflet-popup-pane { z-index: 1002 !important; }
   .address-admin-actions { display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); transition: grid-template-rows 180ms ease, opacity 160ms ease, transform 180ms ease; }
   .address-admin-actions.open { grid-template-rows: 1fr; opacity: 1; transform: translateY(0); }
   .address-admin-actions-inner { min-height: 0; overflow: hidden; }
@@ -1186,6 +1254,19 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
                         Lat {Number(form.lat).toFixed(6)} · Lng {Number(form.lng).toFixed(6)}
                     </div>
+                    {isEdit && (endereco?.origem || endereco?.importacaoId || endereco?.atualizadoEm || endereco?.atualizadoPor) && (
+                        <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
+                            <span className="font-black uppercase">Auditoria</span>
+                            <span className="block">
+                                {getEnderecoAuditOriginLabel(endereco)}
+                                {endereco?.importacaoId ? ` · ${endereco.importacaoId}` : ''}
+                            </span>
+                            <span className="block text-amber-700">
+                                {formatAuditDateTime(endereco?.atualizadoEm) || 'Sem data registrada'}
+                                {endereco?.atualizadoPor ? ` · ${endereco.atualizadoPor}` : ''}
+                            </span>
+                        </div>
+                    )}
                     <label className="block">
                         <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
                         <input
@@ -1748,6 +1829,8 @@ const EnderecoMarker = ({
     focusMode = false,
     isVisited = false,
     canMarkVisited = false,
+    markerPosition = null,
+    isHighlighted = false,
     onShare,
     onNavigate,
     onEdit,
@@ -1759,6 +1842,7 @@ const EnderecoMarker = ({
     const arquivado = endereco.status === ENDERECO_STATUS.ARQUIVADO;
     const agrupado = Boolean(endereco.grupoId || endereco.grupoCodigo);
     const codigoExibicao = formatEnderecoCodigoExibicao(endereco.codigo || endereco.id);
+    const codigoMarcador = formatEnderecoCodigoMarcador(endereco.codigo || endereco.id);
     const grupoCodigoExibicao = endereco.grupoCodigo ? formatGrupoEnderecoCodigoExibicao(endereco.grupoCodigo) : '';
     const statusLabel = arquivado ? 'Arquivado' : focusMode ? isVisited ? 'Pregado' : 'Pendente' : 'Ativo';
     const isPublicadorEmExecucao = !isAdmin && focusMode;
@@ -1766,16 +1850,16 @@ const EnderecoMarker = ({
     const [menuAberto, setMenuAberto] = useState(false);
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
-        html: `<div class="map-address-marker ${focusMode ? isVisited ? 'focus-done' : 'focus-pending' : ''} ${!focusMode && agrupado ? 'grouped' : ''} ${isSelected ? 'selected' : ''} ${arquivado ? 'archived' : ''}">${codigoExibicao || 'E'}</div>`,
+        html: `<div class="map-address-marker ${focusMode ? isVisited ? 'focus-done' : 'focus-pending' : ''} ${!focusMode && agrupado ? 'grouped' : ''} ${isSelected ? 'selected' : ''} ${arquivado ? 'archived' : ''} ${isHighlighted ? 'import-highlight' : ''}">${codigoMarcador}</div>`,
         iconSize: [44, 30],
         iconAnchor: [22, 15]
-    }), [agrupado, arquivado, codigoExibicao, focusMode, isSelected, isVisited]);
+    }), [agrupado, arquivado, codigoMarcador, focusMode, isHighlighted, isSelected, isVisited]);
 
     return (
         <Marker
-            position={[endereco.lat, endereco.lng]}
+            position={markerPosition || [endereco.lat, endereco.lng]}
             icon={icon}
-            zIndexOffset={focusMode ? 900 : 0}
+            zIndexOffset={(focusMode ? 900 : 0) + (isHighlighted ? 120 : 0)}
             eventHandlers={{ click: (event) => event.originalEvent && L.DomEvent.stopPropagation(event.originalEvent) }}
         >
             <Tooltip direction="top" offset={[0, -16]} className="font-bold text-xs">
@@ -1787,12 +1871,14 @@ const EnderecoMarker = ({
                         <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-lg font-black leading-none text-slate-800">{codigoExibicao}</span>
+                                    <span className="text-lg font-black leading-none text-slate-800" title={codigoExibicao}>
+                                        {isPublicadorEmExecucao ? codigoMarcador : codigoExibicao}
+                                    </span>
                                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : focusMode && isVisited ? 'bg-emerald-50 text-emerald-700' : 'bg-teal-50 text-teal-700'}`}>
                                         {statusLabel}
                                     </span>
                                 </div>
-                                {grupoCodigoExibicao && (
+                                {grupoCodigoExibicao && !isPublicadorEmExecucao && (
                                     <div className="mt-1.5 inline-flex max-w-full items-center rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-black leading-none text-indigo-700">
                                         Território {grupoCodigoExibicao}
                                     </div>
@@ -1876,8 +1962,12 @@ const EnderecoMarker = ({
                         {endereco.bairro && (
                             <div className="mt-1 text-xs font-bold text-slate-500">Bairro: {endereco.bairro}</div>
                         )}
-                        <div className="mt-1 text-xs font-bold text-slate-500">Classe: {getEnderecoClasseLabel(endereco.classe)}</div>
-                        <div className="mt-1.5 text-xs font-semibold text-slate-500">{formatPessoasCadastradasLabel(endereco.quantidadeEstrangeiros)}</div>
+                        {!isPublicadorEmExecucao && (
+                            <>
+                                <div className="mt-1 text-xs font-bold text-slate-500">Classe: {getEnderecoClasseLabel(endereco.classe)}</div>
+                                <div className="mt-1.5 text-xs font-semibold text-slate-500">{formatPessoasCadastradasLabel(endereco.quantidadeEstrangeiros)}</div>
+                            </>
+                        )}
                     </div>
                     {(endereco.informacao || endereco.observacao) && (
                         <div className="rounded-lg border border-slate-100 bg-white px-3 py-2">
@@ -1920,16 +2010,125 @@ const EnderecoMarker = ({
                             Navegar
                         </button>
                     )}
-                    <button
-                        onClick={() => onShare(endereco)}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
-                    >
-                        Compartilhar localização
-                    </button>
+                    {!isPublicadorEmExecucao && (
+                        <>
+                            {isAdmin && (endereco.origem || endereco.importacaoId || endereco.atualizadoEm || endereco.atualizadoPor) && (
+                                <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-semibold leading-snug text-amber-800">
+                                    <span className="font-black uppercase">Auditoria</span>
+                                    <span className="block">
+                                        {getEnderecoAuditOriginLabel(endereco)}
+                                        {endereco.importacaoId ? ` · ${endereco.importacaoId}` : ''}
+                                    </span>
+                                    <span className="block text-amber-700">
+                                        {formatAuditDateTime(endereco.atualizadoEm) || 'Sem data registrada'}
+                                        {endereco.atualizadoPor ? ` · ${endereco.atualizadoPor}` : ''}
+                                    </span>
+                                </div>
+                            )}
+                            <button
+                                onClick={() => onShare(endereco)}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+                            >
+                                Compartilhar localização
+                            </button>
+                        </>
+                    )}
                 </div>
             </Popup>
         </Marker>
     );
+};
+
+const buildEnderecoMarkerOffsets = (enderecos, map, zoomLevel) => {
+    const zoom = Number.isFinite(Number(zoomLevel)) ? Number(zoomLevel) : map.getZoom();
+    const markers = enderecos
+        .map((endereco) => {
+            const lat = Number(endereco.lat);
+            const lng = Number(endereco.lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+            return {
+                endereco,
+                point: map.project([lat, lng], zoom)
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) => String(a.endereco.codigo || a.endereco.id).localeCompare(String(b.endereco.codigo || b.endereco.id)));
+    const clusters = [];
+    const thresholdPx = 22;
+
+    markers.forEach((marker) => {
+        const cluster = clusters.find((item) => item.some((existing) => marker.point.distanceTo(existing.point) <= thresholdPx));
+        if (cluster) {
+            cluster.push(marker);
+        } else {
+            clusters.push([marker]);
+        }
+    });
+
+    const offsets = new Map();
+    clusters.forEach((cluster) => {
+        if (cluster.length <= 1) return;
+
+        const radius = cluster.length <= 3 ? 12 : 16;
+        cluster.forEach((marker, index) => {
+            const angle = (-Math.PI / 2) + ((Math.PI * 2 * index) / cluster.length);
+            const point = marker.point.add(L.point(
+                Math.round(Math.cos(angle) * radius),
+                Math.round(Math.sin(angle) * radius)
+            ));
+            const latLng = map.unproject(point, zoom);
+            offsets.set(marker.endereco.id, [latLng.lat, latLng.lng]);
+        });
+    });
+
+    return offsets;
+};
+
+const EnderecoMarkersLayer = ({
+    enderecos,
+    zoomLevel,
+    highlightedEnderecoIds,
+    isAdmin,
+    isOnline,
+    selectedEnderecoIds,
+    canSelectEndereco,
+    focusMode,
+    visitadosGrupoFocado,
+    canMarkVisited,
+    onShare,
+    onNavigate,
+    onEdit,
+    onToggleArchive,
+    onToggleSelect,
+    onRemoveFromGroup,
+    onToggleVisited
+}) => {
+    const map = useMap();
+    const markerOffsets = useMemo(() => buildEnderecoMarkerOffsets(enderecos, map, zoomLevel), [enderecos, map, zoomLevel]);
+
+    return enderecos.map((endereco) => (
+        <EnderecoMarker
+            key={endereco.id}
+            endereco={endereco}
+            markerPosition={markerOffsets.get(endereco.id)}
+            isHighlighted={highlightedEnderecoIds.has(endereco.id)}
+            isAdmin={isAdmin}
+            isOnline={isOnline}
+            isSelected={selectedEnderecoIds.includes(endereco.id)}
+            canSelect={canSelectEndereco(endereco)}
+            focusMode={focusMode}
+            isVisited={visitadosGrupoFocado.has(endereco.id)}
+            canMarkVisited={canMarkVisited}
+            onShare={onShare}
+            onNavigate={onNavigate}
+            onEdit={onEdit}
+            onToggleArchive={onToggleArchive}
+            onToggleSelect={onToggleSelect}
+            onRemoveFromGroup={onRemoveFromGroup}
+            onToggleVisited={onToggleVisited}
+        />
+    ));
 };
 
 const buildGrupoBoundsPositions = (bounds) => {
@@ -3631,6 +3830,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     const [showBairros, setShowBairros] = useState(true);
     const [mostrarDicasControles, setMostrarDicasControles] = useState(true);
     const [tentativaMapa, setTentativaMapa] = useState(0);
+    const [lastImportHighlight, setLastImportHighlight] = useState(() => readLastImportHighlight());
     const mapLongPressTimerRef = useRef(null);
     const mapLongPressOpenAfterReleaseTimerRef = useRef(null);
     const mapLongPressPendingLatLngRef = useRef(null);
@@ -3955,6 +4155,23 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         return () => window.clearTimeout(timer);
     }, []);
 
+    useEffect(() => {
+        if (!isAdmin) {
+            setLastImportHighlight(null);
+            return undefined;
+        }
+
+        const refreshHighlight = () => setLastImportHighlight(readLastImportHighlight());
+        window.addEventListener('storage', refreshHighlight);
+        window.addEventListener('enderecos-importacao-highlight-updated', refreshHighlight);
+        refreshHighlight();
+
+        return () => {
+            window.removeEventListener('storage', refreshHighlight);
+            window.removeEventListener('enderecos-importacao-highlight-updated', refreshHighlight);
+        };
+    }, [isAdmin]);
+
     const cancelarToqueLongoMapa = useCallback(() => {
         if (mapLongPressTimerRef.current) {
             window.clearTimeout(mapLongPressTimerRef.current);
@@ -4098,6 +4315,12 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
             },
             zoomend: () => {
                 setZoomLevel(map.getZoom());
+            },
+            popupopen: () => {
+                map.getContainer().classList.add('has-popup');
+            },
+            popupclose: () => {
+                map.getContainer().classList.remove('has-popup');
             }
         });
 
@@ -4249,6 +4472,18 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         }
     };
 
+    const lastImportEnderecoIds = useMemo(() => {
+        if (!isAdmin || !lastImportHighlight?.importacaoId) return new Set();
+
+        const idsSalvos = new Set(lastImportHighlight.enderecoIds || []);
+        return new Set(enderecosOperacionais
+            .filter((endereco) => (
+                endereco.importacaoId === lastImportHighlight.importacaoId ||
+                idsSalvos.has(endereco.id)
+            ))
+            .map((endereco) => endereco.id));
+    }, [enderecosOperacionais, isAdmin, lastImportHighlight]);
+
     const enderecosVisiveis = useMemo(() => enderecosOperacionais.filter((endereco) => {
         if (grupoEnderecoFocadoId) {
             if (!grupoEnderecoFocado || !podeFocarGrupoEndereco(grupoEnderecoFocado)) return false;
@@ -4262,6 +4497,8 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         }
 
         if (isAdmin) {
+            if (lastImportEnderecoIds.has(endereco.id)) return true;
+
             if (endereco.status === ENDERECO_STATUS.ARQUIVADO) {
                 return mostrarEnderecosArquivados;
             }
@@ -4273,7 +4510,19 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         }
 
         return false;
-    }), [enderecosOperacionais, grupoEnderecoFocado, grupoEnderecoFocadoId, isAdmin, modoVisualizacaoMapa, mostrarEnderecosArquivados, podeFocarGrupoEndereco]);
+    }), [enderecosOperacionais, grupoEnderecoFocado, grupoEnderecoFocadoId, isAdmin, lastImportEnderecoIds, modoVisualizacaoMapa, mostrarEnderecosArquivados, podeFocarGrupoEndereco]);
+
+    const highlightedEnderecoIds = useMemo(() => {
+        if (!isAdmin || !lastImportEnderecoIds.size) return new Set();
+
+        return new Set(enderecosVisiveis
+            .filter((endereco) => lastImportEnderecoIds.has(endereco.id))
+            .map((endereco) => endereco.id));
+    }, [enderecosVisiveis, isAdmin, lastImportEnderecoIds]);
+    const limparDestaqueUltimaImportacao = () => {
+        clearLastImportHighlight();
+        setLastImportHighlight(null);
+    };
 
     const totalEnderecosArquivados = useMemo(() => enderecosOperacionais.filter((endereco) => endereco.status === ENDERECO_STATUS.ARQUIVADO).length, [enderecosOperacionais]);
     const gruposEnderecoVisiveis = useMemo(() => gruposEnderecoCompletos.filter((grupo) => {
@@ -5044,7 +5293,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                     <MapEvents />
                     <FocoGrupoEnderecoMapController grupoId={grupoEnderecoFocadoId} enderecos={enderecosGrupoFocado} />
                     <DeepLinkHandler />
-                    {isAdmin && (
+                    {isAdmin && !grupoEnderecoFocadoId && (
                         <AddressSearchControl
                             isOnline={isOnline}
                             searchConfig={enderecoConfigNormalizada.buscaEndereco}
@@ -5130,6 +5379,16 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                                     Terr. arq.
                                 </button>
                             )}
+                            {highlightedEnderecoIds.size > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={limparDestaqueUltimaImportacao}
+                                    className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-extrabold text-amber-800 shadow-xl transition hover:bg-amber-100 active:scale-95"
+                                    title={`Limpar destaque da importação ${lastImportHighlight?.importacaoId || ''}`}
+                                >
+                                    Limpar destaque
+                                </button>
+                            )}
                         </div>
                     )}
                     <ControlesNavegacao
@@ -5191,29 +5450,28 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         />
                     ))}
 
-                    {enderecosVisiveis.map((endereco) => (
-                        <EnderecoMarker
-                            key={endereco.id}
-                            endereco={endereco}
-                            isAdmin={isAdmin}
-                            isOnline={isOnline}
-                            isSelected={enderecosSelecionadosGrupo.includes(endereco.id)}
-                            canSelect={isAdmin && isOnline && endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo}
-                            focusMode={Boolean(grupoEnderecoFocadoId)}
-                            isVisited={visitadosGrupoFocado.has(endereco.id)}
-                            canMarkVisited={Boolean(grupoEnderecoFocadoId) && podeExecutarGrupoFocado}
-                            onShare={compartilharEndereco}
-                            onNavigate={navegarEndereco}
-                            onEdit={abrirEdicaoEndereco}
-                            onToggleArchive={alternarArquivoEndereco}
-                            onToggleSelect={alternarSelecaoEnderecoGrupo}
-                            onRemoveFromGroup={removerEnderecoSelecionadoDoGrupo}
-                            onToggleVisited={(enderecoSelecionado) => {
-                                if (!grupoEnderecoFocado) return;
-                                return alternarEnderecoVisitadoGrupo(grupoEnderecoFocado, enderecoSelecionado, { sugerirFinalizacao: true });
-                            }}
-                        />
-                    ))}
+                    <EnderecoMarkersLayer
+                        enderecos={enderecosVisiveis}
+                        zoomLevel={zoomLevel}
+                        highlightedEnderecoIds={highlightedEnderecoIds}
+                        isAdmin={isAdmin}
+                        isOnline={isOnline}
+                        selectedEnderecoIds={enderecosSelecionadosGrupo}
+                        canSelectEndereco={(endereco) => isAdmin && isOnline && endereco.status === ENDERECO_STATUS.ATIVO && !endereco.grupoId && !endereco.grupoCodigo}
+                        focusMode={Boolean(grupoEnderecoFocadoId)}
+                        visitadosGrupoFocado={visitadosGrupoFocado}
+                        canMarkVisited={Boolean(grupoEnderecoFocadoId) && podeExecutarGrupoFocado}
+                        onShare={compartilharEndereco}
+                        onNavigate={navegarEndereco}
+                        onEdit={abrirEdicaoEndereco}
+                        onToggleArchive={alternarArquivoEndereco}
+                        onToggleSelect={alternarSelecaoEnderecoGrupo}
+                        onRemoveFromGroup={removerEnderecoSelecionadoDoGrupo}
+                        onToggleVisited={(enderecoSelecionado) => {
+                            if (!grupoEnderecoFocado) return;
+                            return alternarEnderecoVisitadoGrupo(grupoEnderecoFocado, enderecoSelecionado, { sugerirFinalizacao: true });
+                        }}
+                    />
 
                     {geoJsonData.features.map((feature, index) => {
                         const uniqueId = getFeatureId(feature, index);

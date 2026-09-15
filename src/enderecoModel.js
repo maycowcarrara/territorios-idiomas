@@ -468,6 +468,7 @@ export async function importarEnderecosCsvNovos(db, { preview, user }) {
         const grupoSnapshots = await Promise.all(groupEntries.map((entry) => transaction.get(entry.ref)));
         const grupos = new Map();
         const updatesByEnderecoId = new Map();
+        const enderecosAfetadosIds = [];
         let enderecosInseridos = 0;
         let enderecosAtualizados = 0;
 
@@ -589,6 +590,7 @@ export async function importarEnderecosCsvNovos(db, { preview, user }) {
 
             if (current) {
                 transaction.set(enderecoEntries[index].ref, buildEnderecoImportUpdates(row, importacaoId, actorEmail, agora), { merge: true });
+                enderecosAfetadosIds.push(enderecoEntries[index].ref.id);
                 enderecosAtualizados += 1;
             } else {
                 transaction.set(enderecoEntries[index].ref, {
@@ -608,6 +610,7 @@ export async function importarEnderecosCsvNovos(db, { preview, user }) {
                     arquivadoEm: fields.status === ENDERECO_STATUS.ARQUIVADO ? agora : null,
                     arquivadoPor: fields.status === ENDERECO_STATUS.ARQUIVADO ? actorEmail : null
                 });
+                enderecosAfetadosIds.push(enderecoEntries[index].ref.id);
                 enderecosInseridos += 1;
             }
         });
@@ -669,6 +672,7 @@ export async function importarEnderecosCsvNovos(db, { preview, user }) {
 
         return {
             importacaoId,
+            enderecosAfetadosIds,
             enderecosInseridos,
             enderecosAtualizados,
             territoriosCriados: [...grupos.values()].filter((grupo) => !grupo.data).length,
