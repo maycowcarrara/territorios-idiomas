@@ -264,6 +264,71 @@ const getBairroSbsColor = (index) => (
     BAIRRO_SBS_COLOR_PALETTE[index % BAIRRO_SBS_COLOR_PALETTE.length]
 );
 
+const buildBairroColorLookup = (features = []) => ({
+    features,
+    colorsById: new Map(features.map((feature, index) => [
+        feature.properties.bairroId,
+        getBairroSbsColor(index)
+    ])),
+    featuresById: new Map(features.map((feature) => [feature.properties.bairroId, feature])),
+    featuresByName: new Map(features.map((feature) => [feature.properties.bairroNomeNormalizado, feature])),
+    featuresByKey: new Map(features.map((feature) => [feature.properties.bairroKey, feature]))
+});
+
+const resolveBairroColorFromLookup = (lookup, source = {}, point = null) => {
+    if (!lookup?.features?.length) return null;
+
+    const bairroIdSalvo = source.bairroId ? buildBairroId(source.bairroId) : '';
+    const bairroNome = source.bairroNome || source.bairro || '';
+    const bairroNomeNormalizado = normalizeBairroNome(bairroNome);
+    const bairroKey = normalizeBairroKey(bairroNome);
+    const bairroFeature = lookup.featuresById.get(bairroIdSalvo) ||
+        lookup.featuresByName.get(bairroNomeNormalizado) ||
+        lookup.featuresByKey.get(bairroKey) ||
+        findBairroFeatureForPoint(lookup.features, point);
+
+    return bairroFeature
+        ? lookup.colorsById.get(bairroFeature.properties.bairroId) || null
+        : null;
+};
+
+const buildBairroMarkerStyle = (colors) => (
+    colors
+        ? ` style="background:${colors.border};border-color:${colors.fill};color:#fff;"`
+        : ''
+);
+
+const resolveTempoSemTrabalhar = (ultimaConclusao) => {
+    if (!ultimaConclusao) {
+        return {
+            dias: 0,
+            texto: 'Nunca',
+            textoCompacto: 'Nunca',
+            title: 'Território ainda não trabalhado'
+        };
+    }
+
+    const dataUltima = ultimaConclusao.toDate ? ultimaConclusao.toDate() : new Date(ultimaConclusao);
+    const timestamp = dataUltima instanceof Date ? dataUltima.getTime() : Number.NaN;
+    if (!Number.isFinite(timestamp)) {
+        return {
+            dias: 0,
+            texto: 'Nunca',
+            textoCompacto: 'Nunca',
+            title: 'Território ainda não trabalhado'
+        };
+    }
+
+    const dias = Math.max(0, Math.ceil(Math.abs(Date.now() - timestamp) / (1000 * 60 * 60 * 24)));
+
+    return {
+        dias,
+        texto: `${dias} ${dias === 1 ? 'dia' : 'dias'}`,
+        textoCompacto: `${dias}d`,
+        title: `Última conclusão: ${dias} ${dias === 1 ? 'dia' : 'dias'} atrás`
+    };
+};
+
 const formatPessoasCadastradasLabel = (total) => {
     const totalSeguro = Math.max(0, Math.trunc(Number(total) || 0));
     return `${totalSeguro} ${totalSeguro === 1 ? 'pessoa cadastrada' : 'pessoas cadastradas'}`;
@@ -342,17 +407,23 @@ const cssTooltip = `
   .map-poi-marker { width: 26px; height: 26px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.94); border: 2px solid rgba(255,255,255,0.98); box-shadow: 0 3px 10px rgba(15,23,42,0.32), 0 0 0 1px rgba(15,23,42,0.08); font-size: 18px; line-height: 1; cursor: help; }
   .map-poi-marker.ref { border-color: ${MAP_COLORS.apoio.referencia}; }
   .map-poi-marker.condo { border-color: ${MAP_COLORS.apoio.condominio}; }
-  .map-address-marker { width: 34px; max-width: 34px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.endereco.ativo}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(15,23,42,0.35); font-size: 11px; line-height: 1; font-weight: 900; padding: 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; letter-spacing: 0; }
-  .map-address-marker.grouped { background: ${MAP_COLORS.endereco.agrupado}; }
-  .map-address-marker.selected { background: ${MAP_COLORS.endereco.selecionado}; color: #111827; }
-  .map-address-marker.archived { background: ${MAP_COLORS.endereco.arquivado}; opacity: 0.82; }
+  .map-address-marker { position: relative; width: 34px; max-width: 34px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.endereco.ativo}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(15,23,42,0.35); font-size: 11px; line-height: 1; font-weight: 900; padding: 0 3px; white-space: nowrap; text-align: center; letter-spacing: 0; }
+  .map-address-marker.grouped { background: ${MAP_COLORS.endereco.agrupado}; box-shadow: 0 0 0 3px rgba(124,58,237,0.45), 0 4px 12px rgba(15,23,42,0.35); }
+  .map-address-marker.grouped::after { content: "T"; position: absolute; top: -7px; right: -7px; display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 999px; background: #fff; color: #5b21b6; border: 2px solid #7c3aed; font-size: 8px; line-height: 1; font-weight: 950; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
+  .map-address-marker.selected { background: ${MAP_COLORS.endereco.selecionado}; color: #111827; box-shadow: 0 0 0 4px rgba(245,158,11,0.68), 0 5px 16px rgba(15,23,42,0.38); }
+  .map-address-marker.archived { background: ${MAP_COLORS.endereco.arquivado}; opacity: 0.76; border-style: dashed; filter: grayscale(0.35); }
   .map-address-marker.import-highlight { box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.72), 0 5px 16px rgba(15,23,42,0.38); border-color: #fef3c7; }
   .map-address-marker.focus-pending { background: ${MAP_COLORS.endereco.ativo}; transform: scale(1.08); }
-  .map-address-marker.focus-done { background: ${MAP_COLORS.endereco.visitado}; transform: scale(1.08); }
-  .map-group-marker { min-width: 44px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.grupoEndereco.ativo.marker}; color: white; border: 3px solid white; box-shadow: 0 4px 14px rgba(15,23,42,0.38); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 7px; white-space: nowrap; }
-  .map-group-marker.archived { background: ${MAP_COLORS.grupoEndereco.arquivado.marker}; opacity: 0.86; }
-  .map-group-marker.assigned { background: ${MAP_COLORS.grupoEndereco.designado.marker}; }
-  .map-group-marker.finished { background: ${MAP_COLORS.grupoEndereco.finalizado.marker}; }
+  .map-address-marker.focus-done { background: ${MAP_COLORS.endereco.visitado}; transform: scale(1.08); box-shadow: 0 0 0 3px rgba(34,197,94,0.48), 0 4px 12px rgba(15,23,42,0.35); }
+  .map-address-marker.focus-done::after { content: "✓"; position: absolute; top: -7px; right: -7px; display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; background: #dcfce7; color: #15803d; border: 2px solid #fff; font-size: 10px; line-height: 1; font-weight: 950; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
+  .map-group-marker-stack { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .map-group-marker { position: relative; min-width: 44px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.grupoEndereco.ativo.marker}; color: white; border: 3px solid white; box-shadow: 0 4px 14px rgba(15,23,42,0.38); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 7px; white-space: nowrap; }
+  .map-group-marker.archived { background: ${MAP_COLORS.grupoEndereco.arquivado.marker}; opacity: 0.78; border-style: dashed; filter: grayscale(0.35); }
+  .map-group-marker.assigned { background: ${MAP_COLORS.grupoEndereco.designado.marker}; box-shadow: 0 0 0 4px rgba(37,99,235,0.48), 0 4px 14px rgba(15,23,42,0.38); }
+  .map-group-marker.assigned::after { content: ""; position: absolute; top: -5px; right: -5px; width: 12px; height: 12px; border-radius: 999px; background: #2563eb; border: 2px solid #fff; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
+  .map-group-marker.finished { background: ${MAP_COLORS.grupoEndereco.finalizado.marker}; box-shadow: 0 0 0 4px rgba(34,197,94,0.48), 0 4px 14px rgba(15,23,42,0.38); }
+  .map-group-marker.finished::after { content: "✓"; position: absolute; top: -7px; right: -7px; display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; background: #dcfce7; color: #15803d; border: 2px solid #fff; font-size: 10px; line-height: 1; font-weight: 950; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
+  .map-group-marker-time { padding: 1px 5px; border-radius: 999px; background: rgba(255,255,255,0.86); border: 1px solid rgba(15,23,42,0.12); color: #7c2d12; box-shadow: 0 2px 8px rgba(15,23,42,0.18); font-size: 9px; line-height: 1.1; font-weight: 950; text-transform: uppercase; text-shadow: 1px 1px 0 rgba(255,255,255,0.74); white-space: nowrap; }
   .map-click-marker { width: 28px; height: 28px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.apoio.clique}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(37,99,235,0.35); font-size: 16px; line-height: 1; font-weight: 900; }
   .map-click-marker.search { background: #7c3aed; box-shadow: 0 4px 14px rgba(124,58,237,0.38); }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-content-wrapper { padding: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 30px rgba(15,23,42,0.22); }
@@ -2396,7 +2467,8 @@ const GrupoEnderecoLayer = ({
     onToggleVisitado,
     onFinalizar,
     onFocusMap,
-    isMapFocused = false
+    isMapFocused = false,
+    bairroMarkerColors = null
 }) => {
     const map = useMap();
     const arquivado = grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO;
@@ -2417,6 +2489,7 @@ const GrupoEnderecoLayer = ({
     const [menuAberto, setMenuAberto] = useState(false);
     const [enderecosModalAberto, setEnderecosModalAberto] = useState(false);
     const [mensagemDesignacaoPronta, setMensagemDesignacaoPronta] = useState(null);
+    const markerStyle = buildBairroMarkerStyle(bairroMarkerColors);
     const codigoPreferencial = formatGrupoEnderecoCodigoExibicao(grupo.codigo);
     const codigoExibicao = /^T-\d+$/i.test(codigoPreferencial)
         ? codigoPreferencial
@@ -2435,12 +2508,13 @@ const GrupoEnderecoLayer = ({
         Math.abs(Number(grupo.bounds.maxLat) - Number(grupo.bounds.minLat)) > 0.00001 ||
         Math.abs(Number(grupo.bounds.maxLng) - Number(grupo.bounds.minLng)) > 0.00001
     );
+    const tempoSemTrabalhar = resolveTempoSemTrabalhar(grupo.ultimaConclusao);
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
-        html: `<div class="map-group-marker ${arquivado ? 'archived' : ''} ${designado && !finalizado ? 'assigned' : ''} ${finalizado ? 'finished' : ''}">${codigoExibicao}</div>`,
-        iconSize: [56, 30],
-        iconAnchor: [28, 15]
-    }), [arquivado, codigoExibicao, designado, finalizado]);
+        html: `<div class="map-group-marker-stack"><div class="map-group-marker ${arquivado ? 'archived' : ''} ${designado && !finalizado ? 'assigned' : ''} ${finalizado ? 'finished' : ''}"${markerStyle}>${codigoExibicao}</div><div class="map-group-marker-time" title="${tempoSemTrabalhar.title}">${tempoSemTrabalhar.textoCompacto}</div></div>`,
+        iconSize: [64, 46],
+        iconAnchor: [32, 15]
+    }), [arquivado, codigoExibicao, designado, finalizado, markerStyle, tempoSemTrabalhar.textoCompacto, tempoSemTrabalhar.title]);
 
     useEffect(() => {
         setUsuarioSelecionado('');
@@ -3231,15 +3305,10 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
     const deveMostrarQuadras = zoomLevel >= 17 && (isAdmin || isMeu);
     const podeVerDetalhes = isAdmin || isMeu;
 
-    let diasSemTrabalhar = 0;
-    let textoTempo = "Nunca";
-    let textoTempoCompacto = "Nunca";
-    if (dadosBanco.ultimaConclusao) {
-        const dataUltima = dadosBanco.ultimaConclusao.toDate ? dadosBanco.ultimaConclusao.toDate() : new Date(dadosBanco.ultimaConclusao);
-        diasSemTrabalhar = Math.ceil(Math.abs(new Date() - dataUltima) / (1000 * 60 * 60 * 24));
-        textoTempo = diasSemTrabalhar > 60 ? `${Math.floor(diasSemTrabalhar / 30)} meses` : `${diasSemTrabalhar} dias`;
-        textoTempoCompacto = diasSemTrabalhar > 60 ? `${Math.floor(diasSemTrabalhar / 30)}m` : `${diasSemTrabalhar}d`;
-    }
+    const tempoSemTrabalhar = resolveTempoSemTrabalhar(dadosBanco.ultimaConclusao);
+    const diasSemTrabalhar = tempoSemTrabalhar.dias;
+    const textoTempo = tempoSemTrabalhar.texto;
+    const textoTempoCompacto = tempoSemTrabalhar.textoCompacto;
 
     const coresDisponivel = getTerritorioDisponivelColors(diasSemTrabalhar, Boolean(dadosBanco.ultimaConclusao));
 
@@ -3268,7 +3337,7 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
         <>
             <span className="label-nome">{zoomLevel < 16 ? codigoTerritorio : nome}</span>
             {zoomLevel < 16 && !isOcupado && !isFinalizado && !isAguardandoFinalizacao && (
-                <span className="label-tempo-compacto" title={dadosBanco.ultimaConclusao ? `Última conclusão: ${textoTempo} atrás` : 'Território ainda não trabalhado'}>
+                <span className="label-tempo-compacto" title={tempoSemTrabalhar.title}>
                     {textoTempoCompacto}
                 </span>
             )}
@@ -4545,6 +4614,9 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         return statusGrupo === GRUPO_ENDERECO_STATUS.ATIVO && normalizeEmailValue(grupo.designadoPara) === normalizeEmailValue(user?.email);
     }), [grupoEnderecoFocadoId, gruposEnderecoCompletos, isAdmin, modoVisualizacaoMapa, mostrarGruposArquivados, podeFocarGrupoEndereco, user?.email]);
     const totalGruposArquivados = useMemo(() => gruposEndereco.filter((grupo) => (grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) === GRUPO_ENDERECO_STATUS.ARQUIVADO).length, [gruposEndereco]);
+    const bairroColorLookup = useMemo(() => (
+        buildBairroColorLookup(bairrosGeoJson?.features || [])
+    ), [bairrosGeoJson]);
     const resumoBairros = useMemo(() => {
         const features = bairrosGeoJson?.features || [];
         const resumo = new Map(features.map((feature) => [
@@ -5428,27 +5500,34 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         />
                     )}
 
-                    {gruposEnderecoVisiveis.map((grupo) => (
-                        <GrupoEnderecoLayer
-                            key={grupo.id}
-                            grupo={grupo}
-                            user={user}
-                            isAdmin={isAdmin}
-                            isOnline={isOnline}
-                            contextoSistema={contextoSistema}
-                            listaUsuarios={listaUsuarios}
-                            enderecosGrupo={resolveEnderecosGrupoFromMaps(grupo, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId)}
-                            onShare={compartilharGrupoEndereco}
-                            onNavigate={navegarEndereco}
-                            onToggleArchive={alternarArquivoGrupoEndereco}
-                            onDesignar={salvarDesignacaoGrupoEndereco}
-                            onDevolver={devolverDesignacaoGrupoEndereco}
-                            onToggleVisitado={alternarEnderecoVisitadoGrupo}
-                            onFinalizar={finalizarGrupoEndereco}
-                            onFocusMap={ativarFocoGrupoEndereco}
-                            isMapFocused={isSameGrupoEndereco(grupo, grupoEnderecoFocadoId)}
-                        />
-                    ))}
+                    {gruposEnderecoVisiveis.map((grupo) => {
+                        const enderecosGrupo = resolveEnderecosGrupoFromMaps(grupo, enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId);
+                        const centroGrupo = resolveGrupoEnderecoCentro(grupo, enderecosGrupo);
+                        const bairroMarkerColors = resolveBairroColorFromLookup(bairroColorLookup, grupo, centroGrupo);
+
+                        return (
+                            <GrupoEnderecoLayer
+                                key={grupo.id}
+                                grupo={grupo}
+                                user={user}
+                                isAdmin={isAdmin}
+                                isOnline={isOnline}
+                                contextoSistema={contextoSistema}
+                                listaUsuarios={listaUsuarios}
+                                enderecosGrupo={enderecosGrupo}
+                                bairroMarkerColors={bairroMarkerColors}
+                                onShare={compartilharGrupoEndereco}
+                                onNavigate={navegarEndereco}
+                                onToggleArchive={alternarArquivoGrupoEndereco}
+                                onDesignar={salvarDesignacaoGrupoEndereco}
+                                onDevolver={devolverDesignacaoGrupoEndereco}
+                                onToggleVisitado={alternarEnderecoVisitadoGrupo}
+                                onFinalizar={finalizarGrupoEndereco}
+                                onFocusMap={ativarFocoGrupoEndereco}
+                                isMapFocused={isSameGrupoEndereco(grupo, grupoEnderecoFocadoId)}
+                            />
+                        );
+                    })}
 
                     <EnderecoMarkersLayer
                         enderecos={enderecosVisiveis}
