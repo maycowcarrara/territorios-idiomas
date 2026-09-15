@@ -171,6 +171,15 @@ service cloud.firestore {
              ));
     }
 
+    function importacaoEnderecoValida() {
+      return request.resource.data.origem != 'importacao' ||
+             (
+               request.resource.data.importacaoId is string &&
+               request.resource.data.importacaoId.size() > 0 &&
+               request.resource.data.importacaoId.size() <= 120
+             );
+    }
+
     function pontoMapaValido(valor) {
       return valor == null ||
              (
@@ -232,6 +241,7 @@ service cloud.firestore {
              request.resource.data.quantidadeEstrangeiros <= 99 &&
              textoOpcionalValido(request.resource.data.observacao, 2000) &&
              request.resource.data.origem in ['manual', 'json', 'importacao'] &&
+             importacaoEnderecoValida() &&
              textoOpcionalValido(request.resource.data.importacaoId, 120) &&
              request.resource.data.criadoEm is timestamp &&
              request.resource.data.criadoPor is string &&
@@ -252,7 +262,7 @@ service cloud.firestore {
                  request.resource.data.status == 'arquivado'
                )
              ) &&
-             request.resource.data.origem == 'manual' &&
+             request.resource.data.origem in ['manual', 'importacao'] &&
              request.resource.data.criadoPor == meuEmail() &&
              request.resource.data.atualizadoPor == meuEmail() &&
              (
@@ -276,6 +286,8 @@ service cloud.firestore {
         'grupoId',
         'grupoCodigo',
         'grupoDesignadoPara',
+        'lat',
+        'lng',
         'idiomaId',
         'idiomaNome',
         'bairro',
@@ -284,6 +296,7 @@ service cloud.firestore {
         'quantidadeEstrangeiros',
         'observacao',
         'classe',
+        'importacaoId',
         'atualizadoEm',
         'atualizadoPor',
         'arquivadoEm',

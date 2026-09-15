@@ -29,6 +29,7 @@ import {
     finalizarGrupoEnderecoDesignado,
     getEnderecoRef,
     getGrupoEnderecoRef,
+    importarEnderecosCsvNovos,
     setEnderecoArquivado,
     toggleEnderecoVisitadoGrupo,
     updateEnderecoBasico
@@ -42,6 +43,7 @@ import {
     getGrupoEnderecoCodigoPadraoFromConfig,
     normalizeEnderecoConfig
 } from '../src/enderecoConfig.js';
+import { analyzeEnderecoCsvImport } from '../src/enderecoCsvImport.js';
 
 const projectId = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT || 'territorios-idiomas-smoke';
 const firestoreEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
@@ -144,6 +146,24 @@ async function seedUsuarios() {
 async function signIn(client, email) {
     const credential = await signInWithEmailAndPassword(client.auth, email, testPassword);
     return credential.user;
+}
+
+async function carregarContextoImportacao(db) {
+    const [enderecosSnapshot, gruposSnapshot] = await Promise.all([
+        getDocs(collection(db, 'enderecos')),
+        getDocs(collection(db, 'grupos_enderecos'))
+    ]);
+
+    return {
+        existingEnderecos: enderecosSnapshot.docs.map((snapshot) => ({
+            id: snapshot.id,
+            ...snapshot.data()
+        })),
+        existingGrupos: gruposSnapshot.docs.map((snapshot) => ({
+            id: snapshot.id,
+            ...snapshot.data()
+        }))
+    };
 }
 
 async function main() {
@@ -382,6 +402,71 @@ async function main() {
             usuario: adminInfo,
             user: adminUser
         });
+
+        const csvImportacao = [
+            'Territorio,Codigos (Total 7),Barrio,Dirección,Información,Classe,Cuántas personas (Total 15),"Lat, Long",Latitude,Longitude,Link Maps',
+            'ES-SBS-T02,ES-SBS-901,Serra Alta,"Rua Import Smoke 901, 10","Pessoa privada",✅Confirmado,4,"-26.2794, 49.3900",,,',
+            'ES-SBS-T90,ES-SBS-902,Centro,"Rua Import Smoke 902, 20",,📖Estúdio,2,,-26.25,-49.37,',
+            'ES-SBS-T90,ES-SBS-903,Centro,"Rua Fora da Area",,✅Confirmado,1,"-10.1, -48.1",,,',
+            'ES-SBS-T01,ES-SBS-002,Serra Alta,"Rua Smoke B Importada, 222",,✅Confirmado,7,"-26.2800, -49.3905",,,',
+            'ES-SBS-T90,ES-SBS-904,Centro,"Rua Duplicada A",,✅Confirmado,1,"-26.251, -49.371",,,',
+            'ES-SBS-T90,ES-SBS-904,Centro,"Rua Duplicada B",,✅Confirmado,1,"-26.252, -49.372",,,',
+            'ES-SBS-T90,ES-SBS-004,Centro,"Rua Existente",,✅Confirmado,1,"-26.253, -49.373",,,',
+            'ES-SBS-T91,ES-SBS-905,Centro,"Rua Excluida",,❌Excluido,1,"-26.254, -49.374",,,'
+        ].join('\n');
+        const contextoImportacao = await carregarContextoImportacao(adminClient.db);
+        const previewImportacao = analyzeEnderecoCsvImport({
+            csvText: csvImportacao,
+            config: configCadastros,
+            ...contextoImportacao
+        });
+
+        assert(previewImportacao.totals.inserir === 3, 'Importação deveria preparar 3 endereços novos com coordenada.');
+        assert(previewImportacao.totals.atualizar === 1, 'Importação deveria preparar 1 endereço existente para atualização.');
+        assert(previewImportacao.totals.aplicar === 4, 'Importação deveria preparar 4 ações aplicáveis.');
+        assert(previewImportacao.totals.semCoordenada === 1, 'Importação deveria apontar 1 endereço sem coordenada ou fora da área.');
+        assert(previewImportacao.totals.duplicados === 2, 'Importação deveria apontar códigos duplicados pela posição da coluna.');
+        assert(previewImportacao.totals.conflitos === 1, 'Importação deveria apontar conflito sem mover endereço existente.');
+        assert(previewImportacao.territoriosCriar.includes('ES-SBS-T90'), 'Importação deveria prever criação de território novo.');
+
+        const resultadoImportacao = await importarEnderecosCsvNovos(adminClient.db, {
+            preview: previewImportacao,
+            user: adminUser
+        });
+        assert(resultadoImportacao.enderecosInseridos === 3, 'Importação deveria inserir somente os endereços novos prontos.');
+        assert(resultadoImportacao.enderecosAtualizados === 1, 'Importação deveria atualizar endereço existente diferente.');
+        assert(resultadoImportacao.territoriosCriados === 1, 'Importação deveria criar um território novo.');
+        assert(resultadoImportacao.territoriosAtualizados === 2, 'Importação deveria recalcular territórios existentes afetados.');
+
+        const enderecoImportadoExistenteGrupo = await getDoc(getEnderecoRef(adminClient.db, 'e_es_sbs_901'));
+        const enderecoImportadoNovoGrupo = await getDoc(getEnderecoRef(adminClient.db, 'e_es_sbs_902'));
+        const enderecoImportadoExcluido = await getDoc(getEnderecoRef(adminClient.db, 'e_es_sbs_905'));
+        const enderecoAtualizado = await getDoc(getEnderecoRef(adminClient.db, enderecoB.id));
+        const enderecoSemPin = await getDoc(getEnderecoRef(adminClient.db, 'e_es_sbs_903'));
+        const enderecoDuplicado = await getDoc(getEnderecoRef(adminClient.db, 'e_es_sbs_904'));
+        const grupoImportadoExistente = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoAdminDesignado.id));
+        const grupoAtualizadoExistente = await getDoc(getGrupoEnderecoRef(adminClient.db, grupo.id));
+        const grupoImportadoNovo = await getDoc(getGrupoEnderecoRef(adminClient.db, 'g_es_sbs_t90'));
+
+        assert(enderecoImportadoExistenteGrupo.exists(), 'Endereço importado para território existente deveria existir.');
+        assert(enderecoImportadoExistenteGrupo.data().grupoCodigo === 'ES-SBS-T02', 'Endereço importado deveria vincular ao território existente.');
+        assert(enderecoImportadoExistenteGrupo.data().grupoDesignadoPara === adminInfo.email, 'Importação deveria preservar designação do território existente no endereço novo.');
+        assert(enderecoImportadoExistenteGrupo.data().quantidadeEstrangeiros === 4, 'Quantidade deveria vir da posição da coluna dinâmica.');
+        assert(enderecoImportadoExistenteGrupo.data().lng < 0, 'Longitude positiva da planilha deveria ser corrigida pela área configurada.');
+        assert(enderecoImportadoNovoGrupo.data().grupoCodigo === 'ES-SBS-T90', 'Endereço importado deveria vincular ao território criado.');
+        assert(grupoImportadoNovo.exists(), 'Território informado na planilha deveria ser criado.');
+        assert(grupoImportadoNovo.data().enderecoIds.includes('e_es_sbs_902'), 'Território criado deveria conter endereço importado ativo.');
+        assert(grupoImportadoExistente.data().designadoPara === adminInfo.email, 'Importação deveria preservar responsável do território existente.');
+        assert(grupoImportadoExistente.data().designacaoId, 'Importação deveria preservar designacaoId do território existente.');
+        assert(enderecoAtualizado.data().endereco === 'Rua Smoke B Importada, 222', 'Importação deveria atualizar cadastro de endereço existente.');
+        assert(enderecoAtualizado.data().quantidadeEstrangeiros === 7, 'Importação deveria atualizar quantidade do endereço existente.');
+        assert(enderecoAtualizado.data().grupoCodigo === 'ES-SBS-T01', 'Importação não deveria mover endereço existente de território.');
+        assert(grupoAtualizadoExistente.data().enderecoIds.includes(enderecoB.id), 'Território existente atualizado deveria preservar endereço já vinculado.');
+        assert(enderecoImportadoExcluido.data().status === 'arquivado', 'Classe Excluido da planilha deveria arquivar o endereço.');
+        assert(enderecoImportadoExcluido.data().grupoId === null, 'Endereço excluído não deveria entrar em território ativo.');
+        assert(!enderecoSemPin.exists(), 'Endereço sem coordenada não deveria ser inserido.');
+        assert(!enderecoDuplicado.exists(), 'Endereço duplicado na planilha não deveria ser inserido.');
+
         await getAdminFirestore()
             .collection('grupos_enderecos')
             .doc(grupoAdminDesignado.id)

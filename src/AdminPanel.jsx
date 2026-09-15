@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, getDocs, query, where, writeBatch } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth, db } from './firebase';
 import { useSistema } from './useSistema';
 import { getDefaultSistemaConfig, slugifyCampanha } from './sistema';
 import { getTerritorioContextCollectionRef } from './territorioContext';
@@ -27,7 +27,17 @@ import {
     unionAddressSearchViewboxes
 } from './addressSearchConfig';
 import { lookupAddressSearchCityArea } from './addressSearchCityLookup';
-import { isCodigoManualValido } from './enderecoModel';
+import { searchAddresses } from './addressSearch';
+import {
+    ENDERECOS_COLLECTION,
+    GRUPOS_ENDERECOS_COLLECTION,
+    importarEnderecosCsvNovos,
+    isCodigoManualValido
+} from './enderecoModel';
+import {
+    analyzeEnderecoCsvImport,
+    applyEnderecoCsvGeocoding
+} from './enderecoCsvImport';
 
 const ADMIN_OFFLINE_MESSAGE = 'Você está offline. Ações administrativas precisam de conexão para evitar conflito de designações. Conecte-se para continuar.';
 const ADMIN_OFFLINE_ACTION_CLASS = 'disabled:cursor-not-allowed disabled:opacity-50';
@@ -116,6 +126,11 @@ const AdminPanel = () => {
     const [carregandoMunicipiosBuscaEndereco, setCarregandoMunicipiosBuscaEndereco] = useState(false);
     const [calculandoAreaBuscaEndereco, setCalculandoAreaBuscaEndereco] = useState(false);
     const [municipioBuscaEnderecoTexto, setMunicipioBuscaEnderecoTexto] = useState('');
+    const [enderecoCsvPreview, setEnderecoCsvPreview] = useState(null);
+    const [enderecoCsvContext, setEnderecoCsvContext] = useState(null);
+    const [verificandoPlanilha, setVerificandoPlanilha] = useState(false);
+    const [buscandoPinsPlanilha, setBuscandoPinsPlanilha] = useState(false);
+    const [importandoPlanilha, setImportandoPlanilha] = useState(false);
     const enderecoBuscaUfSelecionada = normalizeAddressSearchConfig(enderecoConfigForm.buscaEndereco).uf;
 
     // Estados para EDIÇÃO inline
@@ -706,6 +721,189 @@ const AdminPanel = () => {
             });
         } finally {
             setSalvandoEnderecoConfig(false);
+        }
+    };
+
+    const carregarContextoImportacaoEnderecos = async () => {
+        const [enderecosSnapshot, gruposSnapshot] = await Promise.all([
+            getDocs(collection(db, ENDERECOS_COLLECTION)),
+            getDocs(collection(db, GRUPOS_ENDERECOS_COLLECTION))
+        ]);
+
+        return {
+            existingEnderecos: enderecosSnapshot.docs.map((snapshot) => ({
+                id: snapshot.id,
+                ...snapshot.data()
+            })),
+            existingGrupos: gruposSnapshot.docs.map((snapshot) => ({
+                id: snapshot.id,
+                ...snapshot.data()
+            }))
+        };
+    };
+
+    const verificarPlanilhaEnderecos = async () => {
+        if (!ensureOnlineAdminAction()) return;
+
+        const planilhaCsvUrl = String(enderecoConfigForm.planilhaCsvUrl || '').trim();
+        if (!planilhaCsvUrl) {
+            notify({
+                title: 'Link da planilha obrigatório',
+                message: 'Informe o link CSV publicado antes de verificar.',
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        setVerificandoPlanilha(true);
+        try {
+            const [response, contexto] = await Promise.all([
+                fetch(planilhaCsvUrl, { cache: 'no-store' }),
+                carregarContextoImportacaoEnderecos()
+            ]);
+
+            if (!response.ok) {
+                throw new Error('Não foi possível baixar o CSV publicado.');
+            }
+
+            const csvText = await response.text();
+            const config = normalizeEnderecoConfig(enderecoConfigForm);
+            const preview = analyzeEnderecoCsvImport({
+                csvText,
+                config,
+                ...contexto
+            });
+
+            await setDoc(getEnderecoConfigRef(db), {
+                planilhaCsvUrl,
+                planilhaCsvAtualizadaEm: new Date()
+            }, { merge: true });
+
+            setEnderecoCsvContext({
+                ...contexto,
+                config
+            });
+            setEnderecoCsvPreview(preview);
+            notify({
+                title: 'Planilha verificada',
+                message: `${preview.totals.total} linha(s), ${preview.totals.aplicar} pronta(s) para aplicar.`,
+                variant: preview.totals.conflitos || preview.totals.invalidos ? 'warning' : 'success',
+                durationMs: 7000
+            });
+        } catch (error) {
+            console.error('Erro ao verificar planilha de endereços:', error);
+            setEnderecoCsvPreview(null);
+            notify({
+                title: 'Verificação indisponível',
+                message: String(error?.message || 'Não foi possível verificar a planilha agora.'),
+                variant: 'error',
+                durationMs: 8000
+            });
+        } finally {
+            setVerificandoPlanilha(false);
+        }
+    };
+
+    const buscarPinsFaltantesPlanilha = async () => {
+        if (!enderecoCsvPreview || !enderecoCsvContext) return;
+        if (!ensureOnlineAdminAction()) return;
+
+        const semCoordenada = enderecoCsvPreview.rows.filter((row) => row.action === 'sem-coordenada');
+        if (!semCoordenada.length) return;
+
+        setBuscandoPinsPlanilha(true);
+        const coordinatesByRowKey = {};
+        let resolvidos = 0;
+        let pendentes = 0;
+
+        try {
+            for (const row of semCoordenada) {
+                const results = await searchAddresses(row.geocodeQuery, {
+                    searchConfig: enderecoCsvContext.config.buscaEndereco
+                });
+                if (results.length === 1) {
+                    coordinatesByRowKey[row.rowKey] = {
+                        lat: results[0].lat,
+                        lng: results[0].lng
+                    };
+                    resolvidos += 1;
+                } else {
+                    pendentes += 1;
+                }
+            }
+
+            setEnderecoCsvPreview(applyEnderecoCsvGeocoding(enderecoCsvPreview, {
+                coordinatesByRowKey,
+                ...enderecoCsvContext
+            }));
+            notify({
+                title: 'Busca de pins concluída',
+                message: `${resolvidos} pin(s) resolvido(s). ${pendentes} linha(s) continuam para revisão.`,
+                variant: pendentes ? 'warning' : 'success',
+                durationMs: 8000
+            });
+        } catch (error) {
+            console.error('Erro ao buscar pins da planilha:', error);
+            notify({
+                title: 'Busca interrompida',
+                message: String(error?.message || 'Não foi possível buscar os pins faltantes agora.'),
+                variant: 'error',
+                durationMs: 8000
+            });
+        } finally {
+            setBuscandoPinsPlanilha(false);
+        }
+    };
+
+    const inserirNovosEnderecosPlanilha = async () => {
+        if (!enderecoCsvPreview) return;
+        if (!ensureOnlineAdminAction()) return;
+
+        const user = auth.currentUser;
+        if (!user?.email) {
+            notify({
+                title: 'Sessão necessária',
+                message: 'Entre novamente para inserir os endereços.',
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        const confirmar = await confirm({
+            title: 'Aplicar importação',
+            message: `Aplicar ${enderecoCsvPreview.totals.inserir} inserção(ões) e ${enderecoCsvPreview.totals.atualizar} atualização(ões) da prévia atual?`,
+            tone: 'warning',
+            confirmLabel: 'Aplicar'
+        });
+
+        if (!confirmar) return;
+
+        setImportandoPlanilha(true);
+        try {
+            const resultado = await importarEnderecosCsvNovos(db, {
+                preview: enderecoCsvPreview,
+                user
+            });
+            notify({
+                title: 'Endereços importados',
+                message: `${resultado.enderecosInseridos} inserido(s), ${resultado.enderecosAtualizados} atualizado(s), ${resultado.territoriosCriados} território(s) criado(s) e ${resultado.territoriosAtualizados} recalculado(s).`,
+                variant: 'success',
+                durationMs: 9000
+            });
+            setEnderecoCsvPreview(null);
+            setEnderecoCsvContext(null);
+        } catch (error) {
+            console.error('Erro ao importar endereços da planilha:', error);
+            notify({
+                title: 'Importação não concluída',
+                message: String(error?.message || 'Não foi possível inserir os endereços agora. Verifique a prévia novamente.'),
+                variant: 'error',
+                durationMs: 9000
+            });
+        } finally {
+            setImportandoPlanilha(false);
         }
     };
 
@@ -1794,6 +1992,122 @@ const AdminPanel = () => {
                                             className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                                         />
                                     </div>
+                                </div>
+
+                                <div className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4">
+                                    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                        <div>
+                                            <h3 className="text-sm font-black text-slate-800">Importação por planilha CSV</h3>
+                                            <p className="mt-1 text-xs font-medium text-slate-500">
+                                                A verificação baixa a planilha publicada e não grava dados.
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-col gap-2 sm:flex-row">
+                                            <button
+                                                type="button"
+                                                onClick={verificarPlanilhaEnderecos}
+                                                disabled={verificandoPlanilha || importandoPlanilha || adminActionsDisabled}
+                                                className={`rounded-xl border border-cyan-200 bg-white px-4 py-2 text-xs font-bold uppercase text-cyan-800 transition-all hover:bg-cyan-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                            >
+                                                {verificandoPlanilha ? 'Verificando...' : 'Verificar planilha'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={inserirNovosEnderecosPlanilha}
+                                                disabled={!enderecoCsvPreview?.totals?.aplicar || importandoPlanilha || verificandoPlanilha || adminActionsDisabled}
+                                                className={`rounded-xl bg-cyan-800 px-4 py-2 text-xs font-bold uppercase text-white transition-all hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                            >
+                                                {importandoPlanilha ? 'Aplicando...' : 'Aplicar importação'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Link CSV publicado</label>
+                                    <input
+                                        type="url"
+                                        value={enderecoConfigForm.planilhaCsvUrl || ''}
+                                        onChange={(event) => handleEnderecoConfigChange('planilhaCsvUrl', event.target.value)}
+                                        maxLength={1000}
+                                        placeholder="https://docs.google.com/spreadsheets/...&output=csv"
+                                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition-all focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                                    />
+
+                                    {enderecoCsvPreview && (
+                                        <div className="mt-4 space-y-4">
+                                            <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8">
+                                                {[
+                                                    { label: 'Linhas', value: enderecoCsvPreview.totals.total },
+                                                    { label: 'Novos', value: enderecoCsvPreview.totals.novos },
+                                                    { label: 'Atualizar', value: enderecoCsvPreview.totals.atualizar },
+                                                    { label: 'Aplicar', value: enderecoCsvPreview.totals.aplicar },
+                                                    { label: 'Inserir', value: enderecoCsvPreview.totals.inserir },
+                                                    { label: 'Existentes', value: enderecoCsvPreview.totals.existentes },
+                                                    { label: 'Duplicados', value: enderecoCsvPreview.totals.duplicados },
+                                                    { label: 'Inválidos', value: enderecoCsvPreview.totals.invalidos },
+                                                    { label: 'Sem pin', value: enderecoCsvPreview.totals.semCoordenada },
+                                                    { label: 'Conflitos', value: enderecoCsvPreview.totals.conflitos }
+                                                ].map((item) => (
+                                                    <div key={item.label} className="rounded-xl border border-cyan-100 bg-white px-3 py-2">
+                                                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">{item.label}</p>
+                                                        <p className="mt-1 text-lg font-black text-slate-800">{item.value}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                                <div className="rounded-xl border border-cyan-100 bg-white px-3 py-2">
+                                                    <p className="text-[11px] font-black uppercase tracking-wide text-cyan-700">Territórios a criar</p>
+                                                    <p className="mt-1 text-sm font-bold text-slate-700">
+                                                        {enderecoCsvPreview.territoriosCriar.length ? enderecoCsvPreview.territoriosCriar.join(', ') : 'Nenhum'}
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-xl border border-cyan-100 bg-white px-3 py-2">
+                                                    <p className="text-[11px] font-black uppercase tracking-wide text-cyan-700">Vínculos existentes</p>
+                                                    <p className="mt-1 text-sm font-bold text-slate-700">
+                                                        {enderecoCsvPreview.territoriosExistentes.length ? enderecoCsvPreview.territoriosExistentes.join(', ') : 'Nenhum'}
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center rounded-xl border border-cyan-100 bg-white px-3 py-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={buscarPinsFaltantesPlanilha}
+                                                        disabled={!enderecoCsvPreview.totals.semCoordenada || buscandoPinsPlanilha || verificandoPlanilha || adminActionsDisabled}
+                                                        className={`w-full rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs font-bold uppercase text-cyan-800 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                                    >
+                                                        {buscandoPinsPlanilha ? 'Buscando pins...' : 'Buscar pins faltantes'}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {(enderecoCsvPreview.samples.aplicaveis.length || enderecoCsvPreview.samples.invalidos.length || enderecoCsvPreview.samples.conflitos.length || enderecoCsvPreview.samples.semCoordenada.length) ? (
+                                                <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+                                                    {[
+                                                        { title: 'Aplicar', rows: enderecoCsvPreview.samples.aplicaveis, tone: 'text-cyan-700' },
+                                                        { title: 'Inválidos', rows: enderecoCsvPreview.samples.invalidos, tone: 'text-red-700' },
+                                                        { title: 'Conflitos', rows: enderecoCsvPreview.samples.conflitos, tone: 'text-amber-700' },
+                                                        { title: 'Sem coordenada', rows: enderecoCsvPreview.samples.semCoordenada, tone: 'text-slate-700' }
+                                                    ].map((group) => (
+                                                        <div key={group.title} className="rounded-xl border border-slate-200 bg-white p-3">
+                                                            <p className={`text-xs font-black uppercase ${group.tone}`}>{group.title}</p>
+                                                            <div className="mt-2 space-y-2">
+                                                                {group.rows.length ? group.rows.map((row) => (
+                                                                    <div key={`${group.title}-${row.rowKey}`} className="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
+                                                                        <span className="font-bold">Linha {row.rowNumber}</span>
+                                                                        {row.codigo ? ` · ${row.codigo}` : ''}
+                                                                        <p className="mt-0.5">
+                                                                            {[...row.errors, ...row.conflicts].join(' ') || row.geocodeQuery || `${row.action === 'atualizar' ? 'Atualizar' : 'Inserir'} · ${row.endereco}`}
+                                                                        </p>
+                                                                    </div>
+                                                                )) : (
+                                                                    <p className="text-xs font-medium text-slate-400">Nenhuma linha.</p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">

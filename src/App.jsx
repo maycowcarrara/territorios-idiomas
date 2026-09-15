@@ -410,6 +410,24 @@ const rememberRedirectFromCurrentUrl = () => {
   }
 };
 
+const getGoogleAuthErrorText = (error) => [
+  error?.code,
+  error?.message,
+  error?.errorMessage,
+  error?.result?.message,
+  error?.result?.errorMessage,
+  error?.details?.message
+].filter(Boolean).map((parte) => String(parte)).join(' | ');
+
+const isGooglePopupUnavailableError = (error) => {
+  const mensagem = getGoogleAuthErrorText(error);
+  return (
+    mensagem.includes('popup-closed-by-user')
+    || mensagem.includes('popup-blocked')
+    || mensagem.includes('cancelled-popup-request')
+  );
+};
+
 // --- TELA DE LOGIN ---
 function Login() {
   const navigate = useNavigate();
@@ -428,15 +446,7 @@ function Login() {
   }, [navigate]);
 
   const extrairMensagemErroGoogle = (error) => {
-    const partes = [
-      error?.message,
-      error?.errorMessage,
-      error?.result?.message,
-      error?.result?.errorMessage,
-      error?.details?.message
-    ].filter(Boolean);
-
-    const mensagem = partes.map((parte) => String(parte)).join(' | ');
+    const mensagem = getGoogleAuthErrorText(error);
 
     if (!mensagem) {
       return 'Erro ao conectar com Google. Tente novamente.';
@@ -444,6 +454,10 @@ function Login() {
 
     if (mensagem.includes('VITE_GOOGLE_WEB_CLIENT_ID')) {
       return 'Falta configurar o client ID do Google para o app Android.';
+    }
+
+    if (isGooglePopupUnavailableError(error)) {
+      return 'A janela do Google foi fechada ou bloqueada antes de concluir. Neste navegador, use o link mágico por e-mail ou abra o app no Chrome/Edge em http://localhost:5173/admin.';
     }
 
     if (
@@ -531,6 +545,21 @@ function Login() {
     });
     return () => unsubscribe();
   }, [navegarAposLogin]);
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform() || !verificandoSessao) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setVerificandoSessao(false);
+      setErro('Não foi possível concluir a verificação de login neste navegador. Tente o link mágico por e-mail ou abra o app no Chrome/Edge em http://localhost:5173/admin.');
+    }, 8000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [verificandoSessao]);
 
   const processarLinkPendente = useCallback(async () => {
     if (auth.currentUser) return;

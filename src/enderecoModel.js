@@ -386,6 +386,297 @@ export async function createEnderecoManual(db, { user, ...input }) {
     });
 }
 
+function assertImportRowValida(row) {
+    const codigo = assertCodigoManualValido(row?.codigo, 'endereço');
+
+    if (!row?.canInsert && !row?.canUpdate) {
+        throw new Error(`A linha ${row?.rowNumber || codigo} não está pronta para importação.`);
+    }
+
+    if (ensureArray(row.errors).length || ensureArray(row.conflicts).length || row.duplicate) {
+        throw new Error(`A linha ${row.rowNumber || codigo} possui pendências na prévia.`);
+    }
+
+    if (!Number.isFinite(Number(row.lat)) || !Number.isFinite(Number(row.lng))) {
+        throw new Error(`A linha ${row.rowNumber || codigo} não possui coordenada confirmada.`);
+    }
+
+    if (!normalizeText(row.endereco, 220)) {
+        throw new Error(`A linha ${row.rowNumber || codigo} não possui endereço.`);
+    }
+
+    if (row.territorioCodigo) {
+        assertCodigoManualValido(row.territorioCodigo, 'território');
+    }
+
+    return codigo;
+}
+
+function buildEnderecoImportUpdates(row, importacaoId, actorEmail, agora) {
+    const fields = normalizeEnderecoFields(row);
+
+    return {
+        status: fields.status,
+        lat: fields.lat,
+        lng: fields.lng,
+        idiomaId: fields.idiomaId,
+        idiomaNome: fields.idiomaNome,
+        bairro: fields.bairro,
+        endereco: fields.endereco,
+        informacao: fields.informacao,
+        quantidadeEstrangeiros: fields.quantidadeEstrangeiros,
+        observacao: fields.observacao,
+        classe: fields.classe,
+        importacaoId,
+        atualizadoEm: agora,
+        atualizadoPor: actorEmail,
+        arquivadoEm: fields.status === ENDERECO_STATUS.ARQUIVADO ? agora : null,
+        arquivadoPor: fields.status === ENDERECO_STATUS.ARQUIVADO ? actorEmail : null
+    };
+}
+
+export async function importarEnderecosCsvNovos(db, { preview, user }) {
+    const rows = ensureArray(preview?.rows).filter((row) => row?.canInsert || row?.canUpdate);
+    const actorEmail = buildActorEmail(user);
+    const agora = new Date();
+    const importacaoId = normalizeText(preview?.importacaoId, 120) || `csv_${Date.now()}`;
+
+    if (!rows.length) {
+        throw new Error('Nenhum endereço pronto para importação.');
+    }
+
+    const codigos = rows.map(assertImportRowValida);
+    const codigoDuplicado = codigos.find((codigo, index, list) => list.indexOf(codigo) !== index);
+    if (codigoDuplicado) {
+        throw new Error(`O código ${codigoDuplicado} aparece mais de uma vez na importação.`);
+    }
+
+    return runTransaction(db, async (transaction) => {
+        const enderecoEntries = rows.map((row) => ({
+            row,
+            ref: getEnderecoRef(db, row.enderecoId || getEnderecoDocIdFromCodigo(row.codigo))
+        }));
+        const groupCodes = [...new Set(rows
+            .filter((row) => row.status === ENDERECO_STATUS.ATIVO && row.territorioCodigo)
+            .map((row) => normalizeCodigoManual(row.territorioCodigo)))];
+        const groupEntries = groupCodes.map((codigo) => ({
+            codigo,
+            ref: getGrupoEnderecoRef(db, getGrupoEnderecoDocIdFromCodigo(codigo))
+        }));
+
+        const enderecoSnapshots = await Promise.all(enderecoEntries.map((entry) => transaction.get(entry.ref)));
+        const grupoSnapshots = await Promise.all(groupEntries.map((entry) => transaction.get(entry.ref)));
+        const grupos = new Map();
+        const updatesByEnderecoId = new Map();
+        let enderecosInseridos = 0;
+        let enderecosAtualizados = 0;
+
+        groupEntries.forEach((entry, index) => {
+            const snapshot = grupoSnapshots[index];
+            grupos.set(entry.codigo, {
+                ref: entry.ref,
+                snapshot,
+                data: snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null
+            });
+        });
+
+        enderecoSnapshots.forEach((snapshot, index) => {
+            const row = rows[index];
+            const codigo = normalizeCodigoManual(row.codigo);
+            const current = snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+
+            if (row.canInsert && current) {
+                throw new Error(`O endereço ${codigo} já existe. Verifique a planilha novamente.`);
+            }
+
+            if (row.canUpdate && !current) {
+                throw new Error(`O endereço ${codigo} não existe mais. Verifique a planilha novamente.`);
+            }
+
+            if (current && row.territorioCodigo && row.status === ENDERECO_STATUS.ATIVO) {
+                const grupoAtual = normalizeCodigoManual(current.grupoCodigo);
+                if (grupoAtual && grupoAtual !== normalizeCodigoManual(row.territorioCodigo)) {
+                    throw new Error(`O endereço ${codigo} já está no território ${grupoAtual}.`);
+                }
+            }
+        });
+
+        const gruposAtuaisParaRecalculo = [];
+        enderecoSnapshots.forEach((snapshot) => {
+            if (!snapshot.exists()) return;
+            const current = snapshot.data();
+            const codigoGrupoAtual = normalizeCodigoManual(current.grupoCodigo);
+            if (!codigoGrupoAtual || grupos.has(codigoGrupoAtual)) return;
+            gruposAtuaisParaRecalculo.push({
+                codigo: codigoGrupoAtual,
+                ref: current.grupoId
+                    ? getGrupoEnderecoRef(db, current.grupoId)
+                    : getGrupoEnderecoRef(db, getGrupoEnderecoDocIdFromCodigo(codigoGrupoAtual))
+            });
+        });
+
+        const gruposAtuaisSnapshots = await Promise.all(gruposAtuaisParaRecalculo.map((entry) => transaction.get(entry.ref)));
+        gruposAtuaisParaRecalculo.forEach((entry, index) => {
+            const snapshot = gruposAtuaisSnapshots[index];
+            grupos.set(entry.codigo, {
+                ref: entry.ref,
+                snapshot,
+                data: snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null
+            });
+        });
+
+        grupos.forEach((grupo, codigo) => {
+            if (grupo.data && (grupo.data.status || GRUPO_ENDERECO_STATUS.ATIVO) !== GRUPO_ENDERECO_STATUS.ATIVO) {
+                throw new Error(`O território ${codigo} não está ativo.`);
+            }
+        });
+
+        const enderecoIdsPorGrupo = new Map();
+        grupos.forEach((grupo, codigo) => {
+            enderecoIdsPorGrupo.set(codigo, ensureArray(grupo.data?.enderecoIds).filter(Boolean));
+        });
+        rows.forEach((row, index) => {
+            const current = enderecoSnapshots[index].exists()
+                ? { id: enderecoSnapshots[index].id, ...enderecoSnapshots[index].data() }
+                : null;
+            const codigoGrupo = normalizeCodigoManual(row.territorioCodigo);
+            const enderecoId = row.enderecoId || getEnderecoDocIdFromCodigo(row.codigo);
+            const updates = buildEnderecoImportUpdates(row, importacaoId, actorEmail, agora);
+            updatesByEnderecoId.set(enderecoId, {
+                ...current,
+                id: enderecoId,
+                codigo: normalizeCodigoManual(row.codigo),
+                grupoId: current?.grupoId ?? null,
+                grupoCodigo: current?.grupoCodigo ?? null,
+                grupoDesignadoPara: current?.grupoDesignadoPara ?? null,
+                ...updates
+            });
+
+            if (current?.grupoId) {
+                const grupoCodigoAtual = normalizeCodigoManual(current.grupoCodigo || current.grupoId);
+                if (grupoCodigoAtual) {
+                    enderecoIdsPorGrupo.set(grupoCodigoAtual, ensureArray(enderecoIdsPorGrupo.get(grupoCodigoAtual)));
+                }
+            }
+
+            if (!current && codigoGrupo && row.status === ENDERECO_STATUS.ATIVO) {
+                enderecoIdsPorGrupo.set(codigoGrupo, [
+                    ...new Set([...(enderecoIdsPorGrupo.get(codigoGrupo) || []), enderecoId])
+                ]);
+            }
+        });
+
+        const grupoEnderecoSnapshots = new Map();
+        for (const [codigoGrupo, enderecoIds] of enderecoIdsPorGrupo.entries()) {
+            const snapshots = await Promise.all(enderecoIds.map((enderecoId) => transaction.get(getEnderecoRef(db, enderecoId))));
+            grupoEnderecoSnapshots.set(codigoGrupo, snapshots.map((snapshot, index) => (
+                updatesByEnderecoId.get(enderecoIds[index]) ||
+                (snapshot.exists()
+                    ? { id: snapshot.id, ...snapshot.data() }
+                    : rows.find((row) => (row.enderecoId || getEnderecoDocIdFromCodigo(row.codigo)) === enderecoIds[index]))
+            )).filter(Boolean));
+        }
+
+        rows.forEach((row, index) => {
+            const codigo = assertCodigoManualValido(row.codigo, 'endereço');
+            const fields = normalizeEnderecoFields(row);
+            const codigoGrupo = normalizeCodigoManual(row.territorioCodigo);
+            const grupo = codigoGrupo && row.status === ENDERECO_STATUS.ATIVO ? grupos.get(codigoGrupo)?.data : null;
+            const current = enderecoSnapshots[index].exists()
+                ? { id: enderecoSnapshots[index].id, ...enderecoSnapshots[index].data() }
+                : null;
+            const deveVincularGrupo = !current && Boolean(codigoGrupo && row.status === ENDERECO_STATUS.ATIVO);
+
+            if (current) {
+                transaction.set(enderecoEntries[index].ref, buildEnderecoImportUpdates(row, importacaoId, actorEmail, agora), { merge: true });
+                enderecosAtualizados += 1;
+            } else {
+                transaction.set(enderecoEntries[index].ref, {
+                    codigo,
+                    status: fields.status,
+                    grupoId: deveVincularGrupo ? getGrupoEnderecoDocIdFromCodigo(codigoGrupo) : null,
+                    grupoCodigo: deveVincularGrupo ? codigoGrupo : null,
+                    grupoDesignadoPara: deveVincularGrupo ? (grupo?.designadoPara || null) : null,
+                    ...fields,
+                    geohash: null,
+                    origem: ENDERECO_ORIGEM.IMPORTACAO,
+                    importacaoId,
+                    criadoEm: agora,
+                    criadoPor: actorEmail,
+                    atualizadoEm: agora,
+                    atualizadoPor: actorEmail,
+                    arquivadoEm: fields.status === ENDERECO_STATUS.ARQUIVADO ? agora : null,
+                    arquivadoPor: fields.status === ENDERECO_STATUS.ARQUIVADO ? actorEmail : null
+                });
+                enderecosInseridos += 1;
+            }
+        });
+
+        grupos.forEach((grupo, codigoGrupo) => {
+            const enderecosGrupo = grupoEnderecoSnapshots.get(codigoGrupo) || [];
+            const rowsGrupo = rows.filter((row) => (
+                row.canInsert &&
+                row.status === ENDERECO_STATUS.ATIVO &&
+                normalizeCodigoManual(row.territorioCodigo) === codigoGrupo
+            ));
+            if (!grupo.data && !rowsGrupo.length) return;
+            if (grupo.data && !enderecosGrupo.length) return;
+
+            const enderecoIds = [...new Set(enderecosGrupo.map((endereco) => (
+                endereco.id || getEnderecoDocIdFromCodigo(endereco.codigo)
+            )).filter(Boolean))];
+            const stats = calculateGrupoEnderecoStats(enderecosGrupo);
+
+            if (grupo.data) {
+                transaction.set(grupo.ref, {
+                    enderecoIds,
+                    enderecos_visitados: ensureArray(grupo.data.enderecos_visitados).filter((id) => enderecoIds.includes(id)),
+                    ...resolveGrupoMetadataFromEnderecos(enderecosGrupo, grupo.data),
+                    ...stats,
+                    status: GRUPO_ENDERECO_STATUS.ATIVO,
+                    ultimaAlteracao: agora,
+                    atualizadoEm: agora,
+                    atualizadoPor: actorEmail
+                }, { merge: true });
+                return;
+            }
+
+            const metadata = resolveGrupoMetadataFromEnderecos(enderecosGrupo, rowsGrupo[0]);
+            transaction.set(grupo.ref, {
+                codigo: codigoGrupo,
+                ...metadata,
+                nome: `${codigoGrupo} - Endereços de idioma`,
+                status: GRUPO_ENDERECO_STATUS.ATIVO,
+                enderecoIds,
+                ...stats,
+                designadoPara: null,
+                designadoNome: null,
+                dataDesignacao: null,
+                designacaoId: null,
+                cicloAtual: null,
+                enderecos_visitados: [],
+                historico: [],
+                ultimaConclusao: null,
+                ultimaAlteracao: agora,
+                criadoEm: agora,
+                criadoPor: actorEmail,
+                atualizadoEm: agora,
+                atualizadoPor: actorEmail,
+                arquivadoEm: null,
+                arquivadoPor: null
+            });
+        });
+
+        return {
+            importacaoId,
+            enderecosInseridos,
+            enderecosAtualizados,
+            territoriosCriados: [...grupos.values()].filter((grupo) => !grupo.data).length,
+            territoriosAtualizados: [...grupos.values()].filter((grupo) => grupo.data).length
+        };
+    });
+}
+
 export async function updateEnderecoBasico(db, enderecoId, input, user) {
     const fields = normalizeEnderecoFields(input);
     const agora = new Date();

@@ -25,6 +25,7 @@ export const DEFAULT_ENDERECO_CONFIG = Object.freeze({
     quantidadeEstrangeirosPadrao: 1,
     cidadePadrao: 'Sao Bento do Sul',
     ufPadrao: 'SC',
+    planilhaCsvUrl: '',
     buscaEndereco: DEFAULT_ADDRESS_SEARCH_CONFIG,
     idiomas: [
         {
@@ -120,6 +121,7 @@ export function normalizeEnderecoConfig(data = {}) {
         ),
         cidadePadrao: normalizeText(data.cidadePadrao, DEFAULT_ENDERECO_CONFIG.cidadePadrao, 120),
         ufPadrao: normalizeText(data.ufPadrao, DEFAULT_ENDERECO_CONFIG.ufPadrao, 2).toUpperCase(),
+        planilhaCsvUrl: normalizeText(data.planilhaCsvUrl, DEFAULT_ENDERECO_CONFIG.planilhaCsvUrl, 1000),
         buscaEndereco: normalizeAddressSearchConfig(data.buscaEndereco),
         idiomas,
         tiposEndereco
