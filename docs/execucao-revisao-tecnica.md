@@ -532,4 +532,25 @@ Todas as fases do plano técnico foram concluídas com sucesso rigoroso:
 - **P6**: Otimização de bundle e precache no Vite/PWA, reduzindo o JS inicial em 152 kB e o payload de precache PWA em 1,24 MB (40.7%), com isolamento completo das bibliotecas de PDF e Leaflet.
 - **Compromissos estritos cumpridos**: Nenhum commit, nenhum push, nenhum deploy remoto e nenhuma gravação em banco de produção.
 
+---
 
+## 11. Auditoria Proativa de Bugs e Condições de Corrida
+
+Após a conclusão das fases principais, foi realizada uma varredura minuciosa no código-fonte em busca de condições de corrida, memory leaks, acessos inseguros e exceções não tratadas:
+
+1. **Vazamento e Condição de Corrida no Rastreamento GPS Android (`useGeolocationTracking.js`)**:
+   - **Bug**: Se o usuário desativasse o GPS ou saísse da tela enquanto o diálogo nativo de permissão do Android estava aberto, ao confirmar a permissão o método assíncrono `Geolocation.watchPosition` concluía e atribuía o `watchId` após a função de cleanup do efeito já ter sido executada. O GPS continuava ativo em segundo plano indefinidamente.
+   - **Correção**: Implementada flag de cancelamento (`cancelado`). Se o efeito foi desmontado antes de `watchPosition` resolver, o watcher é imediatamente destruído (`Geolocation.clearWatch({ id: watchId })`) sem vazar recursos do dispositivo.
+   - **Proteção adicional**: Inserido encadeamento opcional em `map?.flyTo?.(...)` para evitar crash (`TypeError: Cannot read properties of null`) se a coordenada inicial chegar após a desmontagem do mapa.
+
+2. **Acesso Inseguro a `localStorage` em Modos Restritos (`useEnderecoConfigIdioma.js`)**:
+   - **Bug**: Chamadas diretas a `window.localStorage.getItem/setItem` sem `try/catch` podem disparar exceções fatais em navegadores móveis com modo privado restrito ou WebViews com storage desabilitado.
+   - **Correção**: Envolvidas todas as operações de leitura e gravação da chave de idioma em blocos `try/catch` com fallback gracioso.
+
+3. **Desreferenciamento Nulo em Fechamento de Popups Leaflet (`Mapa.jsx`)**:
+   - **Bug**: Em `syncLeafletPopupClass`, a chamada `map.getContainer().classList.toggle(...)` ocorria dentro de um `requestAnimationFrame`. Se a rota mudasse antes da animação rodar, `map.getContainer()` lançava exceção por contêiner destruído.
+   - **Correção**: Aplicado encadeamento opcional e bloco `try/catch` em `syncLeafletPopupClass` e no efeito de limpeza do popup na desmontagem do componente do mapa.
+
+4. **Vazamento de Listeners Nativos do Capacitor (`MagicLinkOpenHandler.jsx` e `BackButtonExitHandler.jsx`)**:
+   - **Bug**: Os métodos `CapacitorApp.addListener('appUrlOpen')` e `CapacitorApp.addListener('backButton')` são assíncronos (`Promise<PluginListenerHandle>`). Se a rota mudasse ou o componente fosse desmontado antes da Promise resolver, o handle não era armazenado a tempo para o cleanup, acumulando listeners duplicados em memória.
+   - **Correção**: Adicionada flag `ativo` em ambos os handlers. Se a desmontagem ocorrer antes da resolução da Promise, o listener recém-criado é imediatamente removido via `handle.remove()`.

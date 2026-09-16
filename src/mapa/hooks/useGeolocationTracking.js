@@ -122,7 +122,7 @@ export const useGeolocationTracking = ({
 
             if (!primeiraCentralizacaoRef.current) {
                 primeiraCentralizacaoRef.current = true;
-                map.flyTo(novaPosicao, Math.max(map.getZoom(), 17), { animate: true, duration: 1.2 });
+                map?.flyTo?.(novaPosicao, Math.max(map?.getZoom?.() ?? 17, 17), { animate: true, duration: 1.2 });
             }
 
             if (ultimaPosicaoBrutaRef.current) {
@@ -176,27 +176,33 @@ export const useGeolocationTracking = ({
             }
         };
 
+        let cancelado = false;
+
         const iniciarRastreamento = async () => {
             setBuscando(true);
 
             if (isNativePlatform) {
                 try {
                     let permissaoLocalizacao = await Geolocation.checkPermissions();
+                    if (cancelado) return;
+
                     if (permissaoLocalizacao.location !== 'granted' && permissaoLocalizacao.coarseLocation !== 'granted') {
                         permissaoLocalizacao = await Geolocation.requestPermissions();
                     }
+                    if (cancelado) return;
 
                     if (permissaoLocalizacao.location === 'denied' && permissaoLocalizacao.coarseLocation === 'denied') {
                         throw { code: 'NOT_AUTHORIZED' };
                     }
 
-                    watchIdRef.current = await Geolocation.watchPosition(
+                    const watchId = await Geolocation.watchPosition(
                         {
                             enableHighAccuracy: true,
                             maximumAge: GEOLOCATION_MAXIMUM_AGE_NATIVE_MS,
                             timeout: GEOLOCATION_TIMEOUT_NATIVE_MS
                         },
                         (position, error) => {
+                            if (cancelado) return;
                             if (error) {
                                 tratarErro(error);
                                 return;
@@ -207,16 +213,29 @@ export const useGeolocationTracking = ({
                             }
                         }
                     );
+
+                    if (cancelado) {
+                        void Geolocation.clearWatch({ id: watchId });
+                        return;
+                    }
+
+                    watchIdRef.current = watchId;
                     return;
                 } catch (error) {
+                    if (cancelado) return;
                     tratarErro(error);
                     return;
                 }
             }
 
+            if (cancelado) return;
             watchIdRef.current = navigator.geolocation.watchPosition(
-                processarPosicao,
-                tratarErro,
+                (position) => {
+                    if (!cancelado) processarPosicao(position);
+                },
+                (error) => {
+                    if (!cancelado) tratarErro(error);
+                },
                 {
                     enableHighAccuracy: true,
                     maximumAge: GEOLOCATION_MAXIMUM_AGE_WEB_MS,
@@ -228,6 +247,7 @@ export const useGeolocationTracking = ({
         void iniciarRastreamento();
 
         return () => {
+            cancelado = true;
             pararWatch();
             limparRastreamentoVisual();
         };

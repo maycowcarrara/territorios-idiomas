@@ -32,9 +32,18 @@ export function MagicLinkOpenHandler() {
         console.warn('Não foi possível verificar a URL inicial do app:', error);
       }
 
-      listenerHandle = await CapacitorApp.addListener('appUrlOpen', ({ url }) => {
-        registrarLink(url);
-      });
+      try {
+        const handle = await CapacitorApp.addListener('appUrlOpen', ({ url }) => {
+          registrarLink(url);
+        });
+        if (!ativo) {
+          void handle.remove();
+          return;
+        }
+        listenerHandle = handle;
+      } catch (error) {
+        console.warn('Não foi possível registrar listener de deep link:', error);
+      }
     };
 
     void registrar();

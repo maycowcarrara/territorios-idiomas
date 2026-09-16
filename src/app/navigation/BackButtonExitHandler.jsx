@@ -30,35 +30,48 @@ export function BackButtonExitHandler() {
       return undefined;
     }
 
+    let ativo = true;
     let listenerHandle = null;
 
     const registrar = async () => {
-      listenerHandle = await CapacitorApp.addListener('backButton', () => {
-        const rotaAtual = location.pathname;
+      try {
+        const handle = await CapacitorApp.addListener('backButton', () => {
+          const rotaAtual = location.pathname;
 
-        if (rotaAtual === '/admin' || rotaAtual === '/relatorios') {
-          navigate(APP_ROUTE);
+          if (rotaAtual === '/admin' || rotaAtual === '/relatorios') {
+            navigate(APP_ROUTE);
+            return;
+          }
+
+          if (rotaAtual !== '/' && rotaAtual !== APP_ROUTE) {
+            navigate(-1);
+            return;
+          }
+
+          const agora = Date.now();
+          if (agora - ultimaTentativaSaidaRef.current <= BACK_TO_EXIT_WINDOW_MS) {
+            void CapacitorApp.exitApp();
+            return;
+          }
+
+          avisarSaida();
+        });
+
+        if (!ativo) {
+          void handle.remove();
           return;
         }
 
-        if (rotaAtual !== '/' && rotaAtual !== APP_ROUTE) {
-          navigate(-1);
-          return;
-        }
-
-        const agora = Date.now();
-        if (agora - ultimaTentativaSaidaRef.current <= BACK_TO_EXIT_WINDOW_MS) {
-          void CapacitorApp.exitApp();
-          return;
-        }
-
-        avisarSaida();
-      });
+        listenerHandle = handle;
+      } catch (error) {
+        console.warn('Não foi possível registrar listener do botão voltar:', error);
+      }
     };
 
     void registrar();
 
     return () => {
+      ativo = false;
       if (listenerHandle) {
         void listenerHandle.remove();
       }

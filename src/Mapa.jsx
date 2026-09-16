@@ -107,7 +107,11 @@ const syncLeafletPopupClass = (map) => {
     if (!map) return;
 
     window.requestAnimationFrame(() => {
-        map.getContainer().classList.toggle('has-popup', isLeafletPopupOpen(map));
+        try {
+            map.getContainer()?.classList?.toggle('has-popup', isLeafletPopupOpen(map));
+        } catch {
+            // Container pode ter sido destruído
+        }
     });
 };
 
@@ -2750,7 +2754,11 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         });
 
         useEffect(() => () => {
-            map.getContainer().classList.remove('has-popup');
+            try {
+                map?.getContainer?.()?.classList?.remove('has-popup');
+            } catch {
+                // Container destruído
+            }
         }, [map]);
 
         useEffect(() => {

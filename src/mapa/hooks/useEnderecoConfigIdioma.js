@@ -67,7 +67,12 @@ export const useEnderecoConfigIdioma = ({ db, isAdmin }) => {
                 return currentId;
             }
 
-            const storedId = String(window.localStorage?.getItem(ENDERECO_IDIOMA_ATIVO_STORAGE_KEY) || '').trim().toLowerCase();
+            let storedId = '';
+            try {
+                storedId = String(window.localStorage?.getItem(ENDERECO_IDIOMA_ATIVO_STORAGE_KEY) || '').trim().toLowerCase();
+            } catch {
+                storedId = '';
+            }
             if (enderecoIdiomasAtivos.some((idioma) => idioma.id === storedId)) {
                 return storedId;
             }
@@ -79,7 +84,11 @@ export const useEnderecoConfigIdioma = ({ db, isAdmin }) => {
     const selecionarIdiomaAtivoEndereco = useCallback((idiomaId) => {
         const normalizedIdiomaId = String(idiomaId || '').trim().toLowerCase();
         setEnderecoIdiomaAtivoId(normalizedIdiomaId);
-        window.localStorage?.setItem(ENDERECO_IDIOMA_ATIVO_STORAGE_KEY, normalizedIdiomaId);
+        try {
+            window.localStorage?.setItem(ENDERECO_IDIOMA_ATIVO_STORAGE_KEY, normalizedIdiomaId);
+        } catch {
+            // Ignora falha de storage em modo restrito
+        }
     }, []);
 
     return {
