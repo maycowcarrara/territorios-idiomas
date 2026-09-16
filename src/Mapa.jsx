@@ -93,6 +93,19 @@ const stopMapDomEvent = (event) => {
     }
 };
 
+const isLeafletPopupOpen = (map) => {
+    const popup = map?._popup;
+    return Boolean(popup && map.hasLayer?.(popup));
+};
+
+const syncLeafletPopupClass = (map) => {
+    if (!map) return;
+
+    window.requestAnimationFrame(() => {
+        map.getContainer().classList.toggle('has-popup', isLeafletPopupOpen(map));
+    });
+};
+
 const useLeafletDomEventIsolation = () => {
     return useCallback((element) => {
         if (!element) return;
@@ -359,6 +372,10 @@ const getEnderecoAuditOriginLabel = (endereco) => {
     return `Origem: ${endereco?.origem || 'manual'}`;
 };
 
+const hasEnderecoAuditInfo = (endereco) => Boolean(
+    endereco?.origem || endereco?.importacaoId || endereco?.atualizadoEm || endereco?.atualizadoPor
+);
+
 const readLastImportHighlight = () => {
     try {
         const raw = window.localStorage?.getItem(LAST_IMPORT_HIGHLIGHT_STORAGE_KEY);
@@ -431,9 +448,14 @@ const cssTooltip = `
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button { top: 7px; right: 7px; width: 22px; height: 22px; border-radius: 999px; color: #64748b; font-size: 16px; line-height: 21px; transition: background-color 0.2s, color 0.2s; }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button:hover { background: rgba(15,23,42,0.08); color: #0f172a; }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-tip { box-shadow: 0 8px 18px rgba(15,23,42,0.16); }
-  .leaflet-container:has(.leaflet-popup) .leaflet-map-pane,
-  .leaflet-container.has-popup .leaflet-map-pane { z-index: 1001 !important; }
   .leaflet-popup-pane { z-index: 1002 !important; }
+  @media (max-width: 639px) {
+    .leaflet-container.has-popup .map-popup-aware-control {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+  }
   .address-admin-actions { display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); transition: grid-template-rows 180ms ease, opacity 160ms ease, transform 180ms ease; }
   .address-admin-actions.open { grid-template-rows: 1fr; opacity: 1; transform: translateY(0); }
   .address-admin-actions-inner { min-height: 0; overflow: hidden; }
@@ -563,6 +585,7 @@ const MAP_INITIAL_ZOOM = getEnvNumber('VITE_MAP_INITIAL_ZOOM', 14);
 const ADMIN_OFFLINE_MESSAGE = 'Você está offline. Ações administrativas precisam de conexão para evitar conflito de designações. Conecte-se para continuar.';
 const MAP_LONG_PRESS_DURATION_MS = 650;
 const MAP_LONG_PRESS_CLICK_SUPPRESSION_MS = 900;
+const BAIRRO_POPUP_CLICK_SUPPRESSION_MS = 500;
 const MAPA_VISUALIZACAO = Object.freeze({
     TERRITORIOS: 'territorios',
     ENDERECOS: 'enderecos'
@@ -641,7 +664,7 @@ const SeletorCamadas = ({
     }
 
     return (
-        <div ref={controlsRef} className="absolute bottom-6 left-4 z-[400] flex flex-col gap-3" onClick={stopMapDomEvent}>
+        <div ref={controlsRef} className="map-popup-aware-control absolute bottom-6 left-4 z-[400] flex flex-col gap-3" onClick={stopMapDomEvent}>
             {isAdmin && (
                 <div className="relative">
                     <div className="flex w-12 flex-col overflow-hidden rounded-lg border-2 border-white bg-white shadow-lg">
@@ -922,7 +945,7 @@ const ControlesNavegacao = ({
     };
 
     return (
-        <div ref={controlsRef} className="absolute bottom-6 right-4 z-[400] flex flex-col gap-3" onClick={stopMapDomEvent}>
+        <div ref={controlsRef} className="map-popup-aware-control absolute bottom-6 right-4 z-[400] flex flex-col gap-3" onClick={stopMapDomEvent}>
             <button
                 onClick={alternarLocalizacao}
                 aria-pressed={rastreandoLocalizacao}
@@ -1277,16 +1300,20 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
     const config = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
     const tiposEnderecoAtivos = config.tiposEndereco.filter((tipo) => tipo.ativo);
     const [form, setForm] = useState(getEnderecoInitialForm(endereco, ponto, config));
+    const [activeTab, setActiveTab] = useState('dados');
 
     useEffect(() => {
         if (!isOpen) return;
         setForm(getEnderecoInitialForm(endereco, ponto, config));
+        setActiveTab('dados');
     }, [config, endereco, isOpen, ponto]);
 
     if (!isOpen) return null;
 
     const isEdit = mode === 'edit';
     const titulo = isEdit ? `Editar ${endereco?.codigo || 'endereço'}` : 'Cadastrar endereço';
+    const auditInfoAvailable = hasEnderecoAuditInfo(endereco);
+    const activeSection = isEdit ? activeTab : 'dados';
 
     const handleChange = (field) => (event) => {
         setForm((current) => ({
@@ -1297,6 +1324,14 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
 
     const handleSubmit = (event) => {
         event.preventDefault();
+        const formElement = event.currentTarget;
+
+        if (!form.codigo || !form.endereco || (!isEdit && form.grupoEscolha === '__novo__' && !form.grupoCodigo)) {
+            setActiveTab('dados');
+            window.requestAnimationFrame(() => formElement?.reportValidity?.());
+            return;
+        }
+
         onSubmit({
             ...form,
             codigo: form.codigo,
@@ -1322,140 +1357,172 @@ const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = 
                     <h3 className="text-lg font-bold text-white">{titulo}</h3>
                 </div>
                 <div className="space-y-3 p-4">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
-                        Lat {Number(form.lat).toFixed(6)} · Lng {Number(form.lng).toFixed(6)}
-                    </div>
-                    {isEdit && (endereco?.origem || endereco?.importacaoId || endereco?.atualizadoEm || endereco?.atualizadoPor) && (
-                        <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
-                            <span className="font-black uppercase">Auditoria</span>
-                            <span className="block">
-                                {getEnderecoAuditOriginLabel(endereco)}
-                                {endereco?.importacaoId ? ` · ${endereco.importacaoId}` : ''}
-                            </span>
-                            <span className="block text-amber-700">
-                                {formatAuditDateTime(endereco?.atualizadoEm) || 'Sem data registrada'}
-                                {endereco?.atualizadoPor ? ` · ${endereco.atualizadoPor}` : ''}
-                            </span>
+                    {isEdit && (
+                        <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('dados')}
+                                className={`rounded-md px-3 py-2 text-xs font-extrabold transition ${activeSection === 'dados' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                Dados
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('historico')}
+                                className={`rounded-md px-3 py-2 text-xs font-extrabold transition ${activeSection === 'historico' ? 'bg-white text-amber-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                Histórico
+                            </button>
                         </div>
                     )}
-                    <label className="block">
-                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
-                        <input
-                            value={form.codigo}
-                            onChange={handleChange('codigo')}
-                            maxLength={40}
-                            required
-                            disabled={loading || isEdit}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                            placeholder={getEnderecoCodigoPadraoFromConfig(config)}
-                        />
-                    </label>
-                    {!isEdit && (
-                        <label className="block">
-                            <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Território</span>
-                            <select
-                                value={form.grupoEscolha}
-                                onChange={handleChange('grupoEscolha')}
-                                disabled={loading}
-                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                            >
-                                <option value="">Sem território por enquanto</option>
-                                <option value="__novo__">Criar novo território com este endereço</option>
-                                {gruposDisponiveis.map((grupo) => (
-                                    <option key={grupo.id} value={grupo.id}>
-                                        {grupo.codigoExibicao}{grupo.distanciaExibicao ? ` · ${grupo.distanciaExibicao}` : ''} · {grupo.totalEnderecos} endereço(s) · {grupo.nomeExibicao}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                    )}
-                    {!isEdit && form.grupoEscolha === '__novo__' && (
-                        <div className="grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
+                    {activeSection === 'dados' ? (
+                        <>
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
+                                Lat {Number(form.lat).toFixed(6)} · Lng {Number(form.lng).toFixed(6)}
+                            </div>
                             <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código do território</span>
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
                                 <input
-                                    value={form.grupoCodigo}
-                                    onChange={handleChange('grupoCodigo')}
+                                    value={form.codigo}
+                                    onChange={handleChange('codigo')}
                                     maxLength={40}
                                     required
-                                    disabled={loading}
+                                    disabled={loading || isEdit}
                                     className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                    placeholder={getGrupoEnderecoCodigoPadraoFromConfig(config)}
+                                    placeholder={getEnderecoCodigoPadraoFromConfig(config)}
                                 />
                             </label>
+                            {!isEdit && (
+                                <label className="block">
+                                    <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Território</span>
+                                    <select
+                                        value={form.grupoEscolha}
+                                        onChange={handleChange('grupoEscolha')}
+                                        disabled={loading}
+                                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                    >
+                                        <option value="">Sem território por enquanto</option>
+                                        <option value="__novo__">Criar novo território com este endereço</option>
+                                        {gruposDisponiveis.map((grupo) => (
+                                            <option key={grupo.id} value={grupo.id}>
+                                                {grupo.codigoExibicao}{grupo.distanciaExibicao ? ` · ${grupo.distanciaExibicao}` : ''} · {grupo.totalEnderecos} endereço(s) · {grupo.nomeExibicao}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
+                            {!isEdit && form.grupoEscolha === '__novo__' && (
+                                <div className="grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
+                                    <label className="block">
+                                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código do território</span>
+                                        <input
+                                            value={form.grupoCodigo}
+                                            onChange={handleChange('grupoCodigo')}
+                                            maxLength={40}
+                                            required
+                                            disabled={loading}
+                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                            placeholder={getGrupoEnderecoCodigoPadraoFromConfig(config)}
+                                        />
+                                    </label>
+                                    <label className="block">
+                                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
+                                        <input
+                                            value={form.grupoNome}
+                                            onChange={handleChange('grupoNome')}
+                                            maxLength={120}
+                                            disabled={loading}
+                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                            placeholder="Ex.: Jardim São João"
+                                        />
+                                    </label>
+                                </div>
+                            )}
                             <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Bairro</span>
                                 <input
-                                    value={form.grupoNome}
-                                    onChange={handleChange('grupoNome')}
+                                    value={form.bairro}
+                                    onChange={handleChange('bairro')}
                                     maxLength={120}
                                     disabled={loading}
                                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                    placeholder="Ex.: Jardim São João"
+                                    placeholder="Ex.: Serra Alta"
                                 />
                             </label>
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Endereço</span>
+                                <input
+                                    value={form.endereco}
+                                    onChange={handleChange('endereco')}
+                                    maxLength={220}
+                                    required
+                                    disabled={loading}
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                    placeholder="Rua, número, referência"
+                                />
+                            </label>
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Classe</span>
+                                <select
+                                    value={form.classe}
+                                    onChange={handleChange('classe')}
+                                    disabled={loading}
+                                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                >
+                                    {(tiposEnderecoAtivos.length ? tiposEnderecoAtivos : config.tiposEndereco).map((tipo) => (
+                                        <option key={tipo.id} value={tipo.id}>{tipo.label}</option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Estrangeiros</span>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="99"
+                                    value={form.quantidadeEstrangeiros}
+                                    onChange={handleChange('quantidadeEstrangeiros')}
+                                    disabled={loading}
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                />
+                            </label>
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Informação</span>
+                                <textarea
+                                    value={form.informacao}
+                                    onChange={handleChange('informacao')}
+                                    maxLength={2000}
+                                    rows="4"
+                                    disabled={loading}
+                                    className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+                                    placeholder="Nome, idioma, melhor horário, detalhes úteis"
+                                />
+                            </label>
+                        </>
+                    ) : (
+                        <div className="space-y-3">
+                            <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
+                                <span className="font-black uppercase">Auditoria</span>
+                                {auditInfoAvailable ? (
+                                    <>
+                                        <span className="block">
+                                            {getEnderecoAuditOriginLabel(endereco)}
+                                            {endereco?.importacaoId ? ` · ${endereco.importacaoId}` : ''}
+                                        </span>
+                                        <span className="block text-amber-700">
+                                            {formatAuditDateTime(endereco?.atualizadoEm) || 'Sem data registrada'}
+                                            {endereco?.atualizadoPor ? ` · ${endereco.atualizadoPor}` : ''}
+                                        </span>
+                                    </>
+                                ) : (
+                                    <span className="block text-amber-700">Sem histórico registrado para este endereço.</span>
+                                )}
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
+                                Lat {Number(form.lat).toFixed(6)} · Lng {Number(form.lng).toFixed(6)}
+                            </div>
                         </div>
                     )}
-                    <label className="block">
-                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Bairro</span>
-                        <input
-                            value={form.bairro}
-                            onChange={handleChange('bairro')}
-                            maxLength={120}
-                            disabled={loading}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                            placeholder="Ex.: Serra Alta"
-                        />
-                    </label>
-                    <label className="block">
-                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Endereço</span>
-                        <input
-                            value={form.endereco}
-                            onChange={handleChange('endereco')}
-                            maxLength={220}
-                            required
-                            disabled={loading}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                            placeholder="Rua, número, referência"
-                        />
-                    </label>
-                    <label className="block">
-                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Classe</span>
-                        <select
-                            value={form.classe}
-                            onChange={handleChange('classe')}
-                            disabled={loading}
-                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                        >
-                            {(tiposEnderecoAtivos.length ? tiposEnderecoAtivos : config.tiposEndereco).map((tipo) => (
-                                <option key={tipo.id} value={tipo.id}>{tipo.label}</option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="block">
-                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Estrangeiros</span>
-                        <input
-                            type="number"
-                            min="0"
-                            max="99"
-                            value={form.quantidadeEstrangeiros}
-                            onChange={handleChange('quantidadeEstrangeiros')}
-                            disabled={loading}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                        />
-                    </label>
-                    <label className="block">
-                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Informação</span>
-                        <textarea
-                            value={form.informacao}
-                            onChange={handleChange('informacao')}
-                            maxLength={2000}
-                            rows="4"
-                            disabled={loading}
-                            className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                            placeholder="Nome, idioma, melhor horário, detalhes úteis"
-                        />
-                    </label>
                 </div>
                 <div className="flex flex-col-reverse gap-2 border-t border-slate-200 px-4 py-3 sm:flex-row sm:justify-end">
                     <button
@@ -1781,7 +1848,7 @@ const AddressSearchControl = ({ isOnline, searchConfig, onSelect }) => {
     };
 
     return (
-        <div ref={controlRef} className="pointer-events-auto absolute left-3 right-3 top-4 z-[650] max-w-[440px] sm:right-auto" onClick={stopMapDomEvent}>
+        <div ref={controlRef} className="map-popup-aware-control pointer-events-auto absolute left-3 right-3 top-4 z-[650] max-w-[440px] sm:right-auto" onClick={stopMapDomEvent}>
             <button
                 type="button"
                 onClick={() => setMobileSearchOpen(true)}
@@ -2083,19 +2150,6 @@ const EnderecoMarker = ({
                     )}
                     {!isPublicadorEmExecucao && (
                         <>
-                            {isAdmin && (endereco.origem || endereco.importacaoId || endereco.atualizadoEm || endereco.atualizadoPor) && (
-                                <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-semibold leading-snug text-amber-800">
-                                    <span className="font-black uppercase">Auditoria</span>
-                                    <span className="block">
-                                        {getEnderecoAuditOriginLabel(endereco)}
-                                        {endereco.importacaoId ? ` · ${endereco.importacaoId}` : ''}
-                                    </span>
-                                    <span className="block text-amber-700">
-                                        {formatAuditDateTime(endereco.atualizadoEm) || 'Sem data registrada'}
-                                        {endereco.atualizadoPor ? ` · ${endereco.atualizadoPor}` : ''}
-                                    </span>
-                                </div>
-                            )}
                             <button
                                 onClick={() => onShare(endereco)}
                                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
@@ -3906,6 +3960,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     const mapLongPressCompletedRef = useRef(false);
     const mapLongPressSuppressNextClickRef = useRef(false);
     const mapLongPressSuppressClickUntilRef = useRef(0);
+    const bairroPopupClickSuppressUntilRef = useRef(0);
     const { notify, confirm } = useUiFeedback();
     const deepLinkGrupoEnderecoId = useMemo(() => {
         const params = new URLSearchParams(location.search);
@@ -4347,10 +4402,25 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         return Date.now() < mapLongPressSuppressClickUntilRef.current;
     }, []);
 
+    const ignorarCliqueBairro = useCallback(() => {
+        if (ignorarCliqueAposToqueLongoMapa()) return true;
+
+        if (Date.now() < bairroPopupClickSuppressUntilRef.current) {
+            return true;
+        }
+
+        return false;
+    }, [ignorarCliqueAposToqueLongoMapa]);
+
     useEffect(() => cancelarToqueLongoMapa, [cancelarToqueLongoMapa]);
 
     const MapEvents = () => {
         const map = useMapEvents({
+            preclick: () => {
+                if (isLeafletPopupOpen(map)) {
+                    bairroPopupClickSuppressUntilRef.current = Date.now() + BAIRRO_POPUP_CLICK_SUPPRESSION_MS;
+                }
+            },
             click: (event) => {
                 if (ignorarCliqueAposToqueLongoMapa()) {
                     if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
@@ -4385,13 +4455,26 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
             zoomend: () => {
                 setZoomLevel(map.getZoom());
             },
-            popupopen: () => {
-                map.getContainer().classList.add('has-popup');
+            popupopen: (event) => {
+                const className = String(event.popup?.options?.className || '');
+                if (className.includes('bairro-sbs-popup') && Date.now() < bairroPopupClickSuppressUntilRef.current) {
+                    bairroPopupClickSuppressUntilRef.current = 0;
+                    map.closePopup(event.popup);
+                    syncLeafletPopupClass(map);
+                    return;
+                }
+
+                bairroPopupClickSuppressUntilRef.current = 0;
+                syncLeafletPopupClass(map);
             },
             popupclose: () => {
-                map.getContainer().classList.remove('has-popup');
+                syncLeafletPopupClass(map);
             }
         });
+
+        useEffect(() => () => {
+            map.getContainer().classList.remove('has-popup');
+        }, [map]);
 
         useEffect(() => {
             const container = map.getContainer();
@@ -5394,7 +5477,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         hasBairros={Boolean(bairrosGeoJson?.features?.length)}
                     />
                     {isAdmin && (
-                        <div ref={adminControlsRef} className="absolute top-20 right-4 z-[400] flex max-w-[190px] flex-col gap-2" onClick={stopMapDomEvent}>
+                        <div ref={adminControlsRef} className="map-popup-aware-control absolute top-20 right-4 z-[400] flex max-w-[190px] flex-col gap-2" onClick={stopMapDomEvent}>
                             {mostrarAlternadorIdiomaEndereco && (
                                 <div className="rounded-lg border border-teal-200 bg-white p-2 shadow-xl">
                                     <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-teal-700">Idioma</label>
@@ -5496,7 +5579,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                             onLongPressEnd={finalizarToqueLongoMapa}
                             onLongPressCancel={cancelarToqueLongoMapa}
                             onContextMenu={abrirPontoMapaPorContexto}
-                            shouldIgnoreClick={ignorarCliqueAposToqueLongoMapa}
+                            shouldIgnoreClick={ignorarCliqueBairro}
                         />
                     )}
 

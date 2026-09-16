@@ -39,38 +39,27 @@ function readEnvFile(filePath) {
     if (separatorIndex === -1) continue;
 
     const key = trimmed.slice(0, separatorIndex).trim();
-    const value = trimmed.slice(separatorIndex + 1).trim();
+    const rawValue = trimmed.slice(separatorIndex + 1).trim();
+    const value = rawValue.replace(/^(['"])(.*)\1$/, '$2');
     result[key] = value;
   }
 
   return result;
 }
 
-if (!sourcePath) {
-  console.error(`Arquivo nao encontrado para a instancia: ${instance}`);
-  console.error('');
-  console.error(`Salve o google-services.json desta congregacao como android/app/google-services.${instance}.json`);
-  console.error(`ou android/app/google-services-${instance}.json`);
-  process.exit(1);
-}
-
 let sourceConfig;
 
-try {
-  sourceConfig = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
-} catch (error) {
-  console.error(`JSON invalido em ${path.relative(projectRoot, sourcePath)}: ${error.message}`);
-  process.exit(1);
-}
+if (sourcePath) {
+  try {
+    sourceConfig = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
+  } catch (error) {
+    console.error(`JSON invalido em ${path.relative(projectRoot, sourcePath)}: ${error.message}`);
+    process.exit(1);
+  }
 
-fs.copyFileSync(sourcePath, targetPath);
-
-const projectId = sourceConfig.project_info?.project_id || 'projeto desconhecido';
-const packageName = sourceConfig.client?.[0]?.client_info?.android_client_info?.package_name;
-
-if (!packageName) {
-  console.error(`Nao foi possivel encontrar client[0].client_info.android_client_info.package_name em ${path.relative(projectRoot, sourcePath)}`);
-  process.exit(1);
+  fs.copyFileSync(sourcePath, targetPath);
+} else {
+  fs.rmSync(targetPath, { force: true });
 }
 
 const instanceLabel = instance
@@ -82,9 +71,17 @@ const instanceLabel = instance
 const appName = instance === 'idiomas'
   ? 'Territórios Idiomas'
   : `Territórios ${instanceLabel}`;
-const instanceEnv = readEnvFile(instanceEnvPath);
+const baseEnv = readEnvFile(path.join(projectRoot, '.env'));
+const instanceEnv = { ...baseEnv, ...readEnvFile(instanceEnvPath) };
+const projectId = sourceConfig?.project_info?.project_id || instanceEnv.VITE_FIREBASE_PROJECT_ID || 'projeto desconhecido';
+const packageName = sourceConfig?.client?.[0]?.client_info?.android_client_info?.package_name || 'br.com.territoriosidiomas.app';
 const publicAppUrl = instanceEnv.VITE_PUBLIC_APP_URL || '';
 const authDomain = instanceEnv.VITE_FIREBASE_AUTH_DOMAIN || '';
+
+if (sourceConfig && !sourceConfig.client?.[0]?.client_info?.android_client_info?.package_name) {
+  console.error(`Nao foi possivel encontrar client[0].client_info.android_client_info.package_name em ${path.relative(projectRoot, sourcePath)}`);
+  process.exit(1);
+}
 
 fs.writeFileSync(
   instancePropertiesPath,
@@ -102,4 +99,9 @@ fs.writeFileSync(
 console.log(`Android Firebase selecionado: ${instance}`);
 console.log(`Projeto Firebase: ${projectId}`);
 console.log(`Application ID: ${packageName}`);
-console.log(`Arquivo ativo: ${path.relative(projectRoot, targetPath)}`);
+if (sourcePath) {
+  console.log(`Arquivo ativo: ${path.relative(projectRoot, targetPath)}`);
+} else {
+  console.log('google-services.json nao encontrado; build Android seguira sem aplicar o plugin Google Services.');
+  console.log(`Para ativar Firebase/FCM nativo, salve o arquivo oficial como android/app/google-services.${instance}.json`);
+}

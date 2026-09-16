@@ -28,7 +28,7 @@ import {
 import { useUsuario } from './useUsuario';
 import appInfo from './version.json';
 import AutoUpdate from './AutoUpdate';
-import { checkForUpdate } from './updateUtils';
+import { checkForUpdateStatus } from './updateUtils';
 import AjudaModal from './AjudaModal';
 import { loadMapaData } from './mapData';
 import { buildFeatureIndex, getFeatureBoundsStr, getTerritorioQuadrasCount } from './mapaUtils';
@@ -1911,6 +1911,7 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
   const isNativePlatform = Capacitor.isNativePlatform();
   const [instalacaoDisponivel, setInstalacaoDisponivel] = useState(() => Boolean(!isNativePlatform && deferredPromptGlobal));
   const [photoUrlComErro, setPhotoUrlComErro] = useState(null);
+  const [verificandoAtualizacao, setVerificandoAtualizacao] = useState(false);
   const temaSistema = getSistemaTheme(contextoSistema);
   const { notify } = useUiFeedback();
   const mostrarFotoPerfil = Boolean(user?.photoURL) && photoUrlComErro !== user?.photoURL;
@@ -1951,6 +1952,49 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
         variant: 'info',
         durationMs: 7000
       });
+    }
+  };
+
+  const verificarAtualizacaoManual = async () => {
+    if (verificandoAtualizacao) return;
+
+    setVerificandoAtualizacao(true);
+    try {
+      const status = await checkForUpdateStatus(true);
+
+      if (status?.error) {
+        notify({
+          title: 'Atualização não verificada',
+          message: 'Não foi possível verificar a atualização agora. Confira sua conexão e tente novamente.',
+          variant: 'error'
+        });
+        return;
+      }
+
+      if (status?.installed) {
+        notify({
+          title: 'Atualização instalada',
+          message: 'Abrindo a versão mais recente agora.',
+          variant: 'success'
+        });
+        return;
+      }
+
+      if (!status?.updateAvailable) {
+        notify({
+          title: 'App atualizado',
+          message: 'Seu sistema já está atualizado.',
+          variant: 'success'
+        });
+      }
+    } catch {
+      notify({
+        title: 'Atualização não verificada',
+        message: 'Não foi possível verificar a atualização agora. Confira sua conexão e tente novamente.',
+        variant: 'error'
+      });
+    } finally {
+      setVerificandoAtualizacao(false);
     }
   };
 
@@ -2104,22 +2148,14 @@ const MenuLateral = ({ isOpen, onClose, user, isAdmin, navigate, handleLogout, a
             </div>
 
           <button 
-            onClick={async () => {
-                const temUpdate = await checkForUpdate(true);
-                if (!temUpdate) {
-                  notify({
-                    title: 'App atualizado',
-                    message: 'Seu sistema já está atualizado.',
-                    variant: 'success'
-                  });
-                }
-            }}
-            className="flex items-center gap-2.5 px-4 py-2 bg-white border border-gray-200 rounded-full shadow-sm text-blue-600 text-sm font-bold hover:bg-blue-50 hover:border-blue-200 transition-all active:scale-95"
+            onClick={verificarAtualizacaoManual}
+            disabled={verificandoAtualizacao}
+            className="flex items-center gap-2.5 px-4 py-2 bg-white border border-gray-200 rounded-full shadow-sm text-blue-600 text-sm font-bold hover:bg-blue-50 hover:border-blue-200 transition-all active:scale-95 disabled:cursor-wait disabled:opacity-60"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className={`h-[18px] w-[18px] ${verificandoAtualizacao ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
-            Verificar Atualização
+            {verificandoAtualizacao ? 'Verificando...' : 'Verificar Atualização'}
           </button>
 
           <button

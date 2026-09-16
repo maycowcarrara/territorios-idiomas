@@ -1,7 +1,7 @@
 {
   "name": "territorios-idiomas",
   "private": true,
-  "version": "3.5.340",
+  "version": "3.5.353",
   "type": "module",
   "scripts": {
     "dev": "vite --mode idiomas",
@@ -61,11 +61,11 @@
     "guard:wrangler:idiomas": "npm run guard:wrangler",
     "deploy:rules": "npm run guard:firebase && firebase deploy --project idiomas --only firestore:rules",
     "deploy:rules:idiomas": "npm run deploy:rules",
-    "deploy:all": "npm run guard:firebase && npm run build && npm run live-update:bundle && firebase deploy --project idiomas",
+    "deploy:all": "npm run guard:firebase && npm run build:bump && npm run live-update:bundle && firebase deploy --project idiomas",
     "deploy:all:idiomas": "npm run deploy:all",
     "deploy": "npm run web:deploy",
     "deploy:idiomas": "npm run web:deploy",
-    "web:deploy": "npm run guard:firebase && npm run build && npm run live-update:bundle && firebase deploy --project idiomas --only hosting:app",
+    "web:deploy": "npm run guard:firebase && npm run build:bump && npm run live-update:bundle && firebase deploy --project idiomas --only hosting:app",
     "web:deploy:idiomas": "npm run web:deploy"
   },
   "dependencies": {

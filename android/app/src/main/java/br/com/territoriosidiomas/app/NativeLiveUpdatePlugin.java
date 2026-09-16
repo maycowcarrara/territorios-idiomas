@@ -29,6 +29,8 @@ import org.json.JSONObject;
 @CapacitorPlugin(name = "NativeLiveUpdate")
 public class NativeLiveUpdatePlugin extends Plugin {
     private static final String LIVE_UPDATE_DIR = "live-updates";
+    private static final String LIVE_UPDATE_PREFS_NAME = "native_live_update";
+    private static final String ACTIVE_VERSION_KEY = "active_version";
     private static final int CONNECT_TIMEOUT_MS = 15000;
     private static final int READ_TIMEOUT_MS = 30000;
     private static final int MAX_OLD_VERSIONS = 2;
@@ -38,11 +40,14 @@ public class NativeLiveUpdatePlugin extends Plugin {
         execute(() -> {
             try {
                 UpdateManifest manifest = fetchManifest(call.getString("manifestUrl"));
-                boolean updateAvailable = isNewerVersion(manifest.version, call.getString("currentVersion", ""));
+                String effectiveCurrentVersion = getEffectiveCurrentVersion(call.getString("currentVersion", ""));
+                boolean updateAvailable = isNewerVersion(manifest.version, effectiveCurrentVersion);
                 JSObject response = new JSObject();
                 response.put("updateAvailable", updateAvailable);
                 response.put("version", manifest.version);
                 response.put("buildDate", manifest.buildDate);
+                response.put("currentVersion", effectiveCurrentVersion);
+                response.put("installedVersion", getActiveVersion());
                 call.resolve(response);
             } catch (Exception exception) {
                 call.reject("Nao foi possivel verificar atualizacao OTA.", exception);
@@ -56,13 +61,16 @@ public class NativeLiveUpdatePlugin extends Plugin {
             try {
                 String manifestUrl = call.getString("manifestUrl");
                 UpdateManifest manifest = fetchManifest(manifestUrl);
-                boolean updateAvailable = isNewerVersion(manifest.version, call.getString("currentVersion", ""));
+                String effectiveCurrentVersion = getEffectiveCurrentVersion(call.getString("currentVersion", ""));
+                boolean updateAvailable = isNewerVersion(manifest.version, effectiveCurrentVersion);
 
                 if (!updateAvailable) {
                     JSObject response = new JSObject();
                     response.put("installed", false);
                     response.put("updateAvailable", false);
                     response.put("version", manifest.version);
+                    response.put("currentVersion", effectiveCurrentVersion);
+                    response.put("installedVersion", getActiveVersion());
                     call.resolve(response);
                     return;
                 }
@@ -92,12 +100,15 @@ public class NativeLiveUpdatePlugin extends Plugin {
                 }
 
                 persistServerBasePath(targetDir.getAbsolutePath());
+                persistActiveVersion(manifest.version);
                 cleanupOldVersions(updatesRoot, targetDir);
 
                 JSObject response = new JSObject();
                 response.put("installed", true);
                 response.put("updateAvailable", true);
                 response.put("version", manifest.version);
+                response.put("currentVersion", effectiveCurrentVersion);
+                response.put("installedVersion", manifest.version);
                 call.resolve(response);
 
                 getActivity().runOnUiThread(() -> getBridge().setServerBasePath(targetDir.getAbsolutePath()));
@@ -147,7 +158,9 @@ public class NativeLiveUpdatePlugin extends Plugin {
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setInstanceFollowRedirects(true);
-        connection.setRequestProperty("Cache-Control", "no-cache");
+        connection.setUseCaches(false);
+        connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
+        connection.setRequestProperty("Pragma", "no-cache");
         connection.setRequestProperty("Accept", "application/json, application/zip, */*");
         return connection;
     }
@@ -238,6 +251,25 @@ public class NativeLiveUpdatePlugin extends Plugin {
         prefs.edit().putString(com.getcapacitor.plugin.WebView.CAP_SERVER_PATH, path).apply();
     }
 
+    private void persistActiveVersion(String version) {
+        getContext()
+            .getSharedPreferences(LIVE_UPDATE_PREFS_NAME, Activity.MODE_PRIVATE)
+            .edit()
+            .putString(ACTIVE_VERSION_KEY, version)
+            .apply();
+    }
+
+    private String getActiveVersion() {
+        return getContext()
+            .getSharedPreferences(LIVE_UPDATE_PREFS_NAME, Activity.MODE_PRIVATE)
+            .getString(ACTIVE_VERSION_KEY, "");
+    }
+
+    private String getEffectiveCurrentVersion(String bundledVersion) {
+        String activeVersion = getActiveVersion();
+        return compareVersions(activeVersion, bundledVersion) > 0 ? activeVersion : bundledVersion;
+    }
+
     private void cleanupOldVersions(File updatesRoot, File activeDir) {
         File[] children = updatesRoot.listFiles(File::isDirectory);
         if (children == null || children.length <= MAX_OLD_VERSIONS) {
@@ -258,18 +290,22 @@ public class NativeLiveUpdatePlugin extends Plugin {
     }
 
     private boolean isNewerVersion(String remoteVersion, String currentVersion) {
-        int[] remote = parseVersion(remoteVersion);
-        int[] current = parseVersion(currentVersion);
-        int length = Math.max(remote.length, current.length);
+        return compareVersions(remoteVersion, currentVersion) > 0;
+    }
+
+    private int compareVersions(String firstVersion, String secondVersion) {
+        int[] first = parseVersion(firstVersion);
+        int[] second = parseVersion(secondVersion);
+        int length = Math.max(first.length, second.length);
 
         for (int index = 0; index < length; index += 1) {
-            int remotePart = index < remote.length ? remote[index] : 0;
-            int currentPart = index < current.length ? current[index] : 0;
-            if (remotePart > currentPart) return true;
-            if (remotePart < currentPart) return false;
+            int firstPart = index < first.length ? first[index] : 0;
+            int secondPart = index < second.length ? second[index] : 0;
+            if (firstPart > secondPart) return 1;
+            if (firstPart < secondPart) return -1;
         }
 
-        return false;
+        return 0;
     }
 
     private int[] parseVersion(String version) {
