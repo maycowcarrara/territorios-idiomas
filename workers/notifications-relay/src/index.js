@@ -21,7 +21,8 @@ const json = (data, status = 200, extraHeaders = {}) =>
 const corsHeaders = (request) => ({
     'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin'
 });
 
 const parseJsonBody = async (request) => {
@@ -309,6 +310,9 @@ const firestoreDocumentName = (env, path) =>
 const firestoreCommitUrl = (env) =>
     `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`;
 
+const firestoreRunQueryUrl = (env) =>
+    `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:runQuery`;
+
 const getPublicAppUrl = (env) => String(env.PUBLIC_APP_URL || 'https://territ-es-sbs.web.app').replace(/\/$/, '');
 
 const getEmailJsConfig = (env) => {
@@ -465,6 +469,51 @@ const listUsuarios = async (env, accessToken) => {
     } while (pageToken);
 
     return usuarios;
+};
+
+const queryUsuariosPorRole = async (env, accessToken, role) => {
+    try {
+        const response = await fetch(firestoreRunQueryUrl(env), {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                structuredQuery: {
+                    from: [{ collectionId: 'usuarios' }],
+                    where: {
+                        fieldFilter: {
+                            field: { fieldPath: 'role' },
+                            op: 'EQUAL',
+                            value: { stringValue: role }
+                        }
+                    }
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const todos = await listUsuarios(env, accessToken);
+            return todos.filter((user) => user.role === role);
+        }
+
+        const data = await response.json();
+        const usuarios = [];
+        for (const item of (Array.isArray(data) ? data : [])) {
+            if (item.document) {
+                usuarios.push({
+                    name: item.document.name,
+                    id: item.document.name.split('/').pop(),
+                    ...parseFirestoreFields(item.document.fields || {})
+                });
+            }
+        }
+        return usuarios;
+    } catch {
+        const todos = await listUsuarios(env, accessToken);
+        return todos.filter((user) => user.role === role);
+    }
 };
 
 const escreverNotificacoes = async (env, accessToken, notificacoes) => {
@@ -713,18 +762,41 @@ const getPushConfigNotificacao = ({ para, tipo, tituloPush }) => {
     };
 };
 
+const FCM_CONCURRENCY_LIMIT = 5;
+
+const mapWithConcurrencyLimit = async (items, limit, asyncFn) => {
+    if (!items.length) return [];
+    const results = new Array(items.length);
+    let nextIndex = 0;
+    const worker = async () => {
+        while (nextIndex < items.length) {
+            const index = nextIndex++;
+            try {
+                results[index] = await asyncFn(items[index], index);
+            } catch (error) {
+                results[index] = { ok: false, error: error instanceof Error ? error.message : String(error) };
+            }
+        }
+    };
+    const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+    await Promise.all(workers);
+    return results;
+};
+
 const enviarPushesFcm = async (env, accessToken, { titulo, mensagem, tipo, tokens, targetRoute }) => {
-    const resultados = await Promise.all(tokens.map((token) => enviarMensagemFcm(env, accessToken, {
-        token,
-        titulo,
-        mensagem,
-        tipo,
-        targetRoute
-    })));
+    const resultados = await mapWithConcurrencyLimit(tokens, FCM_CONCURRENCY_LIMIT, (token) =>
+        enviarMensagemFcm(env, accessToken, {
+            token,
+            titulo,
+            mensagem,
+            tipo,
+            targetRoute
+        })
+    );
 
     return {
-        pushesEnviados: resultados.filter((item) => item.ok).length,
-        pushesFalharam: resultados.filter((item) => !item.ok).length
+        pushesEnviados: resultados.filter((item) => item && item.ok).length,
+        pushesFalharam: resultados.filter((item) => !item || !item.ok).length
     };
 };
 
@@ -800,7 +872,6 @@ const handleNotificationRelayRequest = async (request, env, headers) => {
     const accessToken = await getGoogleAccessToken(env);
     const usuarioRemetente = await getFirestoreDocument(env, accessToken, `usuarios/${encodeURIComponent(email)}`);
     const isAdmin = usuarioRemetente?.role === 'admin';
-    const usuarios = await listUsuarios(env, accessToken);
 
     if (action === 'broadcast') {
         const mensagem = String(body?.mensagem || '').trim();
@@ -814,7 +885,16 @@ const handleNotificationRelayRequest = async (request, env, headers) => {
             return json({ error: 'Somente administradores podem enviar comunicado com push.' }, 403, headers);
         }
 
-        const destinatarios = getDestinatariosBroadcast(usuarios, destino);
+        let destinatarios = [];
+        if (destino === 'admins') {
+            destinatarios = await queryUsuariosPorRole(env, accessToken, 'admin');
+        } else if (destino === 'todos') {
+            const todosUsuarios = await listUsuarios(env, accessToken);
+            destinatarios = todosUsuarios.filter((user) => user.role === 'admin' || user.role === 'comum');
+        } else {
+            return json({ error: 'Destino inválido para o comunicado.' }, 400, headers);
+        }
+
         const tokens = getTokensDestinatarios(destinatarios);
         const externalIds = getExternalIdsDestinatarios(destinatarios);
         const agora = new Date();
@@ -865,7 +945,14 @@ const handleNotificationRelayRequest = async (request, env, headers) => {
             return json({ error: 'Este tipo de notificação para administradores não é permitido.' }, 403, headers);
         }
 
-        const destinatarios = getDestinatariosNotificacao({ usuarios, para });
+        let destinatarios = [];
+        if (para === 'ADMINS') {
+            destinatarios = await queryUsuariosPorRole(env, accessToken, 'admin');
+        } else {
+            const destDoc = await getFirestoreDocument(env, accessToken, `usuarios/${encodeURIComponent(para)}`);
+            destinatarios = destDoc ? [destDoc] : [];
+        }
+
         const tokens = getTokensDestinatarios(destinatarios);
         const externalIds = getExternalIdsDestinatarios(destinatarios);
         const agora = new Date();
@@ -938,4 +1025,27 @@ export default {
             }, error?.status || 500, headers);
         }
     }
+};
+
+export {
+    verifyFirebaseIdToken,
+    podeUsuarioNotificarAdmins,
+    getDestinatariosBroadcast,
+    getDestinatariosNotificacao,
+    getTokensDestinatarios,
+    getExternalIdsDestinatarios,
+    buildNotificacoesBroadcast,
+    buildNotificacaoAvulsa,
+    getPushConfigBroadcast,
+    getPushConfigNotificacao,
+    enviarPushesFcm,
+    mapWithConcurrencyLimit,
+    corsHeaders,
+    isValidAuthEmail,
+    normalizeRedirectPath,
+    buildContinueUrl,
+    handleNotificationRelayRequest,
+    handleMagicLinkRequest,
+    queryUsuariosPorRole,
+    listUsuarios
 };

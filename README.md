@@ -209,25 +209,45 @@ Os scripts de build Android já fazem essa troca antes de sincronizar o Capacito
 
 O `applicationId` do APK/AAB é lido automaticamente do `package_name` do `google-services` selecionado.
 
-## Scripts
+## Scripts e Ciclo de Versão
 
-```bash
-npm run dev
-npm run lint
-npm run build
-npm run web:deploy
-npm run deploy:rules
-npm run worker:deploy
-npm run android:debug
-npm run android:release
-```
+### Tabela de comandos
 
-Os artefatos Android sao salvos com o nome da instancia ativa, definida por `npm run android:firebase`.
+| Script | Finalidade | Incrementa versão? | Artefatos gerados | Publica? |
+| --- | --- | --- | --- | --- |
+| `npm run dev` (`dev:idiomas`) | Inicia servidor de desenvolvimento Vite | Não | Nenhum (memória) | Não |
+| `npm run lint` | Validação estática de código com ESLint | Não | Nenhum | Não |
+| `npm run build` (`build:idiomas`, `web:build`, `web:build:idiomas`) | Compilação estática web para produção (`vite build --mode idiomas`) | Não | Arquivos em `dist/` | Não |
+| `npm run update-version` | Incrementa patch no `package.json` e gera `src/version.json` e `public/version.json` (`gerar-versao.js`) | Sim (patch no package e JSONs) | `package.json`, `src/version.json`, `public/version.json` | Não |
+| `npm run build:bump` | Executa `update-version` seguido de `build` | Sim (via `update-version`) | `package.json`, `version.json`, `dist/` | Não |
+| `npm run live-update:bundle` | Cria pacote compactado OTA ZIP e manifest a partir do `dist/` existente (`scripts/create-live-update-bundle.cjs`) | Não | `dist/live-update/territorios-idiomas-<versao>.zip`, `dist/live-update/manifest.json` | Não |
+| `npm run preview` | Servidor local para pré-visualizar o conteúdo de `dist/` | Não | Nenhum | Não |
+| `npm run web:deploy` (`deploy`, `deploy:idiomas`, `web:deploy:idiomas`) | Valida credenciais (`guard:firebase`), incrementa versão (`build:bump`), gera pacote OTA (`live-update:bundle`) e publica Hosting | Sim (via `build:bump`) | `dist/`, pacote OTA e deploy no Hosting | Sim (Firebase Hosting `app`) |
+| `npm run deploy:all` (`deploy:all:idiomas`) | Valida credenciais (`guard:firebase`), incrementa versão (`build:bump`), gera OTA e publica Hosting, Rules e Índices | Sim (via `build:bump`) | `dist/`, pacote OTA e deploy completo | Sim (Hosting, Rules, Índices) |
+| `npm run deploy:rules` (`deploy:rules:idiomas`) | Valida credenciais e publica apenas as Security Rules do Firestore | Não | Nenhum | Sim (Firestore Rules) |
+| `npm run worker:deploy` (`worker:deploy:idiomas`) | Publica o Cloudflare Worker do relay de notificações | Não | Artefatos do Worker | Sim (Cloudflare Worker) |
+| `npm run android:version` | Sincroniza `versionCode` (número do patch) e `versionName` do `package.json` para `android/app/build.gradle` (`scripts/sync-android-version.cjs`) | Não (apenas replica para Gradle) | `android/app/build.gradle` | Não |
+| `npm run android:sync` (`cap:sync`) | Sincroniza Capacitor, config nativa e assets Android com a instância ativa | Não | Arquivos nativos Android do Capacitor | Não |
+| `npm run android:assemble` (`android:assemble:idiomas`) | Compila web (`build`), aplica Firebase, sincroniza Capacitor e compila APK debug | Não | APK debug nativo (`assembleDebug`) | Não |
+| `npm run android:debug` (`android:debug:idiomas`, `android:build`, `android:apk`) | Executa `android:assemble` e copia APK para pasta de artefatos | Não | APK debug copiado para artefatos | Não |
+| `npm run android:release` (`android:release:idiomas`, `android:play`) | Compila web (`build`), replica versão para Gradle (`android:version`), checa OAuth, sincroniza Capacitor e compila APK/AAB release | Não altera `package.json` (apenas copia versão para Gradle) | APK e AAB release em `android-artifacts/` | Não |
 
-O `npm run android:sync` tambem sincroniza a config nativa do Capacitor,
-icones e splash com a instancia ativa selecionada pelo `android:firebase:*`.
+### Distinção entre Web, Live-Update (OTA) e Binário Android
 
-Observação: `npm run build` atualiza automaticamente os arquivos de versão antes da build.
+1. **Build Web Comum (`npm run build`)**:
+   - É uma compilação pura e idempotente com Vite.
+   - **Não** altera `package.json`, `src/version.json` ou `public/version.json`.
+   - Use para validações locais, testes e checagens de integridade.
+
+2. **Incremento de Versão e Deploy Web (`npm run web:deploy`)**:
+   - Para publicar uma nova versão web, utiliza-se `build:bump`, que aciona `gerar-versao.js` para incrementar o patch no `package.json` e emitir os arquivos `version.json` com data/hora da compilação.
+   - Em seguida, `live-update:bundle` gera o arquivo ZIP e o `manifest.json` dentro de `dist/live-update/`, permitindo que o app nativo já instalado em dispositivos Android receba a nova versão web via OTA (Over-The-Air) sem exigir reinstalação de APK.
+
+3. **Compilação Nativa Android (`npm run android:debug` e `npm run android:release`)**:
+   - Nem `android:debug` nem `android:release` incrementam a versão do projeto.
+   - O `android:release` executa `npm run android:version`, que apenas extrai a versão existente de `package.json` e a injeta em `android/app/build.gradle` (`versionCode` = número do patch, `versionName` = versão completa).
+   - Os artefatos Android são salvos com o nome da instância ativa, definida por `npm run android:firebase`.
+   - O `npm run android:sync` também sincroniza a config nativa do Capacitor, ícones e splash com a instância ativa selecionada pelo `android:firebase:*`.
 
 ### Smoke de enderecos/grupos
 

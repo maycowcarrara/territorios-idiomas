@@ -2,16 +2,12 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useLocation } from 'react-router-dom';
 import { MapContainer, TileLayer, Polygon, Popup, CircleMarker, Tooltip, useMapEvents, useMap, Marker, Polyline } from 'react-leaflet';
 import { onSnapshot, setDoc, deleteDoc, doc, arrayUnion, arrayRemove, collection, query, where } from 'firebase/firestore';
-import { Capacitor } from '@capacitor/core';
-import { Geolocation } from '@capacitor/geolocation';
 import { db } from './firebase';
 import { clearMapaDataCache, loadMapaData } from './mapData';
 import { getFeatureId } from './mapaUtils';
-import { searchAddresses } from './addressSearch';
 import {
     buildBairroId,
     findBairroFeatureForPoint,
-    getBairroLeafletPositions,
     loadBairrosSbsData,
     normalizeBairroKey,
     normalizeBairroNome
@@ -65,33 +61,42 @@ import {
     toggleEnderecoVisitadoGrupo,
     updateEnderecoBasico
 } from './enderecoModel';
-import {
-    DEFAULT_ENDERECO_CONFIG,
-    getEnderecoCodigoPadraoFromConfig,
-    getEnderecoConfigRef,
-    getEnderecoConfigForIdioma,
-    getEnderecoIdiomasAtivos,
-    getGrupoEnderecoCodigoPadraoFromConfig,
-    normalizeEnderecoConfig
-} from './enderecoConfig';
 import { extractTerritorioCodigo, normalizeTerritorioNome } from './territorioNome';
 import L from 'leaflet';
 import { useUiFeedback } from './uiFeedback';
 import { enviarEventoNotificacao } from './notificationRelay';
 import { MAP_COLORS, getTerritorioDisponivelColors } from './mapLegend';
 import { ensureUsuarioAprovado, isValidUsuarioEmail, isValidWhatsappDigits } from './usuariosModel';
+import { ModalNota } from './mapa/components/ModalNota';
+import { ModalConfirmacaoFinalizacao } from './mapa/components/ModalConfirmacaoFinalizacao';
+import { EnderecoFormModal } from './mapa/components/EnderecoFormModal';
+import { GrupoEnderecoFormModal } from './mapa/components/GrupoEnderecoFormModal';
+import { GrupoEnderecosModal } from './mapa/components/GrupoEnderecosModal';
+import { AddressSearchControl } from './mapa/controls/AddressSearchControl';
+import { BairroSbsLayer } from './mapa/layers/BairroSbsLayer';
+import { createEmptyBairroResumo, getBairroSbsColor } from './mapa/layers/bairroSbsUtils';
+import { stopMapDomEvent, useLeafletDomEventIsolation } from './mapa/utils/mapDomEvents';
+import { MarcadorUsuario } from './mapa/components/MarcadorUsuario';
+import { PontoMapaClicado } from './mapa/components/PontoMapaClicado';
+import { SeletorCamadas } from './mapa/controls/SeletorCamadas';
+import { ControlesNavegacao } from './mapa/controls/ControlesNavegacao';
+import {
+    ADMIN_OFFLINE_MESSAGE,
+    MAP_INITIAL_CENTER,
+    MAP_INITIAL_ZOOM,
+    MAPA_VISUALIZACAO
+} from './mapa/constants/mapaConstants';
+import {
+    calcularDistanciaMetros,
+    formatarDistanciaMetros,
+    toPlainLatLng
+} from './mapa/utils/mapGeoUtils';
+import { useEnderecoConfigIdioma } from './mapa/hooks/useEnderecoConfigIdioma';
+import { useMapTouchInteraction } from './mapa/hooks/useMapTouchInteraction';
 
 const normalizeEmailValue = (value) => String(value || '').trim().toLowerCase();
-const ENDERECO_IDIOMA_ATIVO_STORAGE_KEY = 'territorios-idiomas.enderecoIdiomaAtivo';
 const LAST_IMPORT_HIGHLIGHT_STORAGE_KEY = 'territorios-idiomas.enderecos.lastImportHighlight';
 const IMPORT_HIGHLIGHT_MAX_AGE_MS = 60 * 60 * 1000;
-
-const stopMapDomEvent = (event) => {
-    event?.stopPropagation?.();
-    if (event?.nativeEvent) {
-        L.DomEvent.stopPropagation(event.nativeEvent);
-    }
-};
 
 const isLeafletPopupOpen = (map) => {
     const popup = map?._popup;
@@ -104,14 +109,6 @@ const syncLeafletPopupClass = (map) => {
     window.requestAnimationFrame(() => {
         map.getContainer().classList.toggle('has-popup', isLeafletPopupOpen(map));
     });
-};
-
-const useLeafletDomEventIsolation = () => {
-    return useCallback((element) => {
-        if (!element) return;
-        L.DomEvent.disableClickPropagation(element);
-        L.DomEvent.disableScrollPropagation(element);
-    }, []);
 };
 
 const getGrupoEnderecoCanonicalKey = (value) => {
@@ -242,41 +239,6 @@ const mergeGrupoEnderecoRuntimeStats = (grupo, enderecosGrupo = []) => {
     };
 };
 
-const createEmptyBairroResumo = () => ({
-    total: 0,
-    cobertos: 0,
-    faltando: 0,
-    emAndamento: 0
-});
-
-const BAIRRO_SBS_COLOR_PALETTE = [
-    { fill: '#fecaca', border: '#dc2626', text: '#991b1b' },
-    { fill: '#fed7aa', border: '#ea580c', text: '#9a3412' },
-    { fill: '#fde68a', border: '#d97706', text: '#92400e' },
-    { fill: '#d9f99d', border: '#65a30d', text: '#3f6212' },
-    { fill: '#bbf7d0', border: '#16a34a', text: '#166534' },
-    { fill: '#99f6e4', border: '#0d9488', text: '#115e59' },
-    { fill: '#a7f3d0', border: '#059669', text: '#065f46' },
-    { fill: '#bae6fd', border: '#0284c7', text: '#075985' },
-    { fill: '#bfdbfe', border: '#2563eb', text: '#1d4ed8' },
-    { fill: '#c7d2fe', border: '#4f46e5', text: '#3730a3' },
-    { fill: '#ddd6fe', border: '#7c3aed', text: '#5b21b6' },
-    { fill: '#f5d0fe', border: '#c026d3', text: '#86198f' },
-    { fill: '#fbcfe8', border: '#db2777', text: '#9d174d' },
-    { fill: '#e9d5ff', border: '#9333ea', text: '#6b21a8' },
-    { fill: '#ccfbf1', border: '#0f766e', text: '#134e4a' },
-    { fill: '#cffafe', border: '#0891b2', text: '#155e75' },
-    { fill: '#e0f2fe', border: '#0369a1', text: '#075985' },
-    { fill: '#fef3c7', border: '#b45309', text: '#78350f' },
-    { fill: '#dcfce7', border: '#15803d', text: '#14532d' },
-    { fill: '#fae8ff', border: '#a21caf', text: '#701a75' },
-    { fill: '#ffe4e6', border: '#e11d48', text: '#9f1239' }
-];
-
-const getBairroSbsColor = (index) => (
-    BAIRRO_SBS_COLOR_PALETTE[index % BAIRRO_SBS_COLOR_PALETTE.length]
-);
-
 const buildBairroColorLookup = (features = []) => ({
     features,
     colorsById: new Map(features.map((feature, index) => [
@@ -349,31 +311,6 @@ const formatPessoasCadastradasLabel = (total) => {
 
 const getEnderecoClasseLabel = (classe) => (
     ENDERECO_CLASSE_LABELS[classe] || ENDERECO_CLASSE_LABELS[ENDERECO_CLASSES.CONFIRMADO]
-);
-
-const formatAuditDateTime = (value) => {
-    const date = value?.toDate?.() || (value instanceof Date ? value : null);
-    if (!date || Number.isNaN(date.getTime())) return '';
-
-    return new Intl.DateTimeFormat('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    }).format(date);
-};
-
-const getEnderecoAuditOriginLabel = (endereco) => {
-    if (endereco?.importacaoId) {
-        return endereco?.origem === 'importacao' ? 'Importado por CSV' : 'Atualizado por CSV';
-    }
-
-    return `Origem: ${endereco?.origem || 'manual'}`;
-};
-
-const hasEnderecoAuditInfo = (endereco) => Boolean(
-    endereco?.origem || endereco?.importacaoId || endereco?.atualizadoEm || endereco?.atualizadoPor
 );
 
 const readLastImportHighlight = () => {
@@ -468,20 +405,20 @@ const cssTooltip = `
     78% { opacity: 1; transform: translateY(-50%) translateY(0); }
     100% { opacity: 0; transform: translateY(-50%) translateY(-4px); }
   }
-  
+
   .map-layer-btn { width: 48px; height: 48px; border-radius: 8px; border: 2px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.3); cursor: pointer; transition: transform 0.1s, border-color 0.2s; overflow: hidden; position: relative; background-size: cover; }
   .map-layer-btn:active { transform: scale(0.95); }
   .map-layer-btn.active { border-color: ${MAP_COLORS.apoio.clique}; transform: scale(1.05); z-index: 10; }
-  
-  .thumb-rua { background: #e5e7eb; } 
+
+  .thumb-rua { background: #e5e7eb; }
   .thumb-rua::after { content: '🗺️'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; }
 
-  .thumb-google { background: #fce7b2; } 
+  .thumb-google { background: #fce7b2; }
   .thumb-google::after { content: '📍'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; }
-  
+
   .thumb-satelite {
     background-color: #172554;
-    background-image: 
+    background-image:
       radial-gradient(circle at 15% 25%, white 1px, transparent 1.5px),
       radial-gradient(circle at 75% 15%, rgba(255,255,255,0.8) 1px, transparent 1.5px),
       radial-gradient(circle at 60% 85%, rgba(255,255,255,0.9) 1px, transparent 1.5px),
@@ -490,11 +427,11 @@ const cssTooltip = `
     background-size: 100% 100%;
     background-repeat: no-repeat;
   }
-  .thumb-satelite::after { 
-    content: '🛰️'; 
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-    font-size: 24px; 
-    filter: drop-shadow(0 0 4px rgba(255,255,255,0.5)); 
+  .thumb-satelite::after {
+    content: '🛰️';
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 24px;
+    filter: drop-shadow(0 0 4px rgba(255,255,255,0.5));
   }
 
   .leaflet-tooltip.sem-fundo {
@@ -513,83 +450,6 @@ const calcularCentroide = (coords) => {
     coords.forEach(p => { lat += p[1]; lng += p[0]; });
     return { lat: lat / n, lng: lng / n };
 };
-
-const toRad = (value) => (value * Math.PI) / 180;
-
-const calcularDistanciaMetros = (origem, destino) => {
-    if (!origem || !destino) return 0;
-
-    const raioTerra = 6371000;
-    const deltaLat = toRad(destino.lat - origem.lat);
-    const deltaLng = toRad(destino.lng - origem.lng);
-    const lat1 = toRad(origem.lat);
-    const lat2 = toRad(destino.lat);
-
-    const a = Math.sin(deltaLat / 2) ** 2
-        + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
-
-    return 2 * raioTerra * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
-
-const toPlainLatLng = (latlng) => {
-    const lat = Number(latlng?.lat);
-    const lng = Number(latlng?.lng);
-
-    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
-};
-
-const formatarDistanciaMetros = (metros) => {
-    const valor = Number(metros);
-    if (!Number.isFinite(valor)) return '';
-    if (valor < 1000) return `${Math.round(valor)} m`;
-
-    const quilometros = valor / 1000;
-    const casas = quilometros < 10 ? 1 : 0;
-    return `${quilometros.toFixed(casas).replace('.', ',')} km`;
-};
-
-const calcularRumo = (origem, destino) => {
-    if (!origem || !destino) return null;
-
-    const lat1 = toRad(origem.lat);
-    const lat2 = toRad(destino.lat);
-    const deltaLng = toRad(destino.lng - origem.lng);
-
-    const y = Math.sin(deltaLng) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2)
-        - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
-
-    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-};
-
-const DISTANCIA_MINIMA_ATUALIZACAO_METROS = 0.8;
-const DISTANCIA_MINIMA_TRILHA_METROS = 3;
-const DISTANCIA_MINIMA_DIRECAO_METROS = 2;
-const PRECISAO_MAXIMA_INICIAL_NATIVE_METROS = 120;
-const PRECISAO_MAXIMA_RASTREAMENTO_NATIVE_METROS = 80;
-const PRECISAO_MAXIMA_INICIAL_WEB_METROS = 300;
-const PRECISAO_MAXIMA_RASTREAMENTO_WEB_METROS = 150;
-const GEOLOCATION_TIMEOUT_NATIVE_MS = 10000;
-const GEOLOCATION_TIMEOUT_WEB_MS = 20000;
-const GEOLOCATION_MAXIMUM_AGE_NATIVE_MS = 1500;
-const GEOLOCATION_MAXIMUM_AGE_WEB_MS = 5000;
-const getEnvNumber = (key, fallback) => {
-    const value = Number.parseFloat(import.meta.env[key]);
-    return Number.isFinite(value) ? value : fallback;
-};
-const MAP_INITIAL_CENTER = [
-    getEnvNumber('VITE_MAP_CENTER_LAT', -26.485),
-    getEnvNumber('VITE_MAP_CENTER_LNG', -51.995)
-];
-const MAP_INITIAL_ZOOM = getEnvNumber('VITE_MAP_INITIAL_ZOOM', 14);
-const ADMIN_OFFLINE_MESSAGE = 'Você está offline. Ações administrativas precisam de conexão para evitar conflito de designações. Conecte-se para continuar.';
-const MAP_LONG_PRESS_DURATION_MS = 650;
-const MAP_LONG_PRESS_CLICK_SUPPRESSION_MS = 900;
-const BAIRRO_POPUP_CLICK_SUPPRESSION_MS = 500;
-const MAPA_VISUALIZACAO = Object.freeze({
-    TERRITORIOS: 'territorios',
-    ENDERECOS: 'enderecos'
-});
 
 // --- DEEP LINK HANDLER ---
 const DeepLinkHandler = () => {
@@ -623,1340 +483,6 @@ const DeepLinkHandler = () => {
 };
 
 // --- COMPONENTES DE UI ---
-
-const SeletorCamadas = ({
-    tipoMapa,
-    setTipoMapa,
-    isAdmin,
-    modoVisualizacao,
-    onChangeModoVisualizacao,
-    showRefs,
-    setShowRefs,
-    showCondos,
-    setShowCondos,
-    showBairros,
-    setShowBairros,
-    mostrarDicas,
-    hasReferencias,
-    hasCondominios,
-    hasBairros
-}) => {
-    const controlsRef = useLeafletDomEventIsolation();
-
-    const alternarCamada = () => {
-        if (tipoMapa === 'google') setTipoMapa('satelite');
-        else if (tipoMapa === 'satelite') setTipoMapa('padrao');
-        else setTipoMapa('google');
-    };
-
-    let classeBotao = '';
-    let tituloBotao = '';
-
-    if (tipoMapa === 'google') {
-        classeBotao = 'thumb-satelite';
-        tituloBotao = "Mudar para Satélite";
-    } else if (tipoMapa === 'satelite') {
-        classeBotao = 'thumb-rua';
-        tituloBotao = "Mudar para OpenStreetMap";
-    } else {
-        classeBotao = 'thumb-google';
-        tituloBotao = "Mudar para Google Maps";
-    }
-
-    return (
-        <div ref={controlsRef} className="map-popup-aware-control absolute bottom-6 left-4 z-[400] flex flex-col gap-3" onClick={stopMapDomEvent}>
-            {isAdmin && (
-                <div className="relative">
-                    <div className="flex w-12 flex-col overflow-hidden rounded-lg border-2 border-white bg-white shadow-lg">
-                        <button
-                            type="button"
-                            onClick={() => onChangeModoVisualizacao(MAPA_VISUALIZACAO.TERRITORIOS)}
-                            className={`flex h-8 items-center justify-center text-xs font-black transition ${modoVisualizacao === MAPA_VISUALIZACAO.TERRITORIOS ? 'bg-indigo-700 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
-                            title="Ver territórios"
-                            aria-label="Ver territórios"
-                        >
-                            T
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => onChangeModoVisualizacao(MAPA_VISUALIZACAO.ENDERECOS)}
-                            className={`flex h-8 items-center justify-center border-t border-slate-100 text-xs font-black transition ${modoVisualizacao === MAPA_VISUALIZACAO.ENDERECOS ? 'bg-teal-700 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
-                            title="Ver endereços"
-                            aria-label="Ver endereços"
-                        >
-                            E
-                        </button>
-                    </div>
-                    {mostrarDicas && <span className="control-hint left-side">Visão do mapa</span>}
-                </div>
-            )}
-            {hasReferencias && (
-                <div className="relative">
-                    <button onClick={() => setShowRefs(!showRefs)} className={`w-12 h-12 rounded-lg bg-white shadow-lg flex items-center justify-center border-2 transition-all ${showRefs ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-400'}`} title="Mostrar/Ocultar Pontos de Referência">📍</button>
-                    {mostrarDicas && <span className="control-hint left-side">Pontos de referência</span>}
-                </div>
-            )}
-            {hasCondominios && (
-                <div className="relative">
-                    <button onClick={() => setShowCondos(!showCondos)} className={`w-12 h-12 rounded-lg bg-white shadow-lg flex items-center justify-center border-2 transition-all ${showCondos ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-400'}`} title="Mostrar/Ocultar Condomínios">🏢</button>
-                    {mostrarDicas && <span className="control-hint left-side">Condomínios</span>}
-                </div>
-            )}
-            {hasBairros && (
-                <div className="relative">
-                    <button onClick={() => setShowBairros(!showBairros)} className={`w-12 h-12 rounded-lg bg-white shadow-lg flex items-center justify-center border-2 text-lg font-black transition-all ${showBairros ? 'border-teal-500 text-teal-700' : 'border-transparent text-gray-400'}`} title="Mostrar/Ocultar bairros urbanos">▦</button>
-                    {mostrarDicas && <span className="control-hint left-side">Bairros urbanos</span>}
-                </div>
-            )}
-            <div className="relative">
-                <button onClick={alternarCamada} className={`map-layer-btn ${classeBotao}`} title={tituloBotao} />
-                {mostrarDicas && <span className="control-hint left-side">Mudar mapa</span>}
-            </div>
-        </div>
-    );
-};
-
-const ControlesNavegacao = ({
-    rastreandoLocalizacao,
-    setRastreandoLocalizacao,
-    setPosicaoUsuario,
-    setTrilhaUsuario,
-    setDirecaoUsuario,
-    mostrarDicas
-}) => {
-    const map = useMap();
-    const { notify } = useUiFeedback();
-    const controlsRef = useLeafletDomEventIsolation();
-    const [buscando, setBuscando] = useState(false);
-    const isNativePlatform = Capacitor.isNativePlatform();
-    const watchIdRef = useRef(null);
-    const primeiraCentralizacaoRef = useRef(false);
-    const ultimaPosicaoBrutaRef = useRef(null);
-    const ultimaPosicaoAceitaRef = useRef(null);
-    const limparDirecaoTimeoutRef = useRef(null);
-
-    useEffect(() => {
-        const limparRastreamentoVisual = () => {
-            setPosicaoUsuario(null);
-            setTrilhaUsuario([]);
-            setDirecaoUsuario(null);
-            ultimaPosicaoBrutaRef.current = null;
-            ultimaPosicaoAceitaRef.current = null;
-            primeiraCentralizacaoRef.current = false;
-            setBuscando(false);
-            if (limparDirecaoTimeoutRef.current) {
-                window.clearTimeout(limparDirecaoTimeoutRef.current);
-                limparDirecaoTimeoutRef.current = null;
-            }
-        };
-
-        const pararWatch = () => {
-            if (watchIdRef.current === null) return;
-
-            if (isNativePlatform) {
-                void Geolocation.clearWatch({ id: watchIdRef.current });
-            } else if (navigator.geolocation) {
-                navigator.geolocation.clearWatch(watchIdRef.current);
-            }
-
-            watchIdRef.current = null;
-        };
-
-        if (!rastreandoLocalizacao) {
-            pararWatch();
-            limparRastreamentoVisual();
-            return undefined;
-        }
-
-        if (!isNativePlatform && !navigator.geolocation) {
-            notify({
-                title: 'Localização indisponível',
-                message: 'Seu navegador não suporta localização.',
-                variant: 'warning'
-            });
-            setRastreandoLocalizacao(false);
-            return undefined;
-        }
-
-        const processarPosicao = (position) => {
-            const novaPosicao = {
-                lat: position.coords.latitude,
-                lng: position.coords.longitude
-            };
-            const precisao = position.coords.accuracy ?? null;
-            const ultimaPosicaoAceita = ultimaPosicaoAceitaRef.current;
-            const precisaoMaximaInicial = isNativePlatform
-                ? PRECISAO_MAXIMA_INICIAL_NATIVE_METROS
-                : PRECISAO_MAXIMA_INICIAL_WEB_METROS;
-            const precisaoMaximaRastreamento = isNativePlatform
-                ? PRECISAO_MAXIMA_RASTREAMENTO_NATIVE_METROS
-                : PRECISAO_MAXIMA_RASTREAMENTO_WEB_METROS;
-
-            if (!ultimaPosicaoAceita && precisao && precisao > precisaoMaximaInicial) {
-                return;
-            }
-
-            if (ultimaPosicaoAceita && precisao && precisao > precisaoMaximaRastreamento) {
-                setBuscando(false);
-                return;
-            }
-
-            if (ultimaPosicaoAceita) {
-                const deslocamentoCurto = calcularDistanciaMetros(ultimaPosicaoAceita, novaPosicao);
-                if (deslocamentoCurto < DISTANCIA_MINIMA_ATUALIZACAO_METROS) {
-                    setBuscando(false);
-                    return;
-                }
-            }
-
-            ultimaPosicaoAceitaRef.current = novaPosicao;
-
-            setPosicaoUsuario(novaPosicao);
-
-            setTrilhaUsuario((caminhoAtual) => {
-                if (!caminhoAtual.length) return [novaPosicao];
-
-                const ultimaPosicaoTrilha = caminhoAtual[caminhoAtual.length - 1];
-                if (calcularDistanciaMetros(ultimaPosicaoTrilha, novaPosicao) < DISTANCIA_MINIMA_TRILHA_METROS) {
-                    return caminhoAtual;
-                }
-
-                return [...caminhoAtual, novaPosicao];
-            });
-
-            if (!primeiraCentralizacaoRef.current) {
-                primeiraCentralizacaoRef.current = true;
-                map.flyTo(novaPosicao, Math.max(map.getZoom(), 17), { animate: true, duration: 1.2 });
-            }
-
-            if (ultimaPosicaoBrutaRef.current) {
-                const distanciaPercorrida = calcularDistanciaMetros(ultimaPosicaoBrutaRef.current, novaPosicao);
-                if (distanciaPercorrida >= DISTANCIA_MINIMA_DIRECAO_METROS) {
-                    setDirecaoUsuario(calcularRumo(ultimaPosicaoBrutaRef.current, novaPosicao));
-                    ultimaPosicaoBrutaRef.current = novaPosicao;
-
-                    if (limparDirecaoTimeoutRef.current) {
-                        window.clearTimeout(limparDirecaoTimeoutRef.current);
-                    }
-
-                    limparDirecaoTimeoutRef.current = window.setTimeout(() => {
-                        setDirecaoUsuario(null);
-                    }, 2000);
-                }
-            } else {
-                ultimaPosicaoBrutaRef.current = novaPosicao;
-            }
-
-            setBuscando(false);
-        };
-
-        const tratarErro = (error) => {
-            console.error("Erro ao obter localização:", error);
-            setBuscando(false);
-
-            if (error?.code === 1 || error?.code === 'NOT_AUTHORIZED') {
-                pararWatch();
-                setRastreandoLocalizacao(false);
-                notify({
-                    title: 'Permissão de localização',
-                    message: isNativePlatform
-                        ? 'Permita o acesso à localização do app para usar o GPS do celular.'
-                        : 'Permita o acesso à localização no navegador ou no app para usar sua posição no mapa.',
-                    variant: 'warning'
-                });
-                return;
-            }
-
-            if (!ultimaPosicaoBrutaRef.current) {
-                pararWatch();
-                setRastreandoLocalizacao(false);
-                notify({
-                    title: isNativePlatform ? 'GPS necessário' : 'Localização indisponível',
-                    message: isNativePlatform
-                        ? 'Ative o GPS do celular para usar a sua localização no mapa.'
-                        : 'Não foi possível obter sua localização no navegador. Verifique a permissão do site/app e a localização do sistema.',
-                    variant: 'warning'
-                });
-            }
-        };
-
-        const iniciarRastreamento = async () => {
-            setBuscando(true);
-
-            if (isNativePlatform) {
-                try {
-                    let permissaoLocalizacao = await Geolocation.checkPermissions();
-                    if (permissaoLocalizacao.location !== 'granted' && permissaoLocalizacao.coarseLocation !== 'granted') {
-                        permissaoLocalizacao = await Geolocation.requestPermissions();
-                    }
-
-                    if (permissaoLocalizacao.location === 'denied' && permissaoLocalizacao.coarseLocation === 'denied') {
-                        throw { code: 'NOT_AUTHORIZED' };
-                    }
-
-                    watchIdRef.current = await Geolocation.watchPosition(
-                        {
-                            enableHighAccuracy: true,
-                            maximumAge: GEOLOCATION_MAXIMUM_AGE_NATIVE_MS,
-                            timeout: GEOLOCATION_TIMEOUT_NATIVE_MS
-                        },
-                        (position, error) => {
-                            if (error) {
-                                tratarErro(error);
-                                return;
-                            }
-
-                            if (position) {
-                                processarPosicao(position);
-                            }
-                        }
-                    );
-                    return;
-                } catch (error) {
-                    tratarErro(error);
-                    return;
-                }
-            }
-
-            watchIdRef.current = navigator.geolocation.watchPosition(
-                processarPosicao,
-                tratarErro,
-                {
-                    enableHighAccuracy: true,
-                    maximumAge: GEOLOCATION_MAXIMUM_AGE_WEB_MS,
-                    timeout: GEOLOCATION_TIMEOUT_WEB_MS
-                }
-            );
-        };
-
-        void iniciarRastreamento();
-
-        return () => {
-            pararWatch();
-            if (limparDirecaoTimeoutRef.current) {
-                window.clearTimeout(limparDirecaoTimeoutRef.current);
-                limparDirecaoTimeoutRef.current = null;
-            }
-        };
-    }, [isNativePlatform, map, notify, rastreandoLocalizacao, setDirecaoUsuario, setPosicaoUsuario, setRastreandoLocalizacao, setTrilhaUsuario]);
-
-    const alternarLocalizacao = () => {
-        setRastreandoLocalizacao((estadoAtual) => !estadoAtual);
-    };
-
-    return (
-        <div ref={controlsRef} className="map-popup-aware-control absolute bottom-6 right-4 z-[400] flex flex-col gap-3" onClick={stopMapDomEvent}>
-            <button
-                onClick={alternarLocalizacao}
-                aria-pressed={rastreandoLocalizacao}
-                title={rastreandoLocalizacao ? "Desativar rastreamento da minha localização" : "Ativar rastreamento da minha localização"}
-                className={`relative w-12 h-12 flex items-center justify-center shadow-xl border active:scale-95 transition-all duration-200 rounded-full mb-2 ${rastreandoLocalizacao ? 'bg-blue-600 text-white border-blue-700 shadow-blue-500/30' : 'bg-white text-blue-600 border-slate-200 hover:bg-slate-50'}`}
-            >
-                {buscando ? (
-                    <div className={`animate-spin rounded-full h-5 w-5 border-2 ${rastreandoLocalizacao ? 'border-blue-100 border-t-white' : 'border-slate-300 border-t-blue-600'}`}></div>
-                ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <circle cx="12" cy="12" r="10" />
-                        <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
-                    </svg>
-                )}
-                <span className={`absolute left-1/2 -translate-x-1/2 -top-3 flex items-center gap-1 rounded-full px-1.5 py-0.5 border shadow-sm text-[9px] font-bold tracking-wide ${rastreandoLocalizacao ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-slate-500 border-slate-200'}`}>
-                    <span className={`block w-1.5 h-1.5 rounded-full ${rastreandoLocalizacao ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
-                    {rastreandoLocalizacao ? 'ON' : 'OFF'}
-                </span>
-                {mostrarDicas && <span className="control-hint right-side">Ligar GPS</span>}
-            </button>
-            <div className="flex flex-col shadow-xl rounded-xl border border-slate-200 bg-white">
-                <div className="relative">
-                    <button onClick={() => map.zoomIn()} className="w-12 h-12 flex items-center justify-center text-slate-600 border-b border-slate-100"><svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path d="M12 4.5v15m7.5-7.5h-15" /></svg></button>
-                    {mostrarDicas && <span className="control-hint right-side">Aumentar zoom</span>}
-                </div>
-                <div className="relative">
-                    <button onClick={() => map.zoomOut()} className="w-12 h-12 flex items-center justify-center text-slate-600"><svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path d="M19.5 12h-15" /></svg></button>
-                    {mostrarDicas && <span className="control-hint right-side">Diminuir zoom</span>}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const MarcadorUsuario = ({ posicao, direcao, canCreate = false, onCreate }) => {
-    const [posicaoAnimada, setPosicaoAnimada] = useState(posicao);
-    const frameAnimacaoRef = useRef(null);
-    const posicaoAnimadaRef = useRef(posicao);
-
-    useEffect(() => {
-        if (!posicao) {
-            if (frameAnimacaoRef.current) {
-                window.cancelAnimationFrame(frameAnimacaoRef.current);
-                frameAnimacaoRef.current = null;
-            }
-            posicaoAnimadaRef.current = null;
-            setPosicaoAnimada(null);
-            return undefined;
-        }
-
-        if (!posicaoAnimadaRef.current) {
-            posicaoAnimadaRef.current = posicao;
-            setPosicaoAnimada(posicao);
-            return undefined;
-        }
-
-        const origem = posicaoAnimadaRef.current;
-        const distancia = calcularDistanciaMetros(origem, posicao);
-
-        if (distancia < 0.4) {
-            posicaoAnimadaRef.current = posicao;
-            setPosicaoAnimada(posicao);
-            return undefined;
-        }
-
-        if (frameAnimacaoRef.current) {
-            window.cancelAnimationFrame(frameAnimacaoRef.current);
-        }
-
-        const inicio = performance.now();
-        const duracao = 850;
-
-        const animar = (agora) => {
-            const progresso = Math.min((agora - inicio) / duracao, 1);
-            const easing = 1 - ((1 - progresso) ** 3);
-            const proximaPosicao = {
-                lat: origem.lat + ((posicao.lat - origem.lat) * easing),
-                lng: origem.lng + ((posicao.lng - origem.lng) * easing)
-            };
-
-            posicaoAnimadaRef.current = proximaPosicao;
-            setPosicaoAnimada(proximaPosicao);
-
-            if (progresso < 1) {
-                frameAnimacaoRef.current = window.requestAnimationFrame(animar);
-                return;
-            }
-
-            frameAnimacaoRef.current = null;
-        };
-
-        frameAnimacaoRef.current = window.requestAnimationFrame(animar);
-
-        return () => {
-            if (frameAnimacaoRef.current) {
-                window.cancelAnimationFrame(frameAnimacaoRef.current);
-                frameAnimacaoRef.current = null;
-            }
-        };
-    }, [posicao]);
-
-    const posicaoExibida = posicaoAnimada ?? posicao;
-
-    const iconeGPS = useMemo(() => L.divIcon({
-        className: 'bg-transparent',
-        html: `
-            <div style="position: relative; width: 54px; height: 54px; display: flex; align-items: center; justify-content: center;">
-                <div style="position: absolute; width: 38px; height: 38px; border-radius: 9999px; background: rgba(59, 130, 246, 0.18); animation: gps-pulse 1.8s ease-out infinite;"></div>
-                ${typeof direcao === 'number' ? `
-                    <div style="position: absolute; top: 5px; left: 50%; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 16px solid #1d4ed8; transform: translateX(-50%) rotate(${direcao}deg); transform-origin: 50% 21px; filter: drop-shadow(0 2px 3px rgba(30, 64, 175, 0.3));"></div>
-                ` : ''}
-                <div style="position: relative; width: 18px; height: 18px; border-radius: 9999px; background: ${MAP_COLORS.apoio.clique}; border: 3px solid #ffffff; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.45); z-index: 2;"></div>
-            </div>
-        `,
-        iconSize: [54, 54],
-        iconAnchor: [27, 27]
-    }), [direcao]);
-
-    if (!posicaoExibida) return null;
-
-    const compartilharLocalizacao = () => {
-        const appUrl = buildAppLocationUrl(posicaoExibida.lat, posicaoExibida.lng, 17);
-        const mapsUrl = buildGoogleMapsUrl(posicaoExibida.lat, posicaoExibida.lng);
-        const text = buildLocationShareText({
-            title: 'Minha localização no território',
-            appUrl,
-            mapsUrl
-        });
-
-        window.open(buildWhatsAppShareUrl(text), '_blank');
-    };
-
-    const cadastrarEnderecoAqui = () => {
-        onCreate?.({
-            lat: posicaoExibida.lat,
-            lng: posicaoExibida.lng
-        });
-    };
-
-    return (
-        <Marker position={posicaoExibida} icon={iconeGPS}>
-            <Popup>
-                <div className="flex min-w-[190px] flex-col gap-2 p-1 text-center">
-                    <p className="font-bold text-sm mb-2 text-gray-700">Você está aqui</p>
-                    <button onClick={compartilharLocalizacao} className="popup-btn-action bg-blue-600 text-white hover:bg-blue-700 text-xs py-1 px-3 shadow-md">
-                        <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z" /></svg>
-                        Compartilhar Local
-                    </button>
-                    {canCreate && (
-                        <button onClick={cadastrarEnderecoAqui} className="popup-btn-action bg-teal-700 text-white hover:bg-teal-800 text-xs py-1 px-3 shadow-md">
-                            Cadastrar endereço
-                        </button>
-                    )}
-                </div>
-            </Popup>
-        </Marker>
-    );
-};
-
-// --- MODAL DE NOTAS ---
-const ModalNota = ({ isOpen, onClose, onAdicionar, onEditar, onExcluir, dados, user, isAdmin, canWrite }) => {
-    const [texto, setTexto] = useState('');
-    const [editandoId, setEditandoId] = useState(null);
-    const [salvando, setSalvando] = useState(false);
-    const scrollRef = useRef(null);
-
-    const notas = useMemo(() => {
-        if (!dados?.notas) return [];
-        if (typeof dados.notas === 'string') {
-            return [{ id: 'legacy', texto: dados.notas, autorNome: 'Sistema (Antigo)', data: null, autorEmail: 'sistema' }];
-        }
-        return dados.notas;
-    }, [dados]);
-
-    useEffect(() => {
-        if (!isOpen) return;
-        const timeoutId = window.setTimeout(() => {
-            if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }, 100);
-
-        return () => window.clearTimeout(timeoutId);
-    }, [isOpen, dados]);
-
-    const handleSubmit = async () => {
-        if (!canWrite || salvando) return;
-        if (!texto.trim()) return;
-
-        try {
-            setSalvando(true);
-            if (editandoId) {
-                await onEditar(dados.quadraId, editandoId, texto);
-            } else {
-                await onAdicionar(dados.quadraId, texto);
-            }
-            setTexto('');
-            setEditandoId(null);
-        } finally {
-            setSalvando(false);
-        }
-    };
-
-    const iniciarEdicao = (nota) => {
-        setTexto(nota.texto);
-        setEditandoId(nota.id);
-    };
-
-    const cancelarEdicao = () => {
-        setTexto('');
-        setEditandoId(null);
-    };
-
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in" style={{ zIndex: 9999 }}>
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col h-[500px]">
-                <div className="bg-blue-600 p-4 flex justify-between items-center shrink-0">
-                    <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                        💬 Notas: {dados?.quadraId}
-                    </h3>
-                    <button onClick={onClose} className="text-white/80 hover:text-white text-xl font-bold">×</button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3" ref={scrollRef}>
-                    {notas.length === 0 && (
-                        <p className="text-center text-gray-400 text-sm italic mt-10">Nenhuma observação ainda.</p>
-                    )}
-                    {notas.map((nota) => {
-                        const isMe = user?.email === nota.autorEmail;
-                        const isLegacy = isLegacyNoteId(nota.id);
-                        const podeExcluir = canWrite && !isLegacy && (isAdmin || isMe);
-                        const podeEditar = canWrite && !isLegacy && (isMe || isAdmin);
-                        return (
-                            <div key={nota.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                                <div className={`max-w-[85%] rounded-lg p-3 shadow-sm relative group ${isMe ? 'bg-blue-100 text-blue-900 rounded-tr-none' : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none'}`}>
-                                    <div className="flex justify-between items-center gap-4 mb-1 border-b border-black/5 pb-1">
-                                        <span className="text-[10px] font-bold uppercase opacity-70">{nota.autorNome || 'Anônimo'}</span>
-                                        <span className="text-[9px] opacity-50">
-                                            {nota.data ? new Date(nota.data).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm whitespace-pre-wrap">{nota.texto}</p>
-                                    <div className="absolute -top-2 -right-2 flex gap-1">
-                                        {podeEditar && (
-                                            <button onClick={() => iniciarEdicao(nota)} className="bg-white text-blue-600 border border-blue-200 p-1 rounded-full shadow hover:bg-blue-50" title="Editar">
-                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                                            </button>
-                                        )}
-                                        {podeExcluir && (
-                                            <button onClick={() => onExcluir(dados.quadraId, nota.id)} className="bg-white text-red-600 border border-red-200 p-1 rounded-full shadow hover:bg-red-50" title="Excluir">
-                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                <div className="p-3 bg-white border-t border-gray-200">
-                    {!canWrite && (
-                        <div className="mb-2 rounded bg-gray-100 px-3 py-2 text-xs text-gray-600">
-                            Modo consulta. Conecte-se e abra o território correto para adicionar ou corrigir observações.
-                        </div>
-                    )}
-                    {editandoId && (
-                        <div className="flex justify-between items-center text-xs text-blue-600 mb-2 bg-blue-50 p-1 px-2 rounded">
-                            <span>✏️ Editando mensagem...</span>
-                            <button onClick={cancelarEdicao} className="underline hover:text-blue-800">Cancelar</button>
-                        </div>
-                    )}
-                    <div className="flex gap-2">
-                        <textarea
-                            className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none text-sm"
-                            placeholder="Escreva uma observação..."
-                            rows="2"
-                            value={texto}
-                            disabled={!canWrite || salvando}
-                            onChange={(e) => setTexto(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                        />
-                        <button onClick={handleSubmit} disabled={!canWrite || salvando || !texto.trim()} className="bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors self-end">
-                            {salvando ? (
-                                <svg className="h-5 w-5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            ) : (
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-                            )}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const ModalConfirmacaoFinalizacao = ({ isOpen, onConfirmar, onRecusar, loading, contextoSufixo }) => {
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{ zIndex: 9999 }}>
-            <div className="w-full max-w-sm overflow-hidden rounded-xl bg-white shadow-2xl">
-                <div className="bg-blue-600 px-4 py-3">
-                    <h3 className="text-lg font-bold text-white">Confirmar finalização</h3>
-                </div>
-                <div className="p-4 text-sm text-gray-700">
-                    <p>Você finalizou o território{contextoSufixo}?</p>
-                </div>
-                <div className="flex gap-3 px-4 pb-4">
-                    <button
-                        onClick={onConfirmar}
-                        disabled={loading}
-                        className="flex-1 rounded-lg bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                        Sim
-                    </button>
-                    <button
-                        onClick={onRecusar}
-                        disabled={loading}
-                        className="flex-1 rounded-lg bg-gray-200 px-4 py-2 font-bold text-gray-700 hover:bg-gray-300 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                        Não
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const getEnderecoInitialForm = (endereco, ponto, enderecoConfig = DEFAULT_ENDERECO_CONFIG) => ({
-    codigo: endereco?.codigo || getEnderecoCodigoPadraoFromConfig(enderecoConfig),
-    idiomaId: endereco?.idiomaId || enderecoConfig.idiomaPadraoId || IDIOMA_PADRAO_ENDERECOS.id,
-    idiomaNome: endereco?.idiomaNome || enderecoConfig.idiomaPadraoNome || IDIOMA_PADRAO_ENDERECOS.nome,
-    bairro: endereco?.bairro || ponto?.bairro || '',
-    endereco: endereco?.endereco || ponto?.endereco || '',
-    informacao: endereco?.informacao ?? endereco?.observacao ?? '',
-    classe: endereco?.classe || enderecoConfig.classeEnderecoPadrao || ENDERECO_CLASSES.CONFIRMADO,
-    quantidadeEstrangeiros: String(endereco?.quantidadeEstrangeiros ?? enderecoConfig.quantidadeEstrangeirosPadrao ?? 1),
-    observacao: endereco?.observacao || '',
-    lat: endereco?.lat ?? ponto?.lat ?? '',
-    lng: endereco?.lng ?? ponto?.lng ?? '',
-    grupoEscolha: '',
-    grupoCodigo: getGrupoEnderecoCodigoPadraoFromConfig(enderecoConfig),
-    grupoNome: ''
-});
-
-const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = [], enderecoConfig, loading, onClose, onSubmit }) => {
-    const modalRef = useLeafletDomEventIsolation();
-    const config = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
-    const tiposEnderecoAtivos = config.tiposEndereco.filter((tipo) => tipo.ativo);
-    const [form, setForm] = useState(getEnderecoInitialForm(endereco, ponto, config));
-    const [activeTab, setActiveTab] = useState('dados');
-
-    useEffect(() => {
-        if (!isOpen) return;
-        setForm(getEnderecoInitialForm(endereco, ponto, config));
-        setActiveTab('dados');
-    }, [config, endereco, isOpen, ponto]);
-
-    if (!isOpen) return null;
-
-    const isEdit = mode === 'edit';
-    const titulo = isEdit ? `Editar ${endereco?.codigo || 'endereço'}` : 'Cadastrar endereço';
-    const auditInfoAvailable = hasEnderecoAuditInfo(endereco);
-    const activeSection = isEdit ? activeTab : 'dados';
-
-    const handleChange = (field) => (event) => {
-        setForm((current) => ({
-            ...current,
-            [field]: event.target.value
-        }));
-    };
-
-    const handleSubmit = (event) => {
-        event.preventDefault();
-        const formElement = event.currentTarget;
-
-        if (!form.codigo || !form.endereco || (!isEdit && form.grupoEscolha === '__novo__' && !form.grupoCodigo)) {
-            setActiveTab('dados');
-            window.requestAnimationFrame(() => formElement?.reportValidity?.());
-            return;
-        }
-
-        onSubmit({
-            ...form,
-            codigo: form.codigo,
-            informacao: form.informacao,
-            observacao: form.informacao,
-            lat: Number(form.lat),
-            lng: Number(form.lng),
-            quantidadeEstrangeiros: Number(form.quantidadeEstrangeiros)
-        });
-    };
-
-    return (
-        <div
-            ref={modalRef}
-            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-            style={{ zIndex: 9999 }}
-            onClick={stopMapDomEvent}
-            onMouseDown={stopMapDomEvent}
-            onTouchStart={stopMapDomEvent}
-        >
-            <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl bg-white shadow-2xl" onClick={stopMapDomEvent}>
-                <div className="bg-teal-700 px-4 py-3">
-                    <h3 className="text-lg font-bold text-white">{titulo}</h3>
-                </div>
-                <div className="space-y-3 p-4">
-                    {isEdit && (
-                        <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
-                            <button
-                                type="button"
-                                onClick={() => setActiveTab('dados')}
-                                className={`rounded-md px-3 py-2 text-xs font-extrabold transition ${activeSection === 'dados' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                Dados
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setActiveTab('historico')}
-                                className={`rounded-md px-3 py-2 text-xs font-extrabold transition ${activeSection === 'historico' ? 'bg-white text-amber-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                Histórico
-                            </button>
-                        </div>
-                    )}
-                    {activeSection === 'dados' ? (
-                        <>
-                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
-                                Lat {Number(form.lat).toFixed(6)} · Lng {Number(form.lng).toFixed(6)}
-                            </div>
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
-                                <input
-                                    value={form.codigo}
-                                    onChange={handleChange('codigo')}
-                                    maxLength={40}
-                                    required
-                                    disabled={loading || isEdit}
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                    placeholder={getEnderecoCodigoPadraoFromConfig(config)}
-                                />
-                            </label>
-                            {!isEdit && (
-                                <label className="block">
-                                    <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Território</span>
-                                    <select
-                                        value={form.grupoEscolha}
-                                        onChange={handleChange('grupoEscolha')}
-                                        disabled={loading}
-                                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                    >
-                                        <option value="">Sem território por enquanto</option>
-                                        <option value="__novo__">Criar novo território com este endereço</option>
-                                        {gruposDisponiveis.map((grupo) => (
-                                            <option key={grupo.id} value={grupo.id}>
-                                                {grupo.codigoExibicao}{grupo.distanciaExibicao ? ` · ${grupo.distanciaExibicao}` : ''} · {grupo.totalEnderecos} endereço(s) · {grupo.nomeExibicao}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
-                            )}
-                            {!isEdit && form.grupoEscolha === '__novo__' && (
-                                <div className="grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
-                                    <label className="block">
-                                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código do território</span>
-                                        <input
-                                            value={form.grupoCodigo}
-                                            onChange={handleChange('grupoCodigo')}
-                                            maxLength={40}
-                                            required
-                                            disabled={loading}
-                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                            placeholder={getGrupoEnderecoCodigoPadraoFromConfig(config)}
-                                        />
-                                    </label>
-                                    <label className="block">
-                                        <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
-                                        <input
-                                            value={form.grupoNome}
-                                            onChange={handleChange('grupoNome')}
-                                            maxLength={120}
-                                            disabled={loading}
-                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                            placeholder="Ex.: Jardim São João"
-                                        />
-                                    </label>
-                                </div>
-                            )}
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Bairro</span>
-                                <input
-                                    value={form.bairro}
-                                    onChange={handleChange('bairro')}
-                                    maxLength={120}
-                                    disabled={loading}
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                    placeholder="Ex.: Serra Alta"
-                                />
-                            </label>
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Endereço</span>
-                                <input
-                                    value={form.endereco}
-                                    onChange={handleChange('endereco')}
-                                    maxLength={220}
-                                    required
-                                    disabled={loading}
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                    placeholder="Rua, número, referência"
-                                />
-                            </label>
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Classe</span>
-                                <select
-                                    value={form.classe}
-                                    onChange={handleChange('classe')}
-                                    disabled={loading}
-                                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                >
-                                    {(tiposEnderecoAtivos.length ? tiposEnderecoAtivos : config.tiposEndereco).map((tipo) => (
-                                        <option key={tipo.id} value={tipo.id}>{tipo.label}</option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Estrangeiros</span>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    max="99"
-                                    value={form.quantidadeEstrangeiros}
-                                    onChange={handleChange('quantidadeEstrangeiros')}
-                                    disabled={loading}
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                />
-                            </label>
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Informação</span>
-                                <textarea
-                                    value={form.informacao}
-                                    onChange={handleChange('informacao')}
-                                    maxLength={2000}
-                                    rows="4"
-                                    disabled={loading}
-                                    className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                    placeholder="Nome, idioma, melhor horário, detalhes úteis"
-                                />
-                            </label>
-                        </>
-                    ) : (
-                        <div className="space-y-3">
-                            <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
-                                <span className="font-black uppercase">Auditoria</span>
-                                {auditInfoAvailable ? (
-                                    <>
-                                        <span className="block">
-                                            {getEnderecoAuditOriginLabel(endereco)}
-                                            {endereco?.importacaoId ? ` · ${endereco.importacaoId}` : ''}
-                                        </span>
-                                        <span className="block text-amber-700">
-                                            {formatAuditDateTime(endereco?.atualizadoEm) || 'Sem data registrada'}
-                                            {endereco?.atualizadoPor ? ` · ${endereco.atualizadoPor}` : ''}
-                                        </span>
-                                    </>
-                                ) : (
-                                    <span className="block text-amber-700">Sem histórico registrado para este endereço.</span>
-                                )}
-                            </div>
-                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
-                                Lat {Number(form.lat).toFixed(6)} · Lng {Number(form.lng).toFixed(6)}
-                            </div>
-                        </div>
-                    )}
-                </div>
-                <div className="flex flex-col-reverse gap-2 border-t border-slate-200 px-4 py-3 sm:flex-row sm:justify-end">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        disabled={loading}
-                        className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                    >
-                        Cancelar
-                    </button>
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-wait disabled:opacity-70"
-                    >
-                        {loading ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Cadastrar'}
-                    </button>
-                </div>
-            </form>
-        </div>
-    );
-};
-
-const GrupoEnderecoFormModal = ({ isOpen, selectedEnderecos, gruposDisponiveis, enderecoConfig, loading, onClose, onSubmit }) => {
-    const config = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
-    const codigoPadrao = getGrupoEnderecoCodigoPadraoFromConfig(config);
-    const [codigo, setCodigo] = useState(codigoPadrao);
-    const [nome, setNome] = useState('');
-    const [modo, setModo] = useState('novo');
-    const [grupoIdSelecionado, setGrupoIdSelecionado] = useState('');
-
-    useEffect(() => {
-        if (!isOpen) return;
-        setCodigo(codigoPadrao);
-        setNome('');
-        setModo(gruposDisponiveis.length ? 'existente' : 'novo');
-        setGrupoIdSelecionado(gruposDisponiveis[0]?.id || '');
-    }, [codigoPadrao, gruposDisponiveis, isOpen]);
-
-    if (!isOpen) return null;
-
-    const totalEstrangeiros = selectedEnderecos.reduce((total, endereco) => total + (Number(endereco.quantidadeEstrangeiros) || 0), 0);
-
-    const handleSubmit = (event) => {
-        event.preventDefault();
-        onSubmit({ modo, codigo, nome, grupoId: grupoIdSelecionado });
-    };
-
-    return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{ zIndex: 9999 }}>
-            <form onSubmit={handleSubmit} className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl">
-                <div className="bg-indigo-700 px-4 py-3">
-                    <h3 className="text-lg font-bold text-white">Vincular a território</h3>
-                </div>
-                <div className="space-y-3 p-4">
-                    <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800">
-                        {selectedEnderecos.length} endereço(s) · {totalEstrangeiros} estrangeiro(s)
-                    </div>
-                    <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-1">
-                        <button
-                            type="button"
-                            onClick={() => setModo('existente')}
-                            disabled={loading || !gruposDisponiveis.length}
-                            className={`rounded-md px-3 py-2 text-xs font-extrabold transition disabled:cursor-not-allowed disabled:opacity-45 ${modo === 'existente' ? 'bg-white text-indigo-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            Existente
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setModo('novo')}
-                            disabled={loading}
-                            className={`rounded-md px-3 py-2 text-xs font-extrabold transition disabled:opacity-45 ${modo === 'novo' ? 'bg-white text-indigo-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            Novo
-                        </button>
-                    </div>
-                    {modo === 'existente' ? (
-                        <label className="block">
-                            <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Território existente</span>
-                            <select
-                                value={grupoIdSelecionado}
-                                onChange={(event) => setGrupoIdSelecionado(event.target.value)}
-                                disabled={loading || !gruposDisponiveis.length}
-                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
-                            >
-                                {gruposDisponiveis.map((grupo) => (
-                                    <option key={grupo.id} value={grupo.id}>
-                                        {grupo.codigoExibicao} · {grupo.totalEnderecos} endereço(s) · {grupo.nomeExibicao}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                    ) : (
-                        <div className="grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
-                                <input
-                                    value={codigo}
-                                    onChange={(event) => setCodigo(event.target.value)}
-                                    maxLength={40}
-                                    required
-                                    disabled={loading}
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
-                                    placeholder={codigoPadrao}
-                                />
-                            </label>
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
-                                <input
-                                    value={nome}
-                                    onChange={(event) => setNome(event.target.value)}
-                                    maxLength={120}
-                                    disabled={loading}
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
-                                    placeholder="Ex.: Jardim São João"
-                                />
-                            </label>
-                        </div>
-                    )}
-                    <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2">
-                        {selectedEnderecos.map((endereco) => (
-                            <div key={endereco.id} className="border-b border-slate-200 py-1 text-xs last:border-0">
-                                <span className="font-bold text-slate-700">{formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}</span>
-                                <span className="text-slate-500"> · {endereco.endereco || 'Sem endereço'}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-                <div className="flex flex-col-reverse gap-2 border-t border-slate-200 px-4 py-3 sm:flex-row sm:justify-end">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        disabled={loading}
-                        className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                    >
-                        Cancelar
-                    </button>
-                    <button
-                        type="submit"
-                        disabled={loading || selectedEnderecos.length === 0 || (modo === 'existente' && !grupoIdSelecionado)}
-                        className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800 disabled:cursor-wait disabled:opacity-70"
-                    >
-                        {loading ? 'Salvando...' : modo === 'existente' ? 'Vincular' : 'Criar território'}
-                    </button>
-                </div>
-            </form>
-        </div>
-    );
-};
-
-const GrupoEnderecosModal = ({
-    isOpen,
-    grupoCodigo,
-    grupoNome,
-    enderecos,
-    visitados,
-    podeExecutar,
-    loading,
-    onClose,
-    onToggleVisitado,
-    onNavigate
-}) => {
-    const modalRef = useLeafletDomEventIsolation();
-
-    if (!isOpen) return null;
-
-    return (
-        <div
-            ref={modalRef}
-            className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/45 p-0 backdrop-blur-sm sm:items-center sm:p-4"
-            style={{ zIndex: 9999 }}
-            onClick={(event) => {
-                stopMapDomEvent(event);
-                onClose();
-            }}
-            onMouseDown={stopMapDomEvent}
-        >
-            <div
-                className="max-h-[82vh] w-full max-w-md overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
-                onClick={stopMapDomEvent}
-            >
-                <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
-                    <div>
-                        <h3 className="text-base font-extrabold leading-tight text-slate-800">Endereços do {grupoCodigo}</h3>
-                        <p className="mt-0.5 text-xs font-semibold leading-tight text-slate-500">{grupoNome}</p>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        disabled={loading}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg font-bold leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
-                        aria-label="Fechar endereços"
-                    >
-                        ×
-                    </button>
-                </div>
-                <div className="max-h-[62vh] overflow-y-auto p-3">
-                    <div className="space-y-2">
-                        {enderecos.map((endereco) => {
-                            const feito = visitados.has(endereco.id);
-                            return (
-                                <div
-                                    key={endereco.id}
-                                    className={`grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg border p-2 text-sm transition ${feito ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}
-                                >
-                                    <button
-                                        type="button"
-                                        onClick={() => onToggleVisitado(endereco)}
-                                        disabled={!podeExecutar || loading}
-                                        className="flex min-w-0 items-start gap-3 rounded-md px-1 py-0.5 text-left transition hover:bg-white/55 disabled:cursor-not-allowed disabled:opacity-60"
-                                        aria-label={`${feito ? 'Desmarcar' : 'Marcar como pregado'} ${formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}`}
-                                    >
-                                        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-black ${feito ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-transparent'}`}>✓</span>
-                                        <span className="min-w-0">
-                                            <span className="block font-extrabold leading-tight text-slate-800">{formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}</span>
-                                            <span className="mt-0.5 block leading-snug">{endereco.endereco || 'Sem endereço'}</span>
-                                            <span className="mt-1 block text-xs font-semibold text-slate-500">{endereco.quantidadeEstrangeiros || 0} estrangeiro(s)</span>
-                                        </span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => onNavigate(endereco)}
-                                        className="self-stretch rounded-md border border-blue-200 bg-white px-3 text-xs font-extrabold text-blue-700 transition hover:bg-blue-50"
-                                        aria-label={`Navegar para ${formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}`}
-                                    >
-                                        Navegar
-                                    </button>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-                {!podeExecutar && (
-                    <div className="border-t border-slate-200 bg-slate-50 px-4 py-2 text-center text-xs font-semibold text-slate-500">
-                        Marcação somente leitura.
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
-const AddressSearchControl = ({ isOnline, searchConfig, onSelect }) => {
-    const map = useMap();
-    const controlRef = useLeafletDomEventIsolation();
-    const { notify } = useUiFeedback();
-    const abortRef = useRef(null);
-    const [query, setQuery] = useState('');
-    const [results, setResults] = useState([]);
-    const [selectedId, setSelectedId] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [message, setMessage] = useState('');
-    const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-
-    useEffect(() => () => abortRef.current?.abort(), []);
-
-    useEffect(() => {
-        const closeMobileSearch = () => setMobileSearchOpen(false);
-        map.on('popupopen', closeMobileSearch);
-
-        return () => {
-            map.off('popupopen', closeMobileSearch);
-        };
-    }, [map]);
-
-    const handleSubmit = async (event) => {
-        event.preventDefault();
-        const text = query.trim();
-
-        if (!isOnline) {
-            notify({
-                title: 'Busca bloqueada offline',
-                message: 'Conecte-se para buscar endereços no OpenStreetMap.',
-                variant: 'warning',
-                durationMs: 6500
-            });
-            return;
-        }
-
-        if (!text) {
-            setMessage('Digite um endereço para buscar.');
-            setResults([]);
-            return;
-        }
-
-        abortRef.current?.abort();
-        const controller = new AbortController();
-        abortRef.current = controller;
-        setLoading(true);
-        setMessage('');
-        setSelectedId('');
-
-        try {
-            const found = await searchAddresses(text, { signal: controller.signal, searchConfig });
-            setResults(found);
-            if (found.length === 1 && found[0].origem === 'coordenadas') {
-                selecionarResultado(found[0]);
-                setMessage('Coordenadas localizadas no mapa.');
-                return;
-            }
-            setMessage(found.length ? '' : 'Nenhum resultado encontrado na região atendida.');
-        } catch (error) {
-            if (error?.name === 'AbortError') return;
-            console.error('Erro ao buscar endereço:', error);
-            setResults([]);
-            setMessage(String(error?.message || 'Não foi possível buscar este endereço agora.'));
-        } finally {
-            if (abortRef.current === controller) {
-                abortRef.current = null;
-                setLoading(false);
-            }
-        }
-    };
-
-    const selecionarResultado = (result) => {
-        setSelectedId(result.id);
-        map.flyTo([result.lat, result.lng], Math.max(map.getZoom(), 18), {
-            animate: true,
-            duration: 0.9
-        });
-        onSelect(result);
-        setMobileSearchOpen(false);
-    };
-
-    return (
-        <div ref={controlRef} className="map-popup-aware-control pointer-events-auto absolute left-3 right-3 top-4 z-[650] max-w-[440px] sm:right-auto" onClick={stopMapDomEvent}>
-            <button
-                type="button"
-                onClick={() => setMobileSearchOpen(true)}
-                className={`flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-xl transition duration-150 hover:bg-slate-50 sm:hidden ${mobileSearchOpen ? 'pointer-events-none scale-90 opacity-0' : 'scale-100 opacity-100'}`}
-                aria-label="Abrir busca de endereço"
-                title="Buscar endereço"
-            >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35m1.1-5.15a6.25 6.25 0 1 1-12.5 0 6.25 6.25 0 0 1 12.5 0Z" />
-                </svg>
-            </button>
-            <form
-                onSubmit={handleSubmit}
-                className={`absolute left-0 right-0 top-0 origin-top-left rounded-lg border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur transition duration-150 ease-out sm:static sm:pointer-events-auto sm:scale-100 sm:opacity-100 ${mobileSearchOpen ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-95 opacity-0'}`}
-            >
-                <div className="flex gap-2">
-                    <input
-                        type="search"
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Buscar endereço"
-                        className="min-w-0 flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    />
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="rounded-md bg-teal-700 px-3 py-2 text-sm font-extrabold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-wait disabled:bg-teal-400"
-                    >
-                        {loading ? 'Buscando' : 'Buscar'}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setMobileSearchOpen(false)}
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 sm:hidden"
-                        aria-label="Fechar busca de endereço"
-                        title="Fechar"
-                    >
-                        <span aria-hidden="true" className="text-lg font-black leading-none">×</span>
-                    </button>
-                </div>
-                {message && (
-                    <p className="mt-2 rounded-md bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-600">{message}</p>
-                )}
-                {results.length > 0 && (
-                    <div className="mt-2 max-h-56 overflow-y-auto rounded-md border border-slate-100 bg-white">
-                        {results.map((result) => (
-                            <button
-                                key={result.id}
-                                type="button"
-                                onClick={() => selecionarResultado(result)}
-                                className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-xs font-semibold leading-snug transition last:border-b-0 hover:bg-teal-50 ${selectedId === result.id ? 'bg-teal-50 text-teal-800' : 'text-slate-700'}`}
-                            >
-                                {result.label || result.endereco}
-                            </button>
-                        ))}
-                    </div>
-                )}
-                <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Resultados: OpenStreetMap/Nominatim</p>
-            </form>
-        </div>
-    );
-};
-
-const PontoMapaClicado = ({ ponto, canCreate, onCreate, onShare, onClose }) => {
-    const markerRef = useRef(null);
-    const isSearchPoint = ponto?.origem === 'busca-endereco';
-    const icon = useMemo(() => L.divIcon({
-        className: 'bg-transparent',
-        html: `<div class="map-click-marker ${isSearchPoint ? 'search' : ''}">${isSearchPoint ? 'S' : '+'}</div>`,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14]
-    }), [isSearchPoint]);
-
-    useEffect(() => {
-        if (!ponto) return;
-        const timeoutId = window.setTimeout(() => {
-            markerRef.current?.openPopup();
-        }, 0);
-
-        return () => window.clearTimeout(timeoutId);
-    }, [ponto]);
-
-    if (!ponto) return null;
-
-    return (
-        <Marker ref={markerRef} position={[ponto.lat, ponto.lng]} icon={icon} eventHandlers={{ click: (event) => event.originalEvent && L.DomEvent.stopPropagation(event.originalEvent) }}>
-            <Popup>
-                <div className="flex min-w-[190px] flex-col gap-2 p-1 text-center">
-                    <h3 className="text-sm font-bold text-slate-800">{isSearchPoint ? 'Resultado da busca' : 'Local selecionado'}</h3>
-                    {isSearchPoint && ponto.endereco && (
-                        <p className="max-w-[220px] text-xs font-semibold leading-snug text-slate-500">{ponto.endereco}</p>
-                    )}
-                    <button onClick={onShare} className="popup-btn-action bg-blue-600 text-white hover:bg-blue-700">
-                        Compartilhar localização
-                    </button>
-                    {canCreate && (
-                        <button onClick={() => onCreate(ponto)} className="popup-btn-action bg-teal-700 text-white hover:bg-teal-800">
-                            {isSearchPoint ? 'Cadastrar neste ponto' : 'Cadastrar endereço'}
-                        </button>
-                    )}
-                    <button onClick={onClose} className="text-xs font-semibold text-slate-400 underline">
-                        Fechar
-                    </button>
-                </div>
-            </Popup>
-        </Marker>
-    );
-};
 
 const EnderecoMarker = ({
     endereco,
@@ -2381,128 +907,6 @@ const FocoGrupoEnderecoMapController = ({ grupoId, enderecos }) => {
     }, [enderecos, grupoId, map]);
 
     return null;
-};
-
-const BairroSbsLayer = ({ bairrosGeoJson, resumoPorBairro, mostrarCobertura = false, onLongPressStart, onLongPressEnd, onLongPressCancel, onContextMenu, shouldIgnoreClick }) => {
-    const features = bairrosGeoJson?.features || [];
-
-    return (
-        <>
-            {features.map((feature, index) => {
-                const bairroId = feature.properties.bairroId;
-                const nome = feature.properties.bairroNome;
-                const resumo = resumoPorBairro.get(bairroId) || createEmptyBairroResumo();
-                const positions = getBairroLeafletPositions(feature);
-                const colors = getBairroSbsColor(index);
-                const completo = resumo.total > 0 && resumo.faltando === 0;
-                const temAndamento = resumo.emAndamento > 0;
-                const percentual = resumo.total > 0
-                    ? Math.round((resumo.cobertos / resumo.total) * 100)
-                    : 0;
-                const pathOptions = mostrarCobertura
-                    ? {
-                        color: colors.border,
-                        fillColor: colors.fill,
-                        weight: completo ? 2.6 : temAndamento ? 2.2 : 1.6,
-                        opacity: resumo.total > 0 ? 0.88 : 0.62,
-                        fillOpacity: resumo.total > 0 ? 0.24 : 0.11,
-                        dashArray: resumo.total > 0 ? undefined : '7 8'
-                    }
-                    : {
-                        color: colors.border,
-                        fillColor: colors.fill,
-                        weight: 1.6,
-                        opacity: 0.72,
-                        fillOpacity: 0.14,
-                        dashArray: undefined
-                    };
-
-                return (
-                    <Polygon
-                        key={bairroId}
-                        positions={positions}
-                        pathOptions={pathOptions}
-                        eventHandlers={{
-                            mousedown: onLongPressStart,
-                            touchstart: onLongPressStart,
-                            mouseup: onLongPressEnd,
-                            touchend: onLongPressEnd,
-                            touchcancel: onLongPressCancel,
-                            contextmenu: (event) => {
-                                onContextMenu?.(event);
-                                if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
-                            },
-                            click: (event) => {
-                                if (shouldIgnoreClick?.()) {
-                                    if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
-                                    event.target?.closePopup?.();
-                                    return;
-                                }
-
-                                if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
-                            }
-                        }}
-                    >
-                        <Popup className="bairro-sbs-popup">
-                            <div className="min-w-[220px] max-w-[235px] bg-white">
-                                <div className="h-1" style={{ backgroundColor: colors.border }} />
-                                <div className="px-3 pb-3 pt-2.5">
-                                    <div className="flex items-start gap-2 pr-6">
-                                        <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colors.border }} />
-                                        <div className="min-w-0">
-                                            <div className="text-sm font-black leading-tight text-slate-800">{nome}</div>
-                                            <div className="mt-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Bairro urbano</div>
-                                        </div>
-                                    </div>
-
-                                    {mostrarCobertura && (
-                                        <>
-                                            <div className="mt-2">
-                                                <div className="flex items-center justify-between gap-3 text-xs font-extrabold">
-                                                    <span style={{ color: colors.text }}>{resumo.cobertos}/{resumo.total} cobertos</span>
-                                                    <span className="text-slate-500">{percentual}%</span>
-                                                </div>
-                                                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                                                    <div
-                                                        className="h-full rounded-full transition-all duration-500"
-                                                        style={{
-                                                            width: `${percentual}%`,
-                                                            backgroundColor: colors.border
-                                                        }}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="mt-2 grid grid-cols-3 overflow-hidden rounded-lg border border-slate-100 text-center">
-                                                <div className="bg-white px-2 py-1.5">
-                                                    <div className="text-[9px] font-black uppercase leading-none text-slate-400">Total</div>
-                                                    <div className="mt-1 text-base font-black leading-none text-slate-800">{resumo.total}</div>
-                                                </div>
-                                                <div className="border-x border-slate-100 bg-white px-2 py-1.5">
-                                                    <div className="text-[9px] font-black uppercase leading-none text-emerald-600">Cobertos</div>
-                                                    <div className="mt-1 text-base font-black leading-none text-emerald-700">{resumo.cobertos}</div>
-                                                </div>
-                                                <div className="bg-white px-2 py-1.5">
-                                                    <div className="text-[9px] font-black uppercase leading-none text-amber-600">Faltam</div>
-                                                    <div className="mt-1 text-base font-black leading-none text-amber-700">{resumo.faltando}</div>
-                                                </div>
-                                            </div>
-
-                                            {resumo.emAndamento > 0 && (
-                                                <div className="mt-2 rounded-md bg-blue-50 px-2 py-1.5 text-center text-xs font-extrabold text-blue-700">
-                                                    {resumo.emAndamento} em andamento
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        </Popup>
-                    </Polygon>
-                );
-            })}
-        </>
-    );
 };
 
 const GrupoEnderecoLayer = ({
@@ -3931,8 +2335,6 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     const [enderecos, setEnderecos] = useState([]);
     const [enderecosGruposDesignados, setEnderecosGruposDesignados] = useState([]);
     const [gruposEndereco, setGruposEndereco] = useState([]);
-    const [enderecoConfig, setEnderecoConfig] = useState(DEFAULT_ENDERECO_CONFIG);
-    const [enderecoIdiomaAtivoId, setEnderecoIdiomaAtivoId] = useState('');
     const [mostrarEnderecosArquivados, setMostrarEnderecosArquivados] = useState(false);
     const [mostrarGruposArquivados, setMostrarGruposArquivados] = useState(false);
     const [enderecosSelecionadosGrupo, setEnderecosSelecionadosGrupo] = useState([]);
@@ -3954,79 +2356,25 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     const [mostrarDicasControles, setMostrarDicasControles] = useState(true);
     const [tentativaMapa, setTentativaMapa] = useState(0);
     const [lastImportHighlight, setLastImportHighlight] = useState(() => readLastImportHighlight());
-    const mapLongPressTimerRef = useRef(null);
-    const mapLongPressOpenAfterReleaseTimerRef = useRef(null);
-    const mapLongPressPendingLatLngRef = useRef(null);
-    const mapLongPressCompletedRef = useRef(false);
-    const mapLongPressSuppressNextClickRef = useRef(false);
-    const mapLongPressSuppressClickUntilRef = useRef(0);
-    const bairroPopupClickSuppressUntilRef = useRef(0);
     const { notify, confirm } = useUiFeedback();
     const deepLinkGrupoEnderecoId = useMemo(() => {
         const params = new URLSearchParams(location.search);
         return params.get('grupoId') || params.get('grupoEnderecoId') || '';
     }, [location.search]);
 
-    useEffect(() => {
-        if (!isAdmin) {
-            setEnderecoConfig(DEFAULT_ENDERECO_CONFIG);
-            setEnderecoIdiomaAtivoId('');
-            return undefined;
-        }
+    const {
+        enderecoConfigNormalizada,
+        enderecoIdiomasAtivos,
+        idiomaAtivoEndereco,
+        enderecoConfigAtiva,
+        mostrarAlternadorIdiomaEndereco,
+        filtrarPorIdiomaEndereco,
+        selecionarIdiomaAtivoEndereco,
+        pertenceAoIdiomaAtivoEndereco
+    } = useEnderecoConfigIdioma({ db, isAdmin });
 
-        const unsubscribe = onSnapshot(getEnderecoConfigRef(db), (snapshot) => {
-            setEnderecoConfig(normalizeEnderecoConfig(snapshot.exists() ? snapshot.data() : DEFAULT_ENDERECO_CONFIG));
-        }, (error) => {
-            console.error('Erro ao carregar padrões de cadastro:', error);
-            setEnderecoConfig(DEFAULT_ENDERECO_CONFIG);
-        });
-
-        return unsubscribe;
-    }, [isAdmin]);
-
-    const enderecoConfigNormalizada = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
-    const enderecoIdiomasAtivos = useMemo(() => getEnderecoIdiomasAtivos(enderecoConfigNormalizada), [enderecoConfigNormalizada]);
-    const idiomaAtivoEndereco = useMemo(() => {
-        const idiomaId = String(enderecoIdiomaAtivoId || '').trim().toLowerCase();
-        return enderecoIdiomasAtivos.find((idioma) => idioma.id === idiomaId) ||
-            enderecoIdiomasAtivos.find((idioma) => idioma.id === enderecoConfigNormalizada.idiomaPadraoId) ||
-            enderecoIdiomasAtivos[0] ||
-            null;
-    }, [enderecoConfigNormalizada.idiomaPadraoId, enderecoIdiomaAtivoId, enderecoIdiomasAtivos]);
-    const enderecoConfigAtiva = useMemo(() => (
-        getEnderecoConfigForIdioma(enderecoConfigNormalizada, idiomaAtivoEndereco?.id)
-    ), [enderecoConfigNormalizada, idiomaAtivoEndereco?.id]);
-    const mostrarAlternadorIdiomaEndereco = isAdmin && enderecoIdiomasAtivos.length > 1;
-    const filtrarPorIdiomaEndereco = mostrarAlternadorIdiomaEndereco && Boolean(idiomaAtivoEndereco?.id);
-    const getItemIdiomaId = useCallback((item) => (
-        String(item?.idiomaId || IDIOMA_PADRAO_ENDERECOS.id).trim().toLowerCase()
-    ), []);
-    const pertenceAoIdiomaAtivoEndereco = useCallback((item) => (
-        !filtrarPorIdiomaEndereco || getItemIdiomaId(item) === idiomaAtivoEndereco.id
-    ), [filtrarPorIdiomaEndereco, getItemIdiomaId, idiomaAtivoEndereco?.id]);
-
-    useEffect(() => {
-        if (!isAdmin || !enderecoIdiomasAtivos.length) return;
-
-        setEnderecoIdiomaAtivoId((current) => {
-            const currentId = String(current || '').trim().toLowerCase();
-            if (enderecoIdiomasAtivos.some((idioma) => idioma.id === currentId)) {
-                return currentId;
-            }
-
-            const storedId = String(window.localStorage?.getItem(ENDERECO_IDIOMA_ATIVO_STORAGE_KEY) || '').trim().toLowerCase();
-            if (enderecoIdiomasAtivos.some((idioma) => idioma.id === storedId)) {
-                return storedId;
-            }
-
-            return enderecoConfigNormalizada.idiomaPadraoId;
-        });
-    }, [enderecoConfigNormalizada.idiomaPadraoId, enderecoIdiomasAtivos, isAdmin]);
-
-    const selecionarIdiomaAtivoEndereco = (idiomaId) => {
-        const normalizedIdiomaId = String(idiomaId || '').trim().toLowerCase();
-        setEnderecoIdiomaAtivoId(normalizedIdiomaId);
-        window.localStorage?.setItem(ENDERECO_IDIOMA_ATIVO_STORAGE_KEY, normalizedIdiomaId);
+    const handleSelecionarIdiomaAtivoEndereco = (idiomaId) => {
+        selecionarIdiomaAtivoEndereco(idiomaId);
         setPontoMapaSelecionado(null);
         setGrupoEnderecoFocadoId(null);
         setEnderecosSelecionadosGrupo([]);
@@ -4296,21 +2644,6 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         };
     }, [isAdmin]);
 
-    const cancelarToqueLongoMapa = useCallback(() => {
-        if (mapLongPressTimerRef.current) {
-            window.clearTimeout(mapLongPressTimerRef.current);
-            mapLongPressTimerRef.current = null;
-        }
-
-        if (mapLongPressOpenAfterReleaseTimerRef.current) {
-            window.clearTimeout(mapLongPressOpenAfterReleaseTimerRef.current);
-            mapLongPressOpenAfterReleaseTimerRef.current = null;
-        }
-
-        mapLongPressPendingLatLngRef.current = null;
-        mapLongPressCompletedRef.current = false;
-    }, []);
-
     const selecionarPontoMapa = useCallback((latlng) => {
         if (!latlng) return;
 
@@ -4347,78 +2680,23 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         setModoVisualizacaoMapa(MAPA_VISUALIZACAO.ENDERECOS);
     }, [bairrosGeoJson]);
 
-    const iniciarToqueLongoMapa = useCallback((event) => {
-        const latlng = event?.latlng;
-        if (!latlng) return;
-
-        cancelarToqueLongoMapa();
-        mapLongPressPendingLatLngRef.current = latlng;
-        mapLongPressCompletedRef.current = false;
-        mapLongPressTimerRef.current = window.setTimeout(() => {
-            mapLongPressTimerRef.current = null;
-            mapLongPressPendingLatLngRef.current = latlng;
-            mapLongPressCompletedRef.current = true;
-            mapLongPressSuppressNextClickRef.current = true;
-            mapLongPressSuppressClickUntilRef.current = Date.now() + MAP_LONG_PRESS_CLICK_SUPPRESSION_MS;
-        }, MAP_LONG_PRESS_DURATION_MS);
-    }, [cancelarToqueLongoMapa]);
-
-    const finalizarToqueLongoMapa = useCallback(() => {
-        if (mapLongPressTimerRef.current) {
-            window.clearTimeout(mapLongPressTimerRef.current);
-            mapLongPressTimerRef.current = null;
-        }
-
-        const latlng = mapLongPressCompletedRef.current ? mapLongPressPendingLatLngRef.current : null;
-        mapLongPressPendingLatLngRef.current = null;
-        mapLongPressCompletedRef.current = false;
-
-        if (!latlng) return;
-
-        mapLongPressSuppressNextClickRef.current = true;
-        mapLongPressSuppressClickUntilRef.current = Date.now() + MAP_LONG_PRESS_CLICK_SUPPRESSION_MS;
-        mapLongPressOpenAfterReleaseTimerRef.current = window.setTimeout(() => {
-            mapLongPressOpenAfterReleaseTimerRef.current = null;
-            selecionarPontoMapa(latlng);
-        }, 80);
-    }, [selecionarPontoMapa]);
-
-    const abrirPontoMapaPorContexto = useCallback((event) => {
-        const latlng = event?.latlng;
-        if (!latlng) return;
-
-        cancelarToqueLongoMapa();
-        mapLongPressSuppressClickUntilRef.current = Date.now() + MAP_LONG_PRESS_CLICK_SUPPRESSION_MS;
-        if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
-        selecionarPontoMapa(latlng);
-    }, [cancelarToqueLongoMapa, selecionarPontoMapa]);
-
-    const ignorarCliqueAposToqueLongoMapa = useCallback(() => {
-        if (mapLongPressSuppressNextClickRef.current) {
-            mapLongPressSuppressNextClickRef.current = false;
-            return true;
-        }
-
-        return Date.now() < mapLongPressSuppressClickUntilRef.current;
-    }, []);
-
-    const ignorarCliqueBairro = useCallback(() => {
-        if (ignorarCliqueAposToqueLongoMapa()) return true;
-
-        if (Date.now() < bairroPopupClickSuppressUntilRef.current) {
-            return true;
-        }
-
-        return false;
-    }, [ignorarCliqueAposToqueLongoMapa]);
-
-    useEffect(() => cancelarToqueLongoMapa, [cancelarToqueLongoMapa]);
+    const {
+        iniciarToqueLongoMapa,
+        finalizarToqueLongoMapa,
+        cancelarToqueLongoMapa,
+        abrirPontoMapaPorContexto,
+        ignorarCliqueAposToqueLongoMapa,
+        ignorarCliqueBairro,
+        registrarAberturaPopupBairro,
+        deveSuprimirPopupBairro,
+        resetarSupressaoPopupBairro
+    } = useMapTouchInteraction({ selecionarPontoMapa });
 
     const MapEvents = () => {
         const map = useMapEvents({
             preclick: () => {
                 if (isLeafletPopupOpen(map)) {
-                    bairroPopupClickSuppressUntilRef.current = Date.now() + BAIRRO_POPUP_CLICK_SUPPRESSION_MS;
+                    registrarAberturaPopupBairro();
                 }
             },
             click: (event) => {
@@ -4457,14 +2735,13 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
             },
             popupopen: (event) => {
                 const className = String(event.popup?.options?.className || '');
-                if (className.includes('bairro-sbs-popup') && Date.now() < bairroPopupClickSuppressUntilRef.current) {
-                    bairroPopupClickSuppressUntilRef.current = 0;
+                if (className.includes('bairro-sbs-popup') && deveSuprimirPopupBairro()) {
                     map.closePopup(event.popup);
                     syncLeafletPopupClass(map);
                     return;
                 }
 
-                bairroPopupClickSuppressUntilRef.current = 0;
+                resetarSupressaoPopupBairro();
                 syncLeafletPopupClass(map);
             },
             popupclose: () => {
@@ -5483,7 +3760,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                                     <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-teal-700">Idioma</label>
                                     <select
                                         value={idiomaAtivoEndereco?.id || ''}
-                                        onChange={(event) => selecionarIdiomaAtivoEndereco(event.target.value)}
+                                        onChange={(event) => handleSelecionarIdiomaAtivoEndereco(event.target.value)}
                                         className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                                     >
                                         {enderecoIdiomasAtivos.map((idioma) => (

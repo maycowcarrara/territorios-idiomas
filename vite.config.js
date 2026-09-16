@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => {
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
           const normalizedId = id.replace(/\\/g, '/');
+          if (normalizedId.endsWith('.css')) return;
 
           if (normalizedId.includes('leaflet') || normalizedId.includes('react-leaflet')) {
             return 'map-vendor';
@@ -90,12 +91,35 @@ export default defineConfig(({ mode }) => {
         skipWaiting: true,
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        globIgnores: [
+          '**/play-feature-graphic.png',
+          '**/icon-general-*.png',
+          '**/jspdf*',
+          '**/html2canvas*',
+          '**/index.es*',
+          '**/purify.es*'
+        ],
         cleanupOutdatedCaches: true,
         navigateFallbackDenylist: [/^\/push\/onesignal\//, /^\/OneSignalSDK/],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.includes('version.json'),
             handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: ({ url }) =>
+              url.pathname.includes('/assets/jspdf') ||
+              url.pathname.includes('/assets/html2canvas') ||
+              url.pathname.includes('/assets/index.es') ||
+              url.pathname.includes('/assets/purify.es'),
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'pdf-export-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 30 * 24 * 60 * 60,
+              }
+            }
           }
         ]
       }

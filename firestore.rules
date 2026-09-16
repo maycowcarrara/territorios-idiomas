@@ -753,8 +753,8 @@ service cloud.firestore {
     match /grupos_enderecos/{grupoId} {
       allow read: if podeLerGrupoEndereco();
       allow create: if podeCriarGrupoEndereco();
-      allow update: if atualizacaoAdminOperacionalGrupoEnderecoValida();
-      allow update: if podeAtualizarGrupoEnderecoDesignado();
+      allow update: if atualizacaoAdminOperacionalGrupoEnderecoValida() ||
+                       podeAtualizarGrupoEnderecoDesignado();
       allow delete: if false;
     }
 

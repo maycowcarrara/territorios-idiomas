@@ -2,18 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getDocs } from 'firebase/firestore';
 import { db } from './firebase';
-import { exportarPdfParaDispositivo } from './pdfExport';
-import { buildPublicAppRouteUrl } from './publicAppUrl';
 import { useSistema } from './useSistema';
 import { getSistemaTheme } from './sistema';
 import { useUiFeedback } from './uiFeedback';
 import { AppPage, PageHeader } from './uiPrimitives';
-import { buttonClass, cardBaseClass, cn } from './uiClasses';
+import { buttonClass } from './uiClasses';
 import { TERRITORIO_STATUS } from './territorioContext';
 import {
     calculateGrupoEnderecoStats,
     ENDERECO_CLASSES,
-    ENDERECO_CLASSE_LABELS,
     ENDERECO_STATUS,
     formatEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoExibicao,
@@ -23,191 +20,39 @@ import {
     getGruposEnderecoCollectionRef,
     GRUPO_ENDERECO_STATUS
 } from './enderecoModel';
-import { normalizeBairroKey, resolveBairroNomeOficial } from './bairrosSbs';
+import { resolveBairroNomeOficial } from './bairrosSbs';
 
-const STATUS_ARQUIVADO = 'arquivado';
-const RELATORIO_TERRITORIOS = 'territorios';
-const RELATORIO_ENDERECOS = 'enderecos';
-const FILTRO_TODOS = 'todos';
-const FILTRO_ARQUIVADOS_SEM = 'sem_arquivados';
-const FILTRO_ARQUIVADOS_SOMENTE = 'somente_arquivados';
-
-const toDateValue = (value) => {
-    if (!value) return null;
-    const date = value.toDate ? value.toDate() : new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const formatDateValue = (value) => {
-    const date = toDateValue(value);
-    return date ? date.toLocaleDateString('pt-BR') : '-';
-};
-
-const getDiasDesde = (date) => {
-    if (!date) return 0;
-    return Math.ceil(Math.abs(new Date() - date) / (1000 * 60 * 60 * 24));
-};
-
-const normalizeKey = (value) => String(value || '').trim().toLowerCase();
-
-const getGrupoEnderecoIdentityKey = (value) => {
-    const texto = normalizeKey(value);
-    const match = texto.match(/^(?:t-|g_)?0*(\d+)$/i);
-    return match ? `n:${Number.parseInt(match[1], 10)}` : texto;
-};
-
-const getCodigoOrdenacao = (value) => {
-    const match = String(value || '').match(/(\d+)/);
-    return match ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
-};
-
-const getUltimaEdicaoTexto = ({ dataRef, hasDesignacao }) => {
-    if (!hasDesignacao) return { diasSemEdicao: 0, ultimaEdicaoTexto: 'Sem dados' };
-
-    const referencia = dataRef || new Date();
-    const diferencaMs = Math.abs(new Date() - referencia);
-    const diferencaMinutos = Math.floor(diferencaMs / (1000 * 60));
-    const diferencaHoras = Math.floor(diferencaMs / (1000 * 60 * 60));
-    const diasSemEdicao = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
-
-    if (diferencaMinutos < 2) {
-        return { diasSemEdicao, ultimaEdicaoTexto: 'agora mesmo' };
-    }
-
-    if (diferencaMinutos < 60) {
-        return { diasSemEdicao, ultimaEdicaoTexto: `há ${diferencaMinutos} min` };
-    }
-
-    if (diferencaHoras < 24) {
-        return { diasSemEdicao, ultimaEdicaoTexto: `há ${diferencaHoras} h` };
-    }
-
-    if (diasSemEdicao === 1) {
-        return { diasSemEdicao, ultimaEdicaoTexto: 'ontem' };
-    }
-
-    return { diasSemEdicao, ultimaEdicaoTexto: `há ${diasSemEdicao} dias` };
-};
-
-const processarHistorico = (historico) => {
-    if (!Array.isArray(historico)) return [];
-
-    return historico
-        .map((item) => {
-            const inicio = toDateValue(item.dataInicio) || toDateValue(item.dataRetirada) || new Date();
-            const fim = toDateValue(item.dataTermino) || toDateValue(item.dataDevolucao) || new Date();
-            const listaNomes = Array.isArray(item.responsaveis)
-                ? item.responsaveis.join(', ')
-                : (item.responsavel || 'Desconhecido');
-
-            return {
-                nomes: listaNomes,
-                inicio: inicio && !Number.isNaN(inicio.getTime()) ? inicio.toLocaleDateString('pt-BR') : '?',
-                termino: fim && !Number.isNaN(fim.getTime()) ? fim.toLocaleDateString('pt-BR') : '?',
-                timestampFim: fim || new Date(0)
-            };
-        })
-        .sort((a, b) => b.timestampFim - a.timestampFim)
-        .slice(0, 10);
-};
-
-const getGrupoEnderecoBoundsStr = (grupo) => {
-    const bounds = grupo?.bounds;
-    if (!bounds) return null;
-
-    const { minLat, minLng, maxLat, maxLng } = bounds;
-    if (![minLat, minLng, maxLat, maxLng].every((value) => Number.isFinite(Number(value)))) {
-        return null;
-    }
-
-    return `${minLat},${minLng},${maxLat},${maxLng}`;
-};
-
-const getGrupoEnderecoCentro = (grupo) => {
-    const lat = Number(grupo?.centro?.lat);
-    const lng = Number(grupo?.centro?.lng);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        return { lat, lng };
-    }
-
-    const bounds = grupo?.bounds;
-    if (!bounds) return null;
-
-    const minLat = Number(bounds.minLat);
-    const minLng = Number(bounds.minLng);
-    const maxLat = Number(bounds.maxLat);
-    const maxLng = Number(bounds.maxLng);
-    if (![minLat, minLng, maxLat, maxLng].every(Number.isFinite)) {
-        return null;
-    }
-
-    return {
-        lat: (minLat + maxLat) / 2,
-        lng: (minLng + maxLng) / 2
-    };
-};
-
-const getGrupoEnderecoStatusRelatorio = (grupo) => {
-    const status = grupo?.status || GRUPO_ENDERECO_STATUS.ATIVO;
-    if (status === GRUPO_ENDERECO_STATUS.ARQUIVADO) return STATUS_ARQUIVADO;
-    if (status === GRUPO_ENDERECO_STATUS.FINALIZADO) return TERRITORIO_STATUS.FINALIZADO;
-    if (grupo?.designadoPara && getGrupoEnderecoProgresso(grupo).completo) {
-        return TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO;
-    }
-    return grupo?.designadoPara ? 'ocupado' : 'livre';
-};
-
-const getGrupoEnderecoCanonicalKeys = (grupo) => [
-    getGrupoEnderecoIdentityKey(grupo?.id),
-    getGrupoEnderecoIdentityKey(grupo?.codigo)
-].filter(Boolean);
-
-const buildMapaLinkSearch = (registro) => {
-    if (registro.boundsStr) {
-        return `bounds=${encodeURIComponent(registro.boundsStr)}`;
-    }
-
-    if (Number.isFinite(Number(registro.lat)) && Number.isFinite(Number(registro.lng))) {
-        return new URLSearchParams({
-            lat: String(registro.lat),
-            lng: String(registro.lng),
-            z: '17'
-        }).toString();
-    }
-
-    return '';
-};
-
-const getEnderecoClasseLabel = (classe) => (
-    ENDERECO_CLASSE_LABELS[classe] || ENDERECO_CLASSE_LABELS[ENDERECO_CLASSES.CONFIRMADO]
-);
-
-const normalizeFiltroOptionValue = (value) => String(value || '').trim().toLowerCase();
-const normalizeBairroFiltroValue = (value) => normalizeBairroKey(value).toLowerCase();
-
-const uniqueSortedOptions = (items, getValue, getLabel = getValue, normalizeValue = normalizeFiltroOptionValue) => {
-    const optionsMap = new Map();
-
-    items.forEach((item) => {
-        const value = normalizeValue(getValue(item));
-        if (!value) return;
-        if (!optionsMap.has(value)) {
-            optionsMap.set(value, String(getLabel(item) || getValue(item) || '').trim());
-        }
-    });
-
-    return [...optionsMap.entries()]
-        .map(([value, label]) => ({ value, label }))
-        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
-};
-
-const getStatusArquivadoFiltroMatch = (registro, filtro) => {
-    const isArquivado = registro.status === STATUS_ARQUIVADO;
-    if (filtro === FILTRO_ARQUIVADOS_SEM) return !isArquivado;
-    if (filtro === FILTRO_ARQUIVADOS_SOMENTE) return isArquivado;
-    return true;
-};
-
+import {
+    STATUS_ARQUIVADO,
+    RELATORIO_TERRITORIOS,
+    RELATORIO_ENDERECOS,
+    FILTRO_TODOS,
+    FILTRO_ARQUIVADOS_SEM,
+    FILTRO_ARQUIVADOS_SOMENTE
+} from './relatorios/constants/relatorioConstants';
+import {
+    toDateValue,
+    formatDateValue,
+    getDiasDesde,
+    getGrupoEnderecoIdentityKey,
+    getCodigoOrdenacao,
+    getUltimaEdicaoTexto,
+    processarHistorico,
+    getGrupoEnderecoBoundsStr,
+    getGrupoEnderecoCentro,
+    getGrupoEnderecoStatusRelatorio,
+    getGrupoEnderecoCanonicalKeys,
+    getEnderecoClasseLabel,
+    normalizeFiltroOptionValue,
+    normalizeBairroFiltroValue,
+    uniqueSortedOptions,
+    getStatusArquivadoFiltroMatch,
+    formatarTempo,
+    getStatusVisual
+} from './relatorios/utils/relatorioUtils';
+import { gerarExportacaoPdfRelatorio } from './relatorios/utils/relatorioPdfExport';
+import { FiltrosRelatorio } from './relatorios/components/FiltrosRelatorio';
+import { RelatorioResultados } from './relatorios/components/RelatorioResultados';
 const Relatorios = () => {
     const [territorios, setTerritorios] = useState([]);
     const [enderecosRelatorio, setEnderecosRelatorio] = useState([]);
@@ -232,59 +77,6 @@ const Relatorios = () => {
     const [classeFiltro, setClasseFiltro] = useState(FILTRO_TODOS);
     const [arquivadosFiltro, setArquivadosFiltro] = useState(FILTRO_ARQUIVADOS_SEM);
     const [sortConfig, setSortConfig] = useState({ key: 'diasParado', direction: 'desc' });
-
-    const getStatusVisual = (status, porcentagem) => {
-        if (status === STATUS_ARQUIVADO) {
-            return {
-                label: 'Arquivado',
-                badgeClass: 'bg-slate-100 text-slate-500 border border-slate-200',
-                detailClass: 'text-slate-500',
-                style: null,
-                progressoTexto: 'Fora do mapa padrão'
-            };
-        }
-
-        if (status === TERRITORIO_STATUS.FINALIZADO) {
-            return {
-                label: 'Finalizado',
-                badgeClass: 'bg-green-100 text-green-700 border border-green-200',
-                detailClass: 'text-green-600',
-                style: null,
-                progressoTexto: 'Concluído oficialmente'
-            };
-        }
-
-        if (status === TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO) {
-            return {
-                label: 'Aguardando',
-                badgeClass: 'bg-yellow-100 text-yellow-700 border border-yellow-200',
-                detailClass: 'text-yellow-700',
-                style: null,
-                progressoTexto: '100% aguardando confirmação'
-            };
-        }
-
-        if (status === 'ocupado') {
-            return {
-                label: 'Ocupado',
-                badgeClass: null,
-                detailClass: 'text-slate-400',
-                style: {
-                    background: `linear-gradient(90deg, #15803d ${porcentagem}%, #3b82f6 ${porcentagem}%)`,
-                    textShadow: '0px 1px 1px rgba(0,0,0,0.3)'
-                },
-                progressoTexto: `${porcentagem}% concluído`
-            };
-        }
-
-        return {
-            label: 'Livre',
-            badgeClass: 'bg-orange-100 text-orange-700 border border-orange-200',
-            detailClass: 'text-slate-400',
-            style: null,
-            progressoTexto: 'Disponível'
-        };
-    };
 
     useEffect(() => {
         if (carregandoSistema) return;
@@ -542,21 +334,6 @@ const Relatorios = () => {
         };
     }, [carregandoSistema, reloadSeq]);
 
-    const formatarTempo = (dias) => {
-        if (!Number.isFinite(Number(dias))) return "Nunca";
-        if (dias === 0) return "Hoje";
-        if (dias < 30) return `${dias} dias`;
-        const meses = Math.floor(dias / 30);
-        const restoDias = dias % 30;
-        let texto = `${meses} ${meses > 1 ? 'meses' : 'mês'}`;
-        if (restoDias > 0) texto += ` e ${restoDias} ${restoDias > 1 ? 'dias' : 'dia'}`;
-        return texto;
-    };
-
-    const formatarTempoTerritorio = (territorio) => (
-        territorio?.nuncaTrabalhado ? 'Nunca' : formatarTempo(territorio?.diasParado || 0)
-    );
-
     const toggleLinha = (id) => {
         setLinhasExpandidas(prev => {
             if (prev.includes(id)) return prev.filter(item => item !== id);
@@ -711,172 +488,22 @@ const Relatorios = () => {
         bairroFiltro !== FILTRO_TODOS ||
         classeFiltro !== FILTRO_TODOS ||
         arquivadosFiltro !== FILTRO_ARQUIVADOS_SEM;
-    const getCorTempo = (dias) => {
-        if (!Number.isFinite(Number(dias))) return 'bg-orange-600 text-white';
-        if (dias > 180) return 'bg-orange-600 text-white';
-        if (dias > 120) return 'bg-orange-500 text-white';
-        if (dias > 60) return 'bg-orange-300 text-orange-900';
-        if (dias > 0) return 'bg-orange-100 text-orange-800';
-        return 'bg-slate-100 text-slate-500';
-    };
-
     // --- PDF ---
     const exportarPDF = async () => {
         if (exportandoPdf) return;
-
-        setExportandoPdf(true);
-        try {
-            const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
-                import('jspdf'),
-                import('jspdf-autotable')
-            ]);
-
-            const doc = new jsPDF();
-            const tituloRelatorio = relatorioAtivo === RELATORIO_ENDERECOS
-                ? 'Relatório de Endereços'
-                : 'Relatório de Territórios de Idiomas';
-
-            doc.setFontSize(18);
-            doc.text(tituloRelatorio, 14, 20);
-            doc.setFontSize(10);
-            doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, 14, 26);
-            doc.text('Fonte: endereços e territórios cadastrados', 14, 31);
-
-            doc.setFontSize(8);
-            doc.setTextColor(100);
-
-            let textoTempoFiltro = "Todos";
-            if (tempoFiltro === '2_meses') textoTempoFiltro = "+2 Meses";
-            if (tempoFiltro === '4_meses') textoTempoFiltro = "+4 Meses";
-            if (tempoFiltro === '6_meses') textoTempoFiltro = "+6 Meses";
-
-            const textoFiltro = busca ? `Busca: "${busca}"` : "Sem busca";
-            const textoArquivados = arquivadosFiltro === FILTRO_ARQUIVADOS_SEM
-                ? 'Ocultar arquivados'
-                : (arquivadosFiltro === FILTRO_ARQUIVADOS_SOMENTE ? 'Somente arquivados' : 'Todos');
-            doc.text(`Filtros: Status (${statusFiltro}) | Tempo (${textoTempoFiltro}) | Arquivados (${textoArquivados}) | ${textoFiltro}`, 14, 36);
-            doc.text(`Idioma (${idiomaFiltro}) | Bairro (${bairroFiltro}) | Classe (${classeFiltro})`, 14, 41);
-
-            const tableColumn = relatorioAtivo === RELATORIO_ENDERECOS
-                ? ["Cód.", "Endereço", "Status", "Idioma", "Bairro", "Classe", "Pessoas", "Território"]
-                : ["Cód.", "Nome", "Status", "Idioma", "Bairro", "Classes", "Progresso", "Histórico / Ciclos", "Ult. Conclusão", "Tempo Parado"];
-            const tableRows = [];
-
-            dadosProcessados.forEach(t => {
-                if (relatorioAtivo === RELATORIO_ENDERECOS) {
-                    const mapSearch = buildMapaLinkSearch(t);
-                    const hasLink = !!mapSearch;
-                    tableRows.push([
-                        t.numeroId,
-                        { content: t.enderecoTexto || t.nome, styles: { textColor: hasLink ? [0, 0, 255] : [0, 0, 0] } },
-                        t.statusLabel,
-                        t.idiomaNome || '-',
-                        t.bairro || '-',
-                        t.classeResumo || '-',
-                        String(t.totalEstrangeiros || 0),
-                        t.grupoCodigo || '-'
-                    ]);
-                    return;
-                }
-
-                let textoHistorico = "";
-                let statusTexto = 'Livre';
-
-                if (t.status === 'ocupado') {
-                    statusTexto = `Em andamento (${t.porcentagem}%) - Ult. Ed: ${t.ultimaEdicaoTexto}`;
-                    let atuais = t.designadoNome;
-                    if (t.cicloAtual && Array.isArray(t.cicloAtual.responsaveis)) {
-                        atuais = t.cicloAtual.responsaveis.join(", ");
-                    }
-                    textoHistorico += `[EM ANDAMENTO]\nDirigentes: ${atuais}\nDesde: ${t.dataDesigStr}\n\n`;
-                } else if (t.status === TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO) {
-                    statusTexto = `Aguardando finalização (100%) - Ult. Ed: ${t.ultimaEdicaoTexto}`;
-                    textoHistorico += `[AGUARDANDO FINALIZACAO]\nDirigente: ${t.designadoNome || '-'}\nDesde: ${t.dataDesigStr}\n\n`;
-                } else if (t.status === TERRITORIO_STATUS.FINALIZADO) {
-                    statusTexto = `Finalizado em ${t.dataUltimaStr}`;
-                    textoHistorico += `[FINALIZADO]\nUltima conclusao: ${t.dataUltimaStr}\n\n`;
-                } else if (t.status === STATUS_ARQUIVADO) {
-                    statusTexto = 'Arquivado';
-                    textoHistorico += `[ARQUIVADO]\n${t.resumoOperacional || 'Fora do mapa padrão'}\n\n`;
-                } else {
-                    textoHistorico += "LIVRE\n";
-                }
-
-                if (t.resumoOperacional) {
-                    textoHistorico += `Resumo: ${t.resumoOperacional}\n`;
-                }
-
-                if (t.historicoLista && t.historicoLista.length > 0) {
-                    textoHistorico += "-- HISTÓRICO --\n";
-                    t.historicoLista.forEach(h => {
-                        textoHistorico += `• Início: ${h.inicio} - Dirigentes: ${h.nomes} - Término: ${h.termino}\n`;
-                    });
-                } else {
-                    textoHistorico += "\n(Sem histórico)";
-                }
-
-                const mapSearch = buildMapaLinkSearch(t);
-                const hasLink = !!mapSearch;
-
-                tableRows.push([
-                    t.numeroId,
-                    { content: t.nome, styles: { textColor: hasLink ? [0, 0, 255] : [0, 0, 0] } },
-                    statusTexto,
-                    t.idiomaNome || '-',
-                    t.bairro || '-',
-                    t.classeResumo || '-',
-                    t.progressoTexto,
-                    textoHistorico,
-                    t.dataUltimaStr,
-                    formatarTempoTerritorio(t)
-                ]);
-            });
-
-            autoTable(doc, {
-                head: [tableColumn],
-                body: tableRows,
-                startY: 45,
-                theme: 'grid',
-                styles: { fontSize: 8, cellPadding: 2, valign: 'top' },
-                headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
-                columnStyles: relatorioAtivo === RELATORIO_ENDERECOS
-                    ? { 1: { cellWidth: 62 } }
-                    : { 7: { cellWidth: 58 } },
-                didDrawCell: (data) => {
-                    if (data.section === 'body' && data.column.index === 1) {
-                        const t = dadosProcessados[data.row.index];
-                        const mapSearch = t ? buildMapaLinkSearch(t) : '';
-                        if (mapSearch) {
-                            const deepLink = buildPublicAppRouteUrl('/app') + `?${mapSearch}`;
-                            doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url: deepLink });
-                        }
-                    }
-                }
-            });
-
-            const nomeArquivo = relatorioAtivo === RELATORIO_ENDERECOS
-                ? 'Relatorio_Enderecos_Idiomas.pdf'
-                : 'Relatorio_Territorios_Idiomas.pdf';
-            const resultadoExportacao = await exportarPdfParaDispositivo(doc, nomeArquivo);
-
-            if (resultadoExportacao.modo === 'share') {
-                notify({
-                    title: 'PDF pronto',
-                    message: 'O Android abriu as opções para salvar ou compartilhar o relatório.',
-                    variant: 'success'
-                });
-            }
-        } catch (error) {
-            console.error('Erro ao exportar PDF:', error);
-            notify({
-                title: 'Falha ao gerar PDF',
-                message: 'Não foi possível exportar o relatório agora. Tente novamente.',
-                variant: 'error',
-                durationMs: 7000
-            });
-        } finally {
-            setExportandoPdf(false);
-        }
+        await gerarExportacaoPdfRelatorio({
+            relatorioAtivo,
+            dadosProcessados,
+            tempoFiltro,
+            busca,
+            arquivadosFiltro,
+            statusFiltro,
+            idiomaFiltro,
+            bairroFiltro,
+            classeFiltro,
+            notify,
+            setExportandoPdf
+        });
     };
 
     if (loading || carregandoSistema) return <div className="flex h-screen items-center justify-center bg-slate-50 text-blue-600 font-bold">Carregando dados...</div>;
@@ -973,447 +600,48 @@ const Relatorios = () => {
                     </div>
                 )}
 
-                {/* CARDS DE RESUMO */}
-                <div className="grid grid-cols-2 gap-4 mb-6 md:grid-cols-5">
-                    <div onClick={() => aplicarFiltroRapido('total')} className={`${cardBaseClass} cursor-pointer p-4 transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md`}>
-                        <p className="text-xs font-bold text-slate-400 uppercase">Total da visão</p>
-                        <p className="text-3xl font-black text-slate-700">{total}</p>
-                        <p className="text-[10px] text-slate-400 mt-1">Clique para incluir arquivados</p>
-                    </div>
-                    <div onClick={() => trocarRelatorio(RELATORIO_TERRITORIOS)} className="cursor-pointer rounded-2xl border border-blue-100 bg-blue-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-md">
-                        <p className="text-xs font-bold text-blue-400 uppercase">Territórios</p>
-                        <p className="text-3xl font-black text-blue-700">{territorios.length}</p>
-                        <p className="text-[10px] text-blue-400 mt-1">{ocupados} em trabalho</p>
-                    </div>
-                    <div onClick={() => trocarRelatorio(RELATORIO_ENDERECOS)} className="cursor-pointer rounded-2xl border border-green-100 bg-green-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-green-100 hover:shadow-md">
-                        <p className="text-xs font-bold text-green-500 uppercase">Endereços ativos</p>
-                        <p className="text-3xl font-black text-green-700">{enderecosAtivos}</p>
-                        <p className="text-[10px] text-green-500 mt-1">{enderecosRelatorio.length} cadastrados</p>
-                    </div>
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 shadow-sm">
-                        <p className="text-xs font-bold text-emerald-500 uppercase">Pessoas filtradas</p>
-                        <p className="text-3xl font-black text-emerald-700">{pessoasFiltradas}</p>
-                        <p className="text-[10px] text-emerald-500 mt-1">{finalizados} territórios finalizados</p>
-                    </div>
-                    <div onClick={() => aplicarFiltroRapido(STATUS_ARQUIVADO)} className="cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md">
-                        <p className="text-xs font-bold text-slate-500 uppercase">Arquivados</p>
-                        <p className="text-3xl font-black text-slate-700">{arquivados}</p>
-                        <p className="text-[10px] text-slate-500 mt-1">{livres} territórios disponíveis</p>
-                    </div>
-                </div>
+                <FiltrosRelatorio
+                    relatorioAtivo={relatorioAtivo}
+                    trocarRelatorio={trocarRelatorio}
+                    total={total}
+                    territorios={territorios}
+                    ocupados={ocupados}
+                    enderecosAtivos={enderecosAtivos}
+                    enderecosRelatorio={enderecosRelatorio}
+                    pessoasFiltradas={pessoasFiltradas}
+                    finalizados={finalizados}
+                    arquivados={arquivados}
+                    livres={livres}
+                    aplicarFiltroRapido={aplicarFiltroRapido}
+                    busca={busca}
+                    setBusca={setBusca}
+                    statusFiltro={statusFiltro}
+                    alterarStatusFiltro={alterarStatusFiltro}
+                    idiomaFiltro={idiomaFiltro}
+                    setIdiomaFiltro={setIdiomaFiltro}
+                    opcoesIdioma={opcoesIdioma}
+                    bairroFiltro={bairroFiltro}
+                    setBairroFiltro={setBairroFiltro}
+                    opcoesBairro={opcoesBairro}
+                    classeFiltro={classeFiltro}
+                    setClasseFiltro={setClasseFiltro}
+                    opcoesClasse={opcoesClasse}
+                    arquivadosFiltro={arquivadosFiltro}
+                    alterarArquivadosFiltro={alterarArquivadosFiltro}
+                    filtrosAtivos={filtrosAtivos}
+                    limparFiltros={limparFiltros}
+                    dadosProcessados={dadosProcessados}
+                />
 
-                {/* BARRA DE FILTROS */}
-                <div className={`${cardBaseClass} mb-6 p-4`}>
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr),150px,150px,150px,160px,150px,auto] xl:items-end">
-                        <div className="w-full md:col-span-2 xl:col-span-1">
-                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
-                                Busca
-                            </label>
-                            <div className="relative">
-                                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                </span>
-                                <input type="text" placeholder="Buscar código, endereço, bairro ou dirigente..." className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={busca} onChange={(e) => setBusca(e.target.value)} />
-                            </div>
-                        </div>
-                        <div className="w-full">
-                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
-                                Status
-                            </label>
-                            <select value={statusFiltro} onChange={(e) => alterarStatusFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
-                                <option value={FILTRO_TODOS}>Todos</option>
-                                {relatorioAtivo === RELATORIO_TERRITORIOS ? (
-                                    <>
-                                        <option value="livre">Livres</option>
-                                        <option value="ocupado">Em andamento</option>
-                                        <option value={TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO}>Aguardando finalização</option>
-                                        <option value={TERRITORIO_STATUS.FINALIZADO}>Finalizados</option>
-                                        <option value={STATUS_ARQUIVADO}>Arquivados</option>
-                                    </>
-                                ) : (
-                                    <>
-                                        <option value={ENDERECO_STATUS.ATIVO}>Ativos</option>
-                                        <option value={STATUS_ARQUIVADO}>Arquivados</option>
-                                    </>
-                                )}
-                            </select>
-                        </div>
-                        <div className="w-full">
-                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
-                                Idioma
-                            </label>
-                            <select value={idiomaFiltro} onChange={(e) => setIdiomaFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
-                                <option value={FILTRO_TODOS}>Todos</option>
-                                {opcoesIdioma.map((option) => (
-                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="w-full">
-                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
-                                Bairro
-                            </label>
-                            <select value={bairroFiltro} onChange={(e) => setBairroFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
-                                <option value={FILTRO_TODOS}>Todos</option>
-                                {opcoesBairro.map((option) => (
-                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="w-full">
-                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
-                                Classe
-                            </label>
-                            <select value={classeFiltro} onChange={(e) => setClasseFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
-                                <option value={FILTRO_TODOS}>Todas</option>
-                                {opcoesClasse.map((option) => (
-                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="w-full">
-                            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">
-                                Arquivados
-                            </label>
-                            <select value={arquivadosFiltro} onChange={(e) => alterarArquivadosFiltro(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
-                                <option value={FILTRO_ARQUIVADOS_SEM}>Ocultar</option>
-                                <option value={FILTRO_TODOS}>Incluir</option>
-                                <option value={FILTRO_ARQUIVADOS_SOMENTE}>Somente</option>
-                            </select>
-                        </div>
-                        <div className="w-full xl:w-auto">
-                            <div className="hidden xl:block text-[11px] font-bold uppercase tracking-wide text-transparent mb-1 select-none">
-                                Ações
-                            </div>
-                            {filtrosAtivos ? (
-                                <button onClick={limparFiltros} className="w-full px-3 py-2 bg-red-50 text-red-600 border border-red-100 rounded-lg text-sm hover:bg-red-100 transition-colors flex items-center justify-center gap-1 font-semibold">✕ Limpar</button>
-                            ) : (
-                                <div className="hidden xl:block h-[42px]"></div>
-                            )}
-                        </div>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-400">
-                        <span>{dadosProcessados.length} registro{dadosProcessados.length === 1 ? '' : 's'} exibido{dadosProcessados.length === 1 ? '' : 's'}</span>
-                        <span className="text-slate-300">|</span>
-                        <span>{pessoasFiltradas} pessoa{pessoasFiltradas === 1 ? '' : 's'} no filtro atual</span>
-                    </div>
-                </div>
-
-                {/* --- MODO MOBILE: CARDS (VISÍVEL APENAS EM CELULAR) --- */}
-                <div className="md:hidden space-y-4">
-                    {dadosProcessados.map((t) => (
-                        <div key={t.id} className={`bg-white rounded-xl shadow border border-slate-200 p-4 transition-all ${linhasExpandidas.includes(t.id) ? 'ring-2 ring-blue-100' : ''}`}>
-                            <div className="flex justify-between items-start mb-3">
-                                <div>
-                                    <span className="inline-block px-2 py-0.5 rounded text-xs font-mono font-bold bg-slate-100 text-slate-500 mb-1">
-                                        #{t.numeroId}
-                                    </span>
-                                    <h3 className="font-bold text-slate-800 text-lg leading-tight">
-                                        {buildMapaLinkSearch(t) ? (
-                                            <Link 
-                                                to={`/app?${buildMapaLinkSearch(t)}`} 
-                                                className="text-blue-600 hover:underline"
-                                            >
-                                                {t.nome}
-                                            </Link>
-                                        ) : t.nome}
-                                    </h3>
-                                </div>
-                                <div className="flex flex-col items-end gap-1">
-                                    {t.status === 'ocupado' ? (
-                                        <div className="flex flex-col items-end">
-                                            <span 
-                                                className="inline-flex items-center justify-between px-3 py-1 rounded-full text-[10px] font-bold text-white border border-white/20 uppercase shadow-sm min-w-[100px]"
-                                                style={t.statusStyle}
-                                                title={`${t.porcentagem}% Concluído`}
-                                            >
-                                                <span>{t.statusLabel}</span>
-                                                <span className="opacity-50 text-[9px] ml-1">{t.porcentagem}%</span>
-                                            </span>
-                                            <span className={`text-[9px] mt-0.5 ${t.diasSemEdicao > 10 ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
-                                                {t.diasSemEdicao > 10 && '⚠️ '}Edição: {t.ultimaEdicaoTexto}
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        <span className={`inline-flex items-center justify-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase min-w-[100px] ${t.statusBadgeClass}`}>
-                                            {t.statusLabel}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="space-y-2 text-sm text-slate-600 mb-4">
-                                {relatorioAtivo === RELATORIO_ENDERECOS ? (
-                                    <>
-                                        <div className="flex justify-between border-b border-slate-50 pb-1">
-                                            <span className="text-slate-400 text-xs">Idioma</span>
-                                            <span className="font-medium text-right max-w-[60%] truncate">{t.idiomaNome || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between border-b border-slate-50 pb-1">
-                                            <span className="text-slate-400 text-xs">Bairro</span>
-                                            <span className="font-medium text-right max-w-[60%] truncate">{t.bairro || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between border-b border-slate-50 pb-1">
-                                            <span className="text-slate-400 text-xs">Classe</span>
-                                            <span className="font-medium">{t.classeResumo}</span>
-                                        </div>
-                                        <div className="flex justify-between border-b border-slate-50 pb-1">
-                                            <span className="text-slate-400 text-xs">Território</span>
-                                            <span className="font-medium text-right max-w-[60%] truncate">{t.grupoCodigo || '-'}</span>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className="flex justify-between border-b border-slate-50 pb-1">
-                                            <span className="text-slate-400 text-xs">Responsável</span>
-                                            <span className="font-medium text-right max-w-[60%] truncate">{t.designadoNome || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between border-b border-slate-50 pb-1">
-                                            <span className="text-slate-400 text-xs">Designado em</span>
-                                            <span className="font-medium">{t.dataDesigStr}</span>
-                                        </div>
-                                        <div className="flex justify-between border-b border-slate-50 pb-1">
-                                            <span className="text-slate-400 text-xs">Classe(s)</span>
-                                            <span className="font-medium text-right max-w-[60%]">{t.classeResumo}</span>
-                                        </div>
-                                    </>
-                                )}
-                                {t.resumoOperacional && (
-                                    <div className="flex justify-between border-b border-slate-50 pb-1">
-                                        <span className="text-slate-400 text-xs">Resumo</span>
-                                        <span className="font-medium text-right max-w-[60%]">{t.resumoOperacional}</span>
-                                    </div>
-                                )}
-                                <div className="flex justify-between border-b border-slate-50 pb-1">
-                                    <span className="text-slate-400 text-xs">Progresso</span>
-                                    <span className="font-medium">{t.progressoTexto}</span>
-                                </div>
-                                {t.status !== 'ocupado' && t.status !== TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO && (
-                                    <div className="flex justify-between border-b border-slate-50 pb-1">
-                                        <span className="text-slate-400 text-xs">Última Conclusão</span>
-                                        <span className="font-medium">{t.dataUltimaStr}</span>
-                                    </div>
-                                )}
-                                {t.status !== 'ocupado' && t.status !== TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO && (
-                                    <div className="flex justify-between">
-                                        <span className="text-slate-400 text-xs">Tempo Parado</span>
-                                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${getCorTempo(t.diasParado)}`}>
-                                            {formatarTempoTerritorio(t)}
-                                        </span>
-                                    </div>
-                                )}
-                                {t.status === TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO && (
-                                    <div className="flex justify-between">
-                                        <span className="text-slate-400 text-xs">Situação</span>
-                                        <span className="font-medium text-yellow-700">Falta confirmar o encerramento</span>
-                                    </div>
-                                )}
-                            </div>
-
-                            {relatorioAtivo === RELATORIO_TERRITORIOS && (
-                                <button
-                                    onClick={() => toggleLinha(t.id)}
-                                    className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-500 text-xs font-bold uppercase rounded flex items-center justify-center gap-2 transition-colors"
-                                >
-                                    {linhasExpandidas.includes(t.id) ? 'Ocultar Histórico' : 'Ver Histórico'}
-                                    <span>{linhasExpandidas.includes(t.id) ? '▲' : '▼'}</span>
-                                </button>
-                            )}
-
-                            {relatorioAtivo === RELATORIO_TERRITORIOS && linhasExpandidas.includes(t.id) && (
-                                <div className="mt-3 pt-3 border-t border-slate-100 animate-fade-in">
-                                    <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2">Histórico Recente</h4>
-                                    {t.historicoLista.length > 0 ? (
-                                        <div className="space-y-2">
-                                            {t.historicoLista.map((hist, idx) => (
-                                                <div key={idx} className="text-xs bg-slate-50 p-2 rounded border border-slate-100">
-                                                    <div className="flex justify-between mb-1">
-                                                        <span className="text-slate-500">{hist.inicio}</span>
-                                                        <span className="text-green-600 font-bold">→ {hist.termino}</span>
-                                                    </div>
-                                                    <div className="text-slate-700 font-medium">{hist.nomes}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="text-xs text-slate-400 italic">Sem histórico.</p>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                    {dadosProcessados.length === 0 && (
-                        <div className="p-8 text-center text-slate-400 bg-white rounded-xl border border-slate-200">
-                            Nenhum território encontrado.
-                        </div>
-                    )}
-                </div>
-
-                {/* --- MODO DESKTOP: TABELA (VISÍVEL APENAS EM TELAS GRANDES) --- */}
-                <div className={cn(cardBaseClass, 'hidden overflow-hidden md:block')}>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm whitespace-nowrap">
-                            <thead className="bg-slate-50 text-slate-500 font-semibold uppercase text-xs">
-                                <tr>
-                                    {relatorioAtivo === RELATORIO_TERRITORIOS && (
-                                        <th className="px-4 py-3 w-10 text-center cursor-pointer hover:bg-slate-100" onClick={toggleTodas} title="Expandir/Recolher Todos">
-                                            <span className="text-lg font-bold">
-                                                {linhasExpandidas.length > 0 && linhasExpandidas.length === dadosProcessados.length ? '−' : '+'}
-                                            </span>
-                                        </th>
-                                    )}
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('numeroId')}>Cód. {getSortIcon('numeroId')}</th>
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('nome')}>{relatorioAtivo === RELATORIO_ENDERECOS ? 'Endereço' : 'Nome'} {getSortIcon('nome')}</th>
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('status')}>Status {getSortIcon('status')}</th>
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('idiomaNome')}>Idioma {getSortIcon('idiomaNome')}</th>
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('bairro')}>Bairro {getSortIcon('bairro')}</th>
-                                    <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('classeResumo')}>Classe {getSortIcon('classeResumo')}</th>
-                                    {relatorioAtivo === RELATORIO_TERRITORIOS ? (
-                                        <>
-                                            <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('porcentagem')}>Progresso {getSortIcon('porcentagem')}</th>
-                                            <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('designadoNome')}>Responsável {getSortIcon('designadoNome')}</th>
-                                            <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataDesigObj')}>Designado em {getSortIcon('dataDesigObj')}</th>
-                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataUltimaObj')}>Conclusão {getSortIcon('dataUltimaObj')}</th>
-                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('diasParado')}>Tempo Parado {getSortIcon('diasParado')}</th>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('totalEstrangeiros')}>Pessoas {getSortIcon('totalEstrangeiros')}</th>
-                                            <th className="px-4 py-3 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('grupoCodigo')}>Território {getSortIcon('grupoCodigo')}</th>
-                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('dataUltimaObj')}>Atualização {getSortIcon('dataUltimaObj')}</th>
-                                        </>
-                                    )}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {dadosProcessados.map((t) => (
-                                    <React.Fragment key={t.id}>
-                                        <tr
-                                            className={`hover:bg-slate-50 transition-colors ${relatorioAtivo === RELATORIO_TERRITORIOS ? 'cursor-pointer' : ''} ${linhasExpandidas.includes(t.id) ? 'bg-blue-50' : ''}`}
-                                            onClick={() => {
-                                                if (relatorioAtivo === RELATORIO_TERRITORIOS) toggleLinha(t.id);
-                                            }}
-                                        >
-                                            {relatorioAtivo === RELATORIO_TERRITORIOS && (
-                                                <td className="px-4 py-3 text-center text-slate-400">
-                                                    {t.historicoLista.length > 0
-                                                        ? (linhasExpandidas.includes(t.id) ? '▼' : '▶')
-                                                        : <span className="opacity-20">●</span>}
-                                                </td>
-                                            )}
-                                            <td className="px-4 py-3 text-xs font-mono text-slate-400 font-bold">{t.numeroId}</td>
-                                            
-                                            <td className="px-4 py-3 font-bold text-slate-700">
-                                                {buildMapaLinkSearch(t) ? (
-                                                    <Link 
-                                                        to={`/app?${buildMapaLinkSearch(t)}`} 
-                                                        className="text-blue-600 hover:underline hover:text-blue-800 transition-colors"
-                                                        onClick={(e) => e.stopPropagation()} 
-                                                    >
-                                                        {t.nome}
-                                                    </Link>
-                                                ) : (
-                                                    t.nome
-                                                )}
-                                            </td>
-                                            
-                                            <td className="px-4 py-3">
-                                                {t.status === 'ocupado' ? (
-                                                    <div className="flex flex-col items-start">
-                                                        <span 
-                                                            className="inline-flex items-center justify-between gap-1 px-3 py-1 rounded-full text-[10px] font-bold text-white border border-white/20 uppercase shadow-sm min-w-[100px]"
-                                                            style={t.statusStyle}
-                                                            title={`${t.porcentagem}% Concluído`}
-                                                        >
-                                                            <span>{t.statusLabel}</span>
-                                                            <span className="opacity-50 text-[9px]">{t.porcentagem}%</span>
-                                                        </span>
-                                                        <span className={`text-[9px] ml-1 mt-0.5 ${t.diasSemEdicao > 10 ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
-                                                            {t.diasSemEdicao > 10 && '⚠️ '}Ult. ed: {t.ultimaEdicaoTexto}
-                                                        </span>
-                                                    </div>
-                                                ) : (
-                                                    <span className={`inline-flex items-center justify-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase min-w-[100px] ${t.statusBadgeClass}`}>{t.statusLabel}</span>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3 text-xs font-semibold text-slate-600">{t.idiomaNome || '-'}</td>
-                                            <td className="px-4 py-3 text-xs text-slate-600">{t.bairro || '-'}</td>
-                                            <td className="px-4 py-3 text-xs text-slate-600">{t.classeResumo || '-'}</td>
-                                            {relatorioAtivo === RELATORIO_TERRITORIOS ? (
-                                                <>
-                                                    <td className="px-4 py-3 text-xs font-semibold text-slate-600">{t.progressoTexto}</td>
-                                                    <td className="px-4 py-3 text-slate-600">
-                                                        {t.designadoNome || '-'}
-                                                        {(t.status === 'ocupado' || t.status === TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO) && t.cicloAtual && t.cicloAtual.responsaveis && t.cicloAtual.responsaveis.length > 1 && (
-                                                            <span className="text-[10px] text-blue-500 ml-1">(+ {t.cicloAtual.responsaveis.length - 1} outros)</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-slate-500 text-xs">{t.dataDesigStr}</td>
-                                                    <td className="px-4 py-3 text-right text-slate-500 text-xs">{t.dataUltimaStr}</td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${getCorTempo(t.diasParado)}`}>
-                                                            {formatarTempoTerritorio(t)}
-                                                        </span>
-                                                    </td>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <td className="px-4 py-3 text-right text-xs font-semibold text-slate-600">{t.totalEstrangeiros}</td>
-                                                    <td className="px-4 py-3 text-xs text-slate-600">{t.grupoCodigo || '-'}</td>
-                                                    <td className="px-4 py-3 text-right text-slate-500 text-xs">{t.dataUltimaStr}</td>
-                                                </>
-                                            )}
-                                        </tr>
-
-                                        {relatorioAtivo === RELATORIO_TERRITORIOS && linhasExpandidas.includes(t.id) && (
-                                            <tr className="bg-slate-50 animate-fade-in">
-                                                <td colSpan="12" className="p-0">
-                                                    <div className="p-4 border-b border-slate-200 shadow-inner">
-                                                        <div className="bg-white rounded-lg border border-slate-200 p-3">
-                                                            <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
-                                                                        📜 Histórico de Ciclos
-                                                            </h4>
-                                                            {t.resumoOperacional && (
-                                                                <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-                                                                    {t.resumoOperacional}
-                                                                </p>
-                                                            )}
-                                                            {t.historicoLista.length > 0 ? (
-                                                                <table className="w-full text-xs text-left">
-                                                                    <thead>
-                                                                        <tr className="text-slate-400 border-b border-slate-100">
-                                                                            <th className="py-2 pl-2">Início</th>
-                                                                            <th className="py-2">Dirigentes (Ciclo Completo)</th>
-                                                                            <th className="py-2">Término</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {t.historicoLista.map((hist, index) => (
-                                                                            <tr key={index} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
-                                                                                <td className="py-2 pl-2 text-slate-500">{hist.inicio}</td>
-                                                                                <td className="py-2 font-medium text-slate-700">{hist.nomes}</td>
-                                                                                <td className="py-2 text-green-600 font-medium">{hist.termino}</td>
-                                                                            </tr>
-                                                                        ))}
-                                                                    </tbody>
-                                                                </table>
-                                                            ) : (
-                                                                <p className="text-xs text-slate-400 italic p-2">Nenhum histórico registrado para este território ainda.</p>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </React.Fragment>
-                                ))}
-                                {dadosProcessados.length === 0 && (
-                                    <tr><td colSpan={relatorioAtivo === RELATORIO_TERRITORIOS ? 12 : 9} className="p-8 text-center text-slate-400">Nenhum registro encontrado com os filtros atuais.</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                <RelatorioResultados
+                    dadosProcessados={dadosProcessados}
+                    linhasExpandidas={linhasExpandidas}
+                    relatorioAtivo={relatorioAtivo}
+                    toggleLinha={toggleLinha}
+                    toggleTodas={toggleTodas}
+                    handleSort={handleSort}
+                    getSortIcon={getSortIcon}
+                />
         </AppPage>
     );
 };

@@ -39,46 +39,21 @@ import {
     applyEnderecoCsvGeocoding
 } from './enderecoCsvImport';
 
-const ADMIN_OFFLINE_MESSAGE = 'Você está offline. Ações administrativas precisam de conexão para evitar conflito de designações. Conecte-se para continuar.';
-const ADMIN_OFFLINE_ACTION_CLASS = 'disabled:cursor-not-allowed disabled:opacity-50';
-const LAST_IMPORT_HIGHLIGHT_STORAGE_KEY = 'territorios-idiomas.enderecos.lastImportHighlight';
-const ADMIN_TABS = [
-    { id: 'usuarios', label: 'Usuários', icon: '👥' },
-    { id: 'padroes', label: 'Padrões', icon: '⚙️' },
-    { id: 'campanhas', label: 'Campanhas', icon: '📢' },
-    { id: 'comunicados', label: 'Comunicados', icon: '🔔' }
-];
-
-const getEnderecoConfigFormIdiomas = (config) => (
-    Array.isArray(config?.idiomas) && config.idiomas.length
-        ? config.idiomas
-        : DEFAULT_ENDERECO_CONFIG.idiomas
-).map((idioma, index) => ({
-    id: String(idioma?.id || '').trim().toLowerCase(),
-    nome: String(idioma?.nome || ''),
-    codigoPrefixoEndereco: String(idioma?.codigoPrefixoEndereco || ''),
-    codigoPrefixoTerritorio: String(idioma?.codigoPrefixoTerritorio || ''),
-    ativo: idioma?.ativo !== false,
-    ordem: Number(idioma?.ordem) || index + 1
-}));
-
-const criarEnderecoIdiomaForm = (ordem) => ({
-    id: '',
-    nome: '',
-    codigoPrefixoEndereco: '',
-    codigoPrefixoTerritorio: '',
-    ativo: true,
-    ordem
-});
-
-const UF_OPTIONS = [
-    'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
-    'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
-];
-
-const formatViewboxValue = (value) => (
-    Number.isFinite(Number(value)) ? String(Number(value)) : ''
-);
+import {
+    ADMIN_OFFLINE_MESSAGE,
+    ADMIN_OFFLINE_ACTION_CLASS,
+    LAST_IMPORT_HIGHLIGHT_STORAGE_KEY,
+    ADMIN_TABS,
+    UF_OPTIONS
+} from './admin/constants/adminConstants';
+import {
+    getEnderecoConfigFormIdiomas,
+    criarEnderecoIdiomaForm
+} from './admin/utils/adminUtils';
+import { UsuariosTab } from './admin/tabs/UsuariosTab';
+import { PadroesTab } from './admin/tabs/PadroesTab';
+import { CampanhasTab } from './admin/tabs/CampanhasTab';
+import { ComunicadosTab } from './admin/tabs/ComunicadosTab';
 
 const AdminPanel = () => {
     const isOnline = useOnlineStatus();
@@ -1367,12 +1342,7 @@ const AdminPanel = () => {
 
         return tab;
     });
-    const formatarTelefone = (valor) => {
-        return valor
-            .replace(/\D/g, '')
-            .replace(/^(\d{2})(\d)/g, '($1) $2')
-            .replace(/(\d)(\d{4})$/, '$1-$2');
-    };
+
 
     return (
         <AppPage>
@@ -1459,1212 +1429,117 @@ const AdminPanel = () => {
                 </div>
 
                 {activeTab === 'usuarios' && (
-                    <section role="tabpanel" aria-labelledby="tab-usuarios" className="space-y-6">
-                        <div className={`grid grid-cols-1 gap-6 ${totalPendentes > 0 ? 'xl:grid-cols-[0.95fr_1.05fr]' : ''}`}>
-                            {totalPendentes > 0 && (
-                                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div>
-                                            <h2 className="text-xl font-black text-slate-900">{totalPendentes} pendência(s)</h2>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setUserRoleFilter('aguardando');
-                                                setUserSearch('');
-                                            }}
-                                            className="rounded-xl border border-amber-200 bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-amber-700 transition-all hover:bg-amber-50"
-                                        >
-                                            Ver só pendentes
-                                        </button>
-                                    </div>
-                                    <div className="mt-5 space-y-3">
-                                        {usuariosPendentes.slice(0, 3).map((user) => (
-                                            <div key={user.id} className="rounded-2xl border border-white bg-white/90 p-3.5 shadow-sm">
-                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                                    <div className="min-w-0">
-                                                        <p className="text-sm font-bold text-slate-800">{user.nome || 'Sem nome'}</p>
-                                                        <p className="mt-1 truncate text-xs font-mono text-slate-400">{user.id}</p>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => mudarRole(user, 'comum')}
-                                                        disabled={adminActionsDisabled}
-                                                        className={`rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition-all hover:bg-emerald-700 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                    >
-                                                        Aprovar agora
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                <UsuariosTab
+                    totalPendentes={totalPendentes}
+                    usuariosPendentes={usuariosPendentes}
+                    userRoleFilter={userRoleFilter}
+                    setUserRoleFilter={setUserRoleFilter}
+                    userSearch={userSearch}
+                    setUserSearch={setUserSearch}
+                    usuariosFiltrados={usuariosFiltrados}
+                    totalUsers={totalUsers}
+                    cadastroAberto={cadastroAberto}
+                    setCadastroAberto={setCadastroAberto}
+                    novoNome={novoNome}
+                    setNovoNome={setNovoNome}
+                    novoEmail={novoEmail}
+                    setNovoEmail={setNovoEmail}
+                    novoWhats={novoWhats}
+                    setNovoWhats={setNovoWhats}
+                    loadingAdd={loadingAdd}
+                    handleAdicionar={handleAdicionar}
+                    mudarRole={mudarRole}
+                    remover={remover}
+                    iniciarEdicao={iniciarEdicao}
+                    cancelarEdicao={cancelarEdicao}
+                    editandoId={editandoId}
+                    dadosEditados={dadosEditados}
+                    handleEditChange={handleEditChange}
+                    salvarEdicao={salvarEdicao}
+                    adminActionsDisabled={adminActionsDisabled}
+                />
+            )}
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between gap-3">
-                                    <h2 className="text-xl font-black text-slate-900">Cadastrar novo usuário</h2>
-                                    <button
-                                        type="button"
-                                        onClick={() => setCadastroAberto((prev) => !prev)}
-                                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-lg font-bold text-slate-600 transition-all hover:bg-slate-100"
-                                        aria-label={cadastroAberto ? 'Recolher cadastro' : 'Abrir cadastro'}
-                                    >
-                                        <span aria-hidden="true">{cadastroAberto ? '−' : '+'}</span>
-                                    </button>
-                                </div>
-                                {cadastroAberto ? (
-                                    <form onSubmit={handleAdicionar} className="mt-5">
-                                        <fieldset disabled={adminActionsDisabled || loadingAdd} className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${adminActionsDisabled ? 'opacity-60' : ''}`}>
-                                            <div className="md:col-span-2">
-                                                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome completo</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Ex: João Silva"
-                                                    className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                                                    value={novoNome}
-                                                    onChange={(e) => setNovoNome(e.target.value)}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">E-mail</label>
-                                                <input
-                                                    type="email"
-                                                    placeholder="Ex: joao@exemplo.com"
-                                                    className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                                                    value={novoEmail}
-                                                    onChange={(e) => setNovoEmail(e.target.value)}
-                                                    required
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">WhatsApp</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="(46) 99999-9999"
-                                                    className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                                                    value={novoWhats}
-                                                    maxLength={15}
-                                                    onChange={(e) => setNovoWhats(formatarTelefone(e.target.value))}
-                                                />
-                                            </div>
-                                            <div className="md:col-span-2">
-                                                <button
-                                                    type="submit"
-                                                    disabled={loadingAdd || adminActionsDisabled}
-                                                    className={`inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white shadow-md transition-all hover:bg-blue-700 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                >
-                                                    {loadingAdd ? 'Salvando...' : '+ Adicionar usuário'}
-                                                </button>
-                                            </div>
-                                        </fieldset>
-                                    </form>
-                                ) : null}
-                            </div>
-                        </div>
+            {activeTab === 'padroes' && (
+                <PadroesTab
+                    enderecoConfig={enderecoConfig}
+                    enderecoConfigForm={enderecoConfigForm}
+                    setEnderecoConfigForm={setEnderecoConfigForm}
+                    salvandoEnderecoConfig={salvandoEnderecoConfig}
+                    salvarEnderecoConfig={salvarEnderecoConfig}
+                    enderecoConfigFormIdiomaPadrao={enderecoConfigFormIdiomaPadrao}
+                    enderecoConfigFormIdiomaPadraoResolvida={enderecoConfigFormIdiomaPadraoResolvida}
+                    enderecoConfigFormIdiomasAtivos={enderecoConfigFormIdiomasAtivos}
+                    enderecoConfigFormIdiomas={enderecoConfigFormIdiomas}
+                    selecionarIdiomaPadraoEndereco={selecionarIdiomaPadraoEndereco}
+                    adicionarEnderecoIdioma={adicionarEnderecoIdioma}
+                    handleEnderecoIdiomaChange={handleEnderecoIdiomaChange}
+                    removerEnderecoIdioma={removerEnderecoIdioma}
+                    handleEnderecoConfigChange={handleEnderecoConfigChange}
+                    salvarPlanilhaCsvUrl={salvarPlanilhaCsvUrl}
+                    salvandoPlanilhaCsvUrl={salvandoPlanilhaCsvUrl}
+                    verificarPlanilhaEnderecos={verificarPlanilhaEnderecos}
+                    verificandoPlanilha={verificandoPlanilha}
+                    inserirNovosEnderecosPlanilha={inserirNovosEnderecosPlanilha}
+                    importandoPlanilha={importandoPlanilha}
+                    enderecoCsvPreview={enderecoCsvPreview}
+                    buscarPinsFaltantesPlanilha={buscarPinsFaltantesPlanilha}
+                    buscandoPinsPlanilha={buscandoPinsPlanilha}
+                    buscarPinLinhaPlanilha={buscarPinLinhaPlanilha}
+                    enderecoCsvGeocodeStatus={enderecoCsvGeocodeStatus}
+                    buscaEnderecoConfigForm={buscaEnderecoConfigForm}
+                    aplicarPresetBuscaEnderecoRegional={aplicarPresetBuscaEnderecoRegional}
+                    selecionarUfBuscaEndereco={selecionarUfBuscaEndereco}
+                    atualizarBuscaEnderecoConfig={atualizarBuscaEnderecoConfig}
+                    municipioBuscaEnderecoTexto={municipioBuscaEnderecoTexto}
+                    setMunicipioBuscaEnderecoTexto={setMunicipioBuscaEnderecoTexto}
+                    adicionarMunicipioBuscaEndereco={adicionarMunicipioBuscaEndereco}
+                    removerMunicipioBuscaEndereco={removerMunicipioBuscaEndereco}
+                    municipiosBuscaEnderecoSugestoes={municipiosBuscaEnderecoSugestoes}
+                    calculandoAreaBuscaEndereco={calculandoAreaBuscaEndereco}
+                    carregandoMunicipiosBuscaEndereco={carregandoMunicipiosBuscaEndereco}
+                    adminActionsDisabled={adminActionsDisabled}
+                />
+            )}
 
-                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                                <div>
-                                    <h2 className="text-xl font-black text-slate-900">Lista de usuários</h2>
-                                </div>
-                                <div className="w-full max-w-md">
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Buscar usuário</label>
-                                        <input
-                                            type="text"
-                                            value={userSearch}
-                                            onChange={(e) => setUserSearch(e.target.value)}
-                                            placeholder="Nome, e-mail ou telefone"
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+            {activeTab === 'campanhas' && (
+                <CampanhasTab
+                    campanhas={campanhas}
+                    campanhaTitulo={campanhaTitulo}
+                    setCampanhaTitulo={setCampanhaTitulo}
+                    campanhaSlug={campanhaSlug}
+                    setCampanhaSlug={setCampanhaSlug}
+                    salvandoCampanha={salvandoCampanha}
+                    handleCriarCampanha={handleCriarCampanha}
+                    ativarCampanha={ativarCampanha}
+                    voltarModoNormal={voltarModoNormal}
+                    abrirModalExclusaoCampanha={abrirModalExclusaoCampanha}
+                    fecharModalExclusaoCampanha={fecharModalExclusaoCampanha}
+                    campanhaParaExcluir={campanhaParaExcluir}
+                    confirmacaoExclusao={confirmacaoExclusao}
+                    setConfirmacaoExclusao={setConfirmacaoExclusao}
+                    carregandoResumoExclusao={carregandoResumoExclusao}
+                    registrosCampanhaParaExcluir={registrosCampanhaParaExcluir}
+                    excluindoCampanha={excluindoCampanha}
+                    excluirCampanha={excluirCampanha}
+                    contextoSistema={contextoSistema}
+                    adminActionsDisabled={adminActionsDisabled}
+                />
+            )}
 
-                            <div className="mt-4 flex flex-wrap gap-2">
-                                {[
-                                    { value: 'todos', label: 'Todos' },
-                                    { value: 'aguardando', label: 'Pendentes' },
-                                    { value: 'comum', label: 'Dirigentes' },
-                                    { value: 'admin', label: 'Admins' }
-                                ].map((option) => {
-                                    const ativa = userRoleFilter === option.value;
-
-                                    return (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => setUserRoleFilter(option.value)}
-                                            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${ativa ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                                        >
-                                            {option.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <p className="text-sm text-slate-600">
-                                    Exibindo <span className="font-bold text-slate-800">{usuariosFiltrados.length}</span> de <span className="font-bold text-slate-800">{totalUsers}</span> usuário(s).
-                                </p>
-                                {(userSearch || userRoleFilter !== 'todos') && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setUserSearch('');
-                                            setUserRoleFilter('todos');
-                                        }}
-                                        className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100"
-                                    >
-                                        Limpar filtros
-                                    </button>
-                                )}
-                            </div>
-
-                            <div className="mt-6 space-y-4 md:hidden">
-                                {usuariosFiltrados.map((user) => (
-                                    <div key={user.id} className={`rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm ${editandoId === user.id ? 'ring-2 ring-blue-100 bg-blue-50/20' : ''}`}>
-                                        <div className="mb-3 flex items-start justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-sm font-bold text-slate-500">
-                                                    {(user.nome || user.id || '?')[0].toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    {editandoId === user.id ? (
-                                                        <input
-                                                            type="text"
-                                                            value={dadosEditados.nome || ''}
-                                                            onChange={(e) => handleEditChange('nome', e.target.value)}
-                                                            className="w-full rounded-lg border border-blue-300 bg-white px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                                                            placeholder="Nome"
-                                                            disabled={adminActionsDisabled}
-                                                        />
-                                                    ) : (
-                                                        <h4 className="text-sm font-bold text-slate-800">{user.nome || 'Sem Nome'}</h4>
-                                                    )}
-                                                    <p className="max-w-[170px] truncate text-xs font-mono text-slate-400">{user.id}</p>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                {user.role === 'admin' ? (
-                                                    <span className="rounded-full border border-purple-200 bg-purple-100 px-2 py-1 text-[10px] font-bold text-purple-700">ADMIN</span>
-                                                ) : user.role === 'aguardando' ? (
-                                                    <span className="rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700">PENDENTE</span>
-                                                ) : (
-                                                    <span className="rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-600">DIRIGENTE</span>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="mb-4 pl-[3.25rem]">
-                                            {editandoId === user.id ? (
-                                                <input
-                                                    type="text"
-                                                    value={dadosEditados.whatsapp || ''}
-                                                    onChange={(e) => handleEditChange('whatsapp', e.target.value)}
-                                                    className="w-full rounded-lg border border-blue-300 bg-white px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                                                    placeholder="WhatsApp"
-                                                    disabled={adminActionsDisabled}
-                                                />
-                                            ) : user.whatsapp ? (
-                                                <a href={`https://wa.me/${user.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm font-medium text-green-700">
-                                                    <span className="text-xs">🟢</span> {user.whatsapp}
-                                                </a>
-                                            ) : (
-                                                <span className="text-sm italic text-slate-300">Sem WhatsApp</span>
-                                            )}
-                                        </div>
-
-                                        <div className="flex gap-2 border-t border-slate-100 pt-3">
-                                            {editandoId === user.id ? (
-                                                <>
-                                                    <button
-                                                        type="button"
-                                                        onClick={salvarEdicao}
-                                                        disabled={adminActionsDisabled}
-                                                        className={`flex-1 rounded-xl bg-green-600 py-2 text-sm font-bold text-white ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                    >
-                                                        Salvar
-                                                    </button>
-                                                    <button type="button" onClick={cancelarEdicao} className="flex-1 rounded-xl bg-slate-200 py-2 text-sm font-bold text-slate-700">Cancelar</button>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    {user.role === 'aguardando' ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => mudarRole(user, 'comum')}
-                                                            disabled={adminActionsDisabled}
-                                                            className={`flex-1 rounded-xl bg-green-600 py-2 text-sm font-bold text-white shadow-sm transition-transform active:scale-95 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                        >
-                                                            Aprovar acesso
-                                                        </button>
-                                                    ) : (
-                                                        <>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => iniciarEdicao(user)}
-                                                                disabled={adminActionsDisabled}
-                                                                className={`flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-2 text-blue-600 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                            >
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => mudarRole(user, user.role === 'admin' ? 'comum' : 'admin')}
-                                                                disabled={adminActionsDisabled}
-                                                                className={`flex flex-1 items-center justify-center rounded-xl border p-2 transition-colors ${user.role === 'admin' ? 'border-red-100 bg-red-50 text-red-600' : 'border-yellow-100 bg-yellow-50 text-yellow-600'} ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                            >
-                                                                {user.role === 'admin' ? (
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                                        <path fillRule="evenodd" d="M10 2.25a.75.75 0 0 1 .75.75v9.19l2.22-2.22a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 1 1 1.06-1.06l2.22 2.22V3a.75.75 0 0 1 .75-.75Z" clipRule="evenodd" />
-                                                                        <path d="M5.5 15.25a.75.75 0 0 0 0 1.5h9a.75.75 0 0 0 0-1.5h-9Z" />
-                                                                    </svg>
-                                                                ) : (
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                                        <path fillRule="evenodd" d="M10 17.75a.75.75 0 0 1-.75-.75V7.81L7.03 10.03a.75.75 0 1 1-1.06-1.06l3.5-3.5a.75.75 0 0 1 1.06 0l3.5 3.5a.75.75 0 1 1-1.06 1.06l-2.22-2.22V17a.75.75 0 0 1-.75.75Z" clipRule="evenodd" />
-                                                                        <path d="M5.5 3.25a.75.75 0 0 0 0 1.5h9a.75.75 0 0 0 0-1.5h-9Z" />
-                                                                    </svg>
-                                                                )}
-                                                            </button>
-                                                        </>
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => remover(user.id)}
-                                                        disabled={adminActionsDisabled}
-                                                        className={`flex flex-1 items-center justify-center rounded-xl border border-red-100 bg-red-50 p-2 text-red-600 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                                    </button>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                                {usuariosFiltrados.length === 0 && (
-                                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-400">
-                                        Nenhum usuário encontrado com os filtros atuais.
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="mt-6 hidden overflow-hidden rounded-2xl border border-slate-200 md:block">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full border-collapse text-left">
-                                        <thead>
-                                            <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-                                                <th className="px-6 py-4 font-bold">Usuário / E-mail</th>
-                                                <th className="px-6 py-4 font-bold">WhatsApp</th>
-                                                <th className="px-6 py-4 text-center font-bold">Permissão</th>
-                                                <th className="px-6 py-4 text-right font-bold">Ações</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100 bg-white">
-                                            {usuariosFiltrados.map((user) => (
-                                                <tr key={user.id} className={`transition-colors hover:bg-blue-50/30 ${editandoId === user.id ? 'bg-yellow-50' : ''}`}>
-                                                    <td className="px-6 py-4">
-                                                        {editandoId === user.id ? (
-                                                            <div className="flex flex-col gap-1">
-                                                                <input
-                                                                    type="text"
-                                                                    value={dadosEditados.nome || ''}
-                                                                    onChange={(e) => handleEditChange('nome', e.target.value)}
-                                                                    className="rounded-lg border border-blue-300 px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                                                                    placeholder="Nome"
-                                                                    disabled={adminActionsDisabled}
-                                                                />
-                                                                <span className="pl-1 text-xs font-mono text-slate-400">{user.id} (fixo)</span>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 text-sm font-bold text-slate-500 shadow-sm">
-                                                                    {(user.nome || user.id || '?')[0].toUpperCase()}
-                                                                </div>
-                                                                <div>
-                                                                    <div className="font-bold text-slate-800">{user.nome || 'Sem Nome'}</div>
-                                                                    <div className="text-xs font-mono text-slate-400">{user.id}</div>
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-6 py-4">
-                                                        {editandoId === user.id ? (
-                                                            <input
-                                                                type="text"
-                                                                value={dadosEditados.whatsapp || ''}
-                                                                onChange={(e) => handleEditChange('whatsapp', e.target.value)}
-                                                                className="w-36 rounded-lg border border-blue-300 px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                                                                placeholder="WhatsApp"
-                                                                disabled={adminActionsDisabled}
-                                                            />
-                                                        ) : user.whatsapp ? (
-                                                            <a href={`https://wa.me/${user.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-full border border-green-100 bg-green-50 px-2.5 py-1 text-sm font-medium text-green-700 transition-colors hover:bg-green-100">
-                                                                <span className="text-xs">🟢</span> {user.whatsapp}
-                                                            </a>
-                                                        ) : (
-                                                            <span className="text-sm italic text-slate-300">--</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-center">
-                                                        {user.role === 'admin' ? (
-                                                            <span className="inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-100 px-3 py-1 text-xs font-bold text-purple-700">
-                                                                🛡️ Admin
-                                                            </span>
-                                                        ) : user.role === 'aguardando' ? (
-                                                            <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
-                                                                ⏳ Pendente
-                                                            </span>
-                                                        ) : (
-                                                            <span className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-600">
-                                                                👤 Dirigente
-                                                            </span>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <div className="flex items-center justify-end gap-2">
-                                                            {editandoId === user.id ? (
-                                                                <>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={salvarEdicao}
-                                                                        disabled={adminActionsDisabled}
-                                                                        className={`rounded-lg bg-green-100 p-2 text-green-700 transition-colors hover:bg-green-200 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                                        title="Salvar"
-                                                                    >
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                                                                    </button>
-                                                                    <button type="button" onClick={cancelarEdicao} className="rounded-lg bg-red-100 p-2 text-red-700 transition-colors hover:bg-red-200" title="Cancelar">
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                                                    </button>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    {user.role === 'aguardando' ? (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => mudarRole(user, 'comum')}
-                                                                            disabled={adminActionsDisabled}
-                                                                            className={`rounded-lg bg-green-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-green-700 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                                        >
-                                                                            Aprovar
-                                                                        </button>
-                                                                    ) : (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => iniciarEdicao(user)}
-                                                                            disabled={adminActionsDisabled}
-                                                                            className={`rounded-lg p-2 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                                            title="Editar dados"
-                                                                        >
-                                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                                                                        </button>
-                                                                    )}
-
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => mudarRole(user, user.role === 'admin' ? 'comum' : 'admin')}
-                                                                        disabled={adminActionsDisabled}
-                                                                        className={`rounded-lg p-2 transition-colors ${user.role === 'admin' ? 'text-purple-400 hover:bg-red-50 hover:text-red-600' : 'text-slate-400 hover:bg-yellow-50 hover:text-yellow-600'} ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                                        title={user.role === 'admin' ? 'Remover admin' : 'Promover a admin'}
-                                                                    >
-                                                                        {user.role === 'admin' ? (
-                                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                                                <path fillRule="evenodd" d="M10 2.25a.75.75 0 0 1 .75.75v9.19l2.22-2.22a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 1 1 1.06-1.06l2.22 2.22V3a.75.75 0 0 1 .75-.75Z" clipRule="evenodd" />
-                                                                                <path d="M5.5 15.25a.75.75 0 0 0 0 1.5h9a.75.75 0 0 0 0-1.5h-9Z" />
-                                                                            </svg>
-                                                                        ) : (
-                                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                                                <path fillRule="evenodd" d="M10 17.75a.75.75 0 0 1-.75-.75V7.81L7.03 10.03a.75.75 0 1 1-1.06-1.06l3.5-3.5a.75.75 0 0 1 1.06 0l3.5 3.5a.75.75 0 1 1-1.06 1.06l-2.22-2.22V17a.75.75 0 0 1-.75.75Z" clipRule="evenodd" />
-                                                                                <path d="M5.5 3.25a.75.75 0 0 0 0 1.5h9a.75.75 0 0 0 0-1.5h-9Z" />
-                                                                            </svg>
-                                                                        )}
-                                                                    </button>
-
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => remover(user.id)}
-                                                                        disabled={adminActionsDisabled}
-                                                                        className={`rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                                        title="Remover usuário"
-                                                                    >
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                                                    </button>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                                {usuariosFiltrados.length === 0 && (
-                                    <div className="p-8 text-center italic text-slate-400">Nenhum usuário encontrado com os filtros atuais.</div>
-                                )}
-                            </div>
-                        </div>
-                    </section>
-                )}
-
-                {activeTab === 'padroes' && (
-                    <section role="tabpanel" aria-labelledby="tab-padroes" className="space-y-6">
-                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                    <h2 className="text-xl font-black text-slate-900">Padrões operacionais</h2>
-                                    <p className="mt-1 text-sm text-slate-500">
-                                        {enderecoConfig.idiomaPadraoNome} · {enderecoConfig.prefixoEnderecoPadrao} · {enderecoConfig.prefixoTerritorioPadrao}
-                                    </p>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setEnderecoConfigForm(normalizeEnderecoConfig(DEFAULT_ENDERECO_CONFIG))}
-                                    disabled={salvandoEnderecoConfig || adminActionsDisabled}
-                                    className={`rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                >
-                                    Restaurar inicial
-                                </button>
-                            </div>
-                            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                <div className="rounded-xl border border-teal-100 bg-teal-50 px-3 py-2">
-                                    <p className="text-[11px] font-bold uppercase tracking-wide text-teal-600">Endereço sugerido</p>
-                                    <p className="mt-1 font-mono text-lg font-black text-teal-900">{getEnderecoCodigoPadraoFromConfig(enderecoConfigFormIdiomaPadraoResolvida)}</p>
-                                </div>
-                                <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2">
-                                    <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-600">Território sugerido</p>
-                                    <p className="mt-1 font-mono text-lg font-black text-indigo-900">{getGrupoEnderecoCodigoPadraoFromConfig(enderecoConfigFormIdiomaPadraoResolvida)}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <form onSubmit={salvarEnderecoConfig} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                            <fieldset disabled={adminActionsDisabled || salvandoEnderecoConfig} className={`space-y-5 ${adminActionsDisabled ? 'opacity-60' : ''}`}>
-                                <div>
-                                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Idioma padrão</label>
-                                    <select
-                                        value={enderecoConfigFormIdiomaPadrao?.id || ''}
-                                        onChange={(event) => selecionarIdiomaPadraoEndereco(event.target.value)}
-                                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                    >
-                                        {enderecoConfigFormIdiomasAtivos.map((idioma) => (
-                                            <option key={idioma.id} value={idioma.id}>{idioma.nome}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                                    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                        <div>
-                                            <h3 className="text-sm font-black text-slate-800">Idiomas de trabalho</h3>
-                                            <p className="mt-1 text-xs font-medium text-slate-500">{enderecoConfigFormIdiomasAtivos.length} ativo(s)</p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={adicionarEnderecoIdioma}
-                                            className="rounded-xl border border-teal-200 bg-white px-3 py-2 text-xs font-bold uppercase text-teal-700 transition-all hover:bg-teal-50"
-                                        >
-                                            Adicionar idioma
-                                        </button>
-                                    </div>
-                                    <div className="space-y-3">
-                                        {enderecoConfigFormIdiomas.map((idioma, index) => (
-                                            <div key={`${idioma.id || 'novo'}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                                                <div className="mb-3 flex items-center justify-between gap-3">
-                                                    <label className="inline-flex items-center gap-2 text-xs font-bold uppercase text-slate-500">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={idioma.ativo}
-                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'ativo', event.target.checked)}
-                                                            className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-500"
-                                                        />
-                                                        Ativo
-                                                    </label>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removerEnderecoIdioma(index)}
-                                                        disabled={enderecoConfigFormIdiomas.length <= 1}
-                                                        className={`rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-500 transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                    >
-                                                        Remover
-                                                    </button>
-                                                </div>
-                                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                                                    <div>
-                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">ID</label>
-                                                        <input
-                                                            type="text"
-                                                            value={idioma.id}
-                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'id', event.target.value)}
-                                                            maxLength={32}
-                                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                                            placeholder="es"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome</label>
-                                                        <input
-                                                            type="text"
-                                                            value={idioma.nome}
-                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'nome', event.target.value)}
-                                                            maxLength={80}
-                                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                                            placeholder="Espanhol"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Prefixo de endereço</label>
-                                                        <input
-                                                            type="text"
-                                                            value={idioma.codigoPrefixoEndereco}
-                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'codigoPrefixoEndereco', event.target.value)}
-                                                            maxLength={40}
-                                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                                            placeholder="ES-SBS-"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Prefixo de território</label>
-                                                        <input
-                                                            type="text"
-                                                            value={idioma.codigoPrefixoTerritorio}
-                                                            onChange={(event) => handleEnderecoIdiomaChange(index, 'codigoPrefixoTerritorio', event.target.value)}
-                                                            maxLength={40}
-                                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                                            placeholder="ES-SBS-T"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Classe padrão</label>
-                                        <select
-                                            value={enderecoConfigForm.classeEnderecoPadrao}
-                                            onChange={(event) => handleEnderecoConfigChange('classeEnderecoPadrao', event.target.value)}
-                                            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                        >
-                                            {enderecoConfig.tiposEndereco.filter((tipo) => tipo.ativo).map((tipo) => (
-                                                <option key={tipo.id} value={tipo.id}>{tipo.label}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Quantidade padrão</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            max="99"
-                                            value={enderecoConfigForm.quantidadeEstrangeirosPadrao}
-                                            onChange={(event) => handleEnderecoConfigChange('quantidadeEstrangeirosPadrao', event.target.value)}
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Cidade padrão</label>
-                                        <input
-                                            type="text"
-                                            value={enderecoConfigForm.cidadePadrao}
-                                            onChange={(event) => handleEnderecoConfigChange('cidadePadrao', event.target.value)}
-                                            maxLength={120}
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">UF padrão</label>
-                                        <input
-                                            type="text"
-                                            value={enderecoConfigForm.ufPadrao}
-                                            onChange={(event) => handleEnderecoConfigChange('ufPadrao', event.target.value.toUpperCase())}
-                                            maxLength={2}
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono uppercase outline-none transition-all focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4">
-                                    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                        <div>
-                                            <h3 className="text-sm font-black text-slate-800">Importação por planilha CSV</h3>
-                                            <p className="mt-1 text-xs font-medium text-slate-500">
-                                                A verificação baixa a planilha publicada e não grava dados.
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-col gap-2 sm:flex-row">
-                                            <button
-                                                type="button"
-                                                onClick={salvarPlanilhaCsvUrl}
-                                                disabled={salvandoPlanilhaCsvUrl || verificandoPlanilha || importandoPlanilha || adminActionsDisabled}
-                                                className={`rounded-xl border border-cyan-200 bg-white px-4 py-2 text-xs font-bold uppercase text-cyan-800 transition-all hover:bg-cyan-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                            >
-                                                {salvandoPlanilhaCsvUrl ? 'Salvando...' : 'Salvar URL'}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={verificarPlanilhaEnderecos}
-                                                disabled={verificandoPlanilha || importandoPlanilha || salvandoPlanilhaCsvUrl || adminActionsDisabled}
-                                                className={`rounded-xl border border-cyan-200 bg-white px-4 py-2 text-xs font-bold uppercase text-cyan-800 transition-all hover:bg-cyan-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                            >
-                                                {verificandoPlanilha ? 'Verificando...' : 'Verificar planilha'}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={inserirNovosEnderecosPlanilha}
-                                                disabled={!enderecoCsvPreview?.totals?.aplicar || importandoPlanilha || verificandoPlanilha || adminActionsDisabled}
-                                                className={`rounded-xl bg-cyan-800 px-4 py-2 text-xs font-bold uppercase text-white transition-all hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                            >
-                                                {importandoPlanilha ? 'Aplicando...' : 'Aplicar importação'}
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Link CSV publicado</label>
-                                    <input
-                                        type="url"
-                                        value={enderecoConfigForm.planilhaCsvUrl || ''}
-                                        onChange={(event) => handleEnderecoConfigChange('planilhaCsvUrl', event.target.value)}
-                                        maxLength={1000}
-                                        placeholder="https://docs.google.com/spreadsheets/...&output=csv"
-                                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition-all focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
-                                    />
-
-                                    {enderecoCsvPreview && (
-                                        <div className="mt-4 space-y-4">
-                                            <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8">
-                                                {[
-                                                    { label: 'Linhas', value: enderecoCsvPreview.totals.total },
-                                                    { label: 'Novos', value: enderecoCsvPreview.totals.novos },
-                                                    { label: 'Atualizar', value: enderecoCsvPreview.totals.atualizar },
-                                                    { label: 'Aplicar', value: enderecoCsvPreview.totals.aplicar },
-                                                    { label: 'Inserir', value: enderecoCsvPreview.totals.inserir },
-                                                    { label: 'Existentes', value: enderecoCsvPreview.totals.existentes },
-                                                    { label: 'Duplicados', value: enderecoCsvPreview.totals.duplicados },
-                                                    { label: 'Inválidos', value: enderecoCsvPreview.totals.invalidos },
-                                                    { label: 'Sem pin', value: enderecoCsvPreview.totals.semCoordenada },
-                                                    { label: 'Conflitos', value: enderecoCsvPreview.totals.conflitos }
-                                                ].map((item) => (
-                                                    <div key={item.label} className="rounded-xl border border-cyan-100 bg-white px-3 py-2">
-                                                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">{item.label}</p>
-                                                        <p className="mt-1 text-lg font-black text-slate-800">{item.value}</p>
-                                                    </div>
-                                                ))}
-                                            </div>
-
-                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                                                <div className="rounded-xl border border-cyan-100 bg-white px-3 py-2">
-                                                    <p className="text-[11px] font-black uppercase tracking-wide text-cyan-700">Territórios a criar</p>
-                                                    <p className="mt-1 text-sm font-bold text-slate-700">
-                                                        {enderecoCsvPreview.territoriosCriar.length ? enderecoCsvPreview.territoriosCriar.join(', ') : 'Nenhum'}
-                                                    </p>
-                                                </div>
-                                                <div className="rounded-xl border border-cyan-100 bg-white px-3 py-2">
-                                                    <p className="text-[11px] font-black uppercase tracking-wide text-cyan-700">Vínculos existentes</p>
-                                                    <p className="mt-1 text-sm font-bold text-slate-700">
-                                                        {enderecoCsvPreview.territoriosExistentes.length ? enderecoCsvPreview.territoriosExistentes.join(', ') : 'Nenhum'}
-                                                    </p>
-                                                </div>
-                                                <div className="flex items-center rounded-xl border border-cyan-100 bg-white px-3 py-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={buscarPinsFaltantesPlanilha}
-                                                        disabled={!enderecoCsvPreview.totals.semCoordenada || buscandoPinsPlanilha || verificandoPlanilha || adminActionsDisabled}
-                                                        className={`w-full rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs font-bold uppercase text-cyan-800 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                    >
-                                                        {buscandoPinsPlanilha ? 'Buscando pins...' : 'Buscar pins faltantes'}
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {(enderecoCsvPreview.samples.aplicaveis.length || enderecoCsvPreview.samples.invalidos.length || enderecoCsvPreview.samples.conflitos.length || enderecoCsvPreview.samples.semCoordenada.length) ? (
-                                                <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
-                                                    {[
-                                                        { title: 'Aplicar', rows: enderecoCsvPreview.samples.aplicaveis, tone: 'text-cyan-700' },
-                                                        { title: 'Inválidos', rows: enderecoCsvPreview.samples.invalidos, tone: 'text-red-700' },
-                                                        { title: 'Conflitos', rows: enderecoCsvPreview.samples.conflitos, tone: 'text-amber-700' },
-                                                        { title: 'Sem coordenada', rows: enderecoCsvPreview.samples.semCoordenada, tone: 'text-slate-700' }
-                                                    ].map((group) => (
-                                                        <div key={group.title} className="rounded-xl border border-slate-200 bg-white p-3">
-                                                            <p className={`text-xs font-black uppercase ${group.tone}`}>{group.title}</p>
-                                                            <div className="mt-2 space-y-2">
-                                                                {group.rows.length ? group.rows.map((row) => (
-                                                                    <div key={`${group.title}-${row.rowKey}`} className="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
-                                                                        <span className="font-bold">Linha {row.rowNumber}</span>
-                                                                        {row.codigo ? ` · ${row.codigo}` : ''}
-                                                                        {group.title === 'Sem coordenada' ? (
-                                                                            <div className="mt-1 space-y-1">
-                                                                                <p className="font-semibold text-slate-700">{row.endereco || 'Endereço não informado'}</p>
-                                                                                {row.bairro && <p>Bairro: {row.bairro}</p>}
-                                                                                <p>Query: {row.geocodeQuery || 'indisponível'}</p>
-                                                                                <p>
-                                                                                    Estado: {enderecoCsvGeocodeStatus[row.rowKey]?.message || [...row.errors, ...row.conflicts].join(' ') || 'Aguardando busca de pin.'}
-                                                                                </p>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => buscarPinLinhaPlanilha(row)}
-                                                                                    disabled={!row.geocodeQuery || buscandoPinsPlanilha || verificandoPlanilha || adminActionsDisabled}
-                                                                                    className={`mt-1 rounded-lg border border-cyan-200 bg-white px-2 py-1 text-[11px] font-bold uppercase text-cyan-800 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                                                >
-                                                                                    Buscar pin
-                                                                                </button>
-                                                                            </div>
-                                                                        ) : (
-                                                                            <p className="mt-0.5">
-                                                                                {[...row.errors, ...row.conflicts].join(' ') || `${row.action === 'atualizar' ? 'Atualizar' : 'Inserir'} · ${row.endereco}`}
-                                                                            </p>
-                                                                        )}
-                                                                    </div>
-                                                                )) : (
-                                                                    <p className="text-xs font-medium text-slate-400">Nenhuma linha.</p>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-                                    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                        <div>
-                                            <h3 className="text-sm font-black text-slate-800">Área de busca no mapa</h3>
-                                            <p className="mt-1 text-xs font-medium text-slate-500">
-                                                {buscaEnderecoConfigForm.areas.length
-                                                    ? `${buscaEnderecoConfigForm.areas.length} área(s) · margem ${buscaEnderecoConfigForm.margemKm} km`
-                                                    : `${buscaEnderecoConfigForm.uf} · sem município fixo`}
-                                            </p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={aplicarPresetBuscaEnderecoRegional}
-                                            className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-bold uppercase text-emerald-700 transition-all hover:bg-emerald-50"
-                                        >
-                                            Usar região SBS
-                                        </button>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[120px_140px_1fr_auto]">
-                                        <div>
-                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Estado</label>
-                                            <select
-                                                value={buscaEnderecoConfigForm.uf}
-                                                onChange={(event) => selecionarUfBuscaEndereco(event.target.value)}
-                                                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-mono uppercase outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                                            >
-                                                {UF_OPTIONS.map((uf) => (
-                                                    <option key={uf} value={uf}>{uf}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Margem km</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                max="50"
-                                                step="0.5"
-                                                value={buscaEnderecoConfigForm.margemKm}
-                                                onChange={(event) => atualizarBuscaEnderecoConfig({ margemKm: event.target.value })}
-                                                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-mono outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Município</label>
-                                            <input
-                                                type="text"
-                                                value={municipioBuscaEnderecoTexto}
-                                                onChange={(event) => setMunicipioBuscaEnderecoTexto(event.target.value)}
-                                                onKeyDown={(event) => {
-                                                    if (event.key === 'Enter') {
-                                                        event.preventDefault();
-                                                        adicionarMunicipioBuscaEndereco();
-                                                    }
-                                                }}
-                                                list="municipios-busca-endereco"
-                                                maxLength={120}
-                                                placeholder={calculandoAreaBuscaEndereco ? 'Calculando área...' : carregandoMunicipiosBuscaEndereco ? 'Carregando municípios...' : 'Digite ou escolha um município'}
-                                                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                                            />
-                                            <datalist id="municipios-busca-endereco">
-                                                {municipiosBuscaEnderecoSugestoes.map((municipio) => (
-                                                    <option key={municipio} value={municipio} />
-                                                ))}
-                                            </datalist>
-                                        </div>
-                                        <div className="flex items-end">
-                                            <button
-                                                type="button"
-                                                onClick={() => adicionarMunicipioBuscaEndereco()}
-                                                disabled={calculandoAreaBuscaEndereco}
-                                                className="w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
-                                            >
-                                                {calculandoAreaBuscaEndereco ? 'Calculando...' : 'Adicionar'}
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        {buscaEnderecoConfigForm.areas.length ? buscaEnderecoConfigForm.areas.map((area) => (
-                                            <span key={`${area.uf}-${area.cidade}`} className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-bold text-emerald-800">
-                                                {area.cidade}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removerMunicipioBuscaEndereco(area.cidade)}
-                                                    className="rounded-full px-1 text-emerald-500 hover:bg-emerald-50 hover:text-emerald-800"
-                                                    aria-label={`Remover ${area.cidade}`}
-                                                >
-                                                    ×
-                                                </button>
-                                            </span>
-                                        )) : (
-                                            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-500">
-                                                Nenhum município selecionado
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {buscaEnderecoConfigForm.areas.length ? (
-                                        <div className="mt-3 grid gap-2">
-                                            {buscaEnderecoConfigForm.areas.map((area) => (
-                                                <div key={`${area.uf}-${area.cidade}-bounds`} className="grid grid-cols-1 gap-2 rounded-xl border border-emerald-100 bg-white px-3 py-2 text-[11px] font-semibold text-slate-500 md:grid-cols-[1fr_1fr_1fr_1fr_1fr]">
-                                                    <span className="font-bold text-slate-700">{area.cidade}</span>
-                                                    <span>O {formatViewboxValue(area.viewbox.left)}</span>
-                                                    <span>N {formatViewboxValue(area.viewbox.top)}</span>
-                                                    <span>L {formatViewboxValue(area.viewbox.right)}</span>
-                                                    <span>S {formatViewboxValue(area.viewbox.bottom)}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : null}
-
-                                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-                                        {[
-                                            { key: 'left', label: 'Oeste', helper: 'lng mín.' },
-                                            { key: 'top', label: 'Norte', helper: 'lat máx.' },
-                                            { key: 'right', label: 'Leste', helper: 'lng máx.' },
-                                            { key: 'bottom', label: 'Sul', helper: 'lat mín.' }
-                                        ].map((field) => (
-                                            <div key={field.key}>
-                                                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">
-                                                    {field.label} <span className="font-medium normal-case text-slate-400">({field.helper})</span>
-                                                </label>
-                                                <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    value={formatViewboxValue(buscaEnderecoConfigForm.viewbox[field.key])}
-                                                    readOnly
-                                                    className="w-full rounded-xl border border-slate-200 bg-white/70 px-4 py-3 font-mono text-slate-500 outline-none"
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 md:grid-cols-2">
-                                    <div>
-                                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Idiomas ativos</p>
-                                        <div className="mt-2 flex flex-wrap gap-2">
-                                            {enderecoConfig.idiomas.filter((idioma) => idioma.ativo).map((idioma) => (
-                                                <span key={idioma.id} className="rounded-full border border-teal-100 bg-white px-3 py-1 text-xs font-bold text-teal-700">
-                                                    {idioma.nome}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Classes ativas</p>
-                                        <div className="mt-2 flex flex-wrap gap-2">
-                                            {enderecoConfig.tiposEndereco.filter((tipo) => tipo.ativo).map((tipo) => (
-                                                <span key={tipo.id} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
-                                                    {tipo.label}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="flex justify-end">
-                                    <button
-                                        type="submit"
-                                        disabled={salvandoEnderecoConfig || adminActionsDisabled}
-                                        className={`rounded-xl bg-teal-700 px-6 py-3 text-sm font-bold text-white transition-all hover:bg-teal-800 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                    >
-                                        {salvandoEnderecoConfig ? 'Salvando...' : 'Salvar padrões'}
-                                    </button>
-                                </div>
-                            </fieldset>
-                        </form>
-                    </section>
-                )}
-
-                {activeTab === 'campanhas' && (
-                    <section role="tabpanel" aria-labelledby="tab-campanhas" className="space-y-6">
-                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                    <h2 className="text-xl font-black text-slate-900">Campanhas</h2>
-                                    <p className="mt-1 text-sm text-slate-500">
-                                        {contextoSistema.campanhaAtiva
-                                            ? `${contextoSistema.contextoAtivoTitulo} (${contextoSistema.contextoAtivoId})`
-                                            : 'Pregação normal'}
-                                    </p>
-                                </div>
-                                {contextoSistema.campanhaAtiva ? (
-                                    <button
-                                        type="button"
-                                        onClick={voltarModoNormal}
-                                        disabled={salvandoCampanha || adminActionsDisabled}
-                                        className={`rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                    >
-                                        Desativar campanha
-                                    </button>
-                                ) : null}
-                            </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                            <h3 className="text-lg font-black text-slate-900">Nova campanha</h3>
-                            <form onSubmit={handleCriarCampanha} className="mt-4">
-                                <fieldset disabled={adminActionsDisabled || salvandoCampanha} className={`grid grid-cols-1 items-end gap-3 lg:grid-cols-[1.4fr_1fr_auto] ${adminActionsDisabled ? 'opacity-60' : ''}`}>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Título da campanha</label>
-                                        <input
-                                            type="text"
-                                            placeholder="Ex: Convite da Celebração"
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-                                            value={campanhaTitulo}
-                                            onChange={(e) => setCampanhaTitulo(e.target.value)}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Identificador interno</label>
-                                        <input
-                                            type="text"
-                                            placeholder="ex: celebracao_2026"
-                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-                                            value={campanhaSlug}
-                                            onChange={(e) => setCampanhaSlug(slugifyCampanha(e.target.value))}
-                                        />
-                                    </div>
-                                    <button
-                                        type="submit"
-                                        disabled={salvandoCampanha || adminActionsDisabled}
-                                        className={`rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white transition-all hover:bg-violet-700 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                    >
-                                        {salvandoCampanha ? 'Salvando...' : 'Ativar'}
-                                    </button>
-                                </fieldset>
-                            </form>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                                <h3 className="text-lg font-black text-slate-900">Campanhas salvas</h3>
-                                <p className="text-sm text-slate-500">{campanhas.length} campanha(s)</p>
-                            </div>
-                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                                {campanhas.length > 0 ? campanhas.map((campanha) => {
-                                    const ativa = contextoSistema.contextoAtivoId === campanha.id;
-
-                                    return (
-                                        <div key={campanha.id} className={`rounded-2xl border p-3.5 ${ativa ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-slate-50'}`}>
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800">{campanha.titulo || campanha.id}</p>
-                                                    <p className="mt-1 text-xs font-mono text-slate-400">{campanha.id}</p>
-                                                </div>
-                                                <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${ativa ? 'bg-violet-600 text-white' : 'border border-slate-200 bg-white text-slate-500'}`}>
-                                                    {ativa ? 'ATIVA' : 'SALVA'}
-                                                </span>
-                                            </div>
-                                            <div className="mt-4 grid gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => ativarCampanha({ id: campanha.id, titulo: campanha.titulo || campanha.id })}
-                                                    disabled={salvandoCampanha || ativa || adminActionsDisabled}
-                                                    className={`w-full rounded-xl border border-violet-200 bg-white py-2 text-sm font-bold text-violet-700 hover:bg-violet-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                >
-                                                    {ativa ? 'Campanha atual' : 'Reativar'}
-                                                </button>
-                                                {ativa && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={voltarModoNormal}
-                                                        disabled={salvandoCampanha || adminActionsDisabled}
-                                                        className={`w-full rounded-xl bg-red-600 py-2 text-sm font-bold text-white hover:bg-red-700 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                    >
-                                                        Desativar agora
-                                                    </button>
-                                                )}
-                                                {!ativa && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => abrirModalExclusaoCampanha(campanha)}
-                                                        disabled={salvandoCampanha || excluindoCampanha || adminActionsDisabled}
-                                                        className={`w-full rounded-xl border border-red-200 bg-white py-2 text-sm font-bold text-red-700 hover:bg-red-50 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                                    >
-                                                        Excluir campanha
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                }) : (
-                                    <div className="md:col-span-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-slate-500">
-                                        Nenhuma campanha cadastrada ainda.
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </section>
-                )}
-
-                {activeTab === 'comunicados' && (
-                    <section role="tabpanel" aria-labelledby="tab-comunicados" className="space-y-6">
-                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                <h2 className="text-xl font-black text-slate-900">Comunicado geral</h2>
-                                <span className="text-sm text-slate-500">{totalDestinoComunicado} destino(s)</span>
-                            </div>
-
-                            <form onSubmit={enviarComunicadoGeral} className="mt-4">
-                                <fieldset disabled={adminActionsDisabled || enviandoComunicado} className={`space-y-5 ${adminActionsDisabled ? 'opacity-60' : ''}`}>
-                                    <div>
-                                        <label className="mb-2 block text-xs font-bold uppercase text-slate-500">Destino</label>
-                                        <div className="flex flex-wrap gap-2">
-                                            {[
-                                                { value: 'todos', label: `Todos os aprovados (${totalAprovados})` },
-                                                { value: 'admins', label: `Somente admins (${totalAdmins})` }
-                                            ].map((option) => {
-                                                const ativa = destinoComunicado === option.value;
-
-                                                return (
-                                                    <button
-                                                        key={option.value}
-                                                        type="button"
-                                                        onClick={() => setDestinoComunicado(option.value)}
-                                                        className={`rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${ativa ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                                                    >
-                                                        {option.label}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Mensagem</label>
-                                        <textarea
-                                            rows={5}
-                                            placeholder="Ex: O app foi atualizado. Fechem e abram novamente para carregar a nova versão."
-                                            className="w-full resize-y rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
-                                            value={comunicadoGeral}
-                                            onChange={(e) => setComunicadoGeral(e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                                        <p className="text-sm text-slate-500">
-                                            {relayDisponivel()
-                                                ? 'Push e aviso interno para quem estiver habilitado.'
-                                                : 'Aviso interno disponível dentro do app.'}
-                                        </p>
-                                        <button
-                                            type="submit"
-                                            disabled={enviandoComunicado || totalDestinoComunicado === 0 || adminActionsDisabled}
-                                            className={`rounded-xl bg-amber-500 px-6 py-3 text-sm font-bold text-white transition-all hover:bg-amber-600 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                        >
-                                            {enviandoComunicado ? 'Enviando...' : 'Enviar comunicado'}
-                                        </button>
-                                    </div>
-                                </fieldset>
-                            </form>
-                        </div>
-                    </section>
-                )}
-            
-
-            {campanhaParaExcluir && (
-                <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={fecharModalExclusaoCampanha}>
-                    <div className="w-full max-w-lg rounded-2xl border border-red-100 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-start justify-between gap-4 border-b border-red-100 bg-red-50 px-6 py-4">
-                            <div>
-                                <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-500">Exclusão definitiva</p>
-                                <h3 className="mt-1 text-xl font-extrabold text-red-700">
-                                    Excluir campanha "{campanhaParaExcluir.titulo || campanhaParaExcluir.id}"
-                                </h3>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={fecharModalExclusaoCampanha}
-                                disabled={excluindoCampanha}
-                                className="rounded-lg px-2 py-1 text-red-400 hover:bg-white hover:text-red-600 disabled:opacity-50"
-                            >
-                                ✕
-                            </button>
-                        </div>
-
-                        <div className="space-y-5 px-6 py-5">
-                            <p className="text-sm leading-relaxed text-gray-600">
-                                Essa ação apaga a campanha cadastrada e todo o progresso salvo nela. Não existe restauração automática depois da exclusão.
-                            </p>
-
-                            <div className="grid gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 md:grid-cols-2">
-                                <div>
-                                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Título</p>
-                                    <p className="mt-1 font-bold text-gray-800">{campanhaParaExcluir.titulo || campanhaParaExcluir.id}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Identificador</p>
-                                    <p className="mt-1 font-mono text-xs text-gray-600">{campanhaParaExcluir.id}</p>
-                                </div>
-                                <div className="md:col-span-2">
-                                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Registros de progresso vinculados</p>
-                                    <p className="mt-1 font-bold text-gray-800">
-                                        {carregandoResumoExclusao ? 'Carregando...' : `${registrosCampanhaParaExcluir} registro(s) em territorios_contexto`}
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-gray-500">
-                                    Digite <span className="rounded bg-red-100 px-1.5 py-0.5 font-mono text-red-700">{campanhaParaExcluir.id}</span> para confirmar
-                                </label>
-                                <input
-                                    type="text"
-                                    value={confirmacaoExclusao}
-                                    onChange={(e) => setConfirmacaoExclusao(e.target.value)}
-                                    placeholder="Confirme o identificador"
-                                    className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition-all focus:border-red-400 focus:ring-2 focus:ring-red-200"
-                                    disabled={excluindoCampanha || adminActionsDisabled}
-                                />
-                            </div>
-
-                            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                                <button
-                                    type="button"
-                                    onClick={fecharModalExclusaoCampanha}
-                                    disabled={excluindoCampanha}
-                                    className="rounded-lg border border-gray-300 px-4 py-2.5 font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={excluirCampanha}
-                                    disabled={excluindoCampanha || carregandoResumoExclusao || confirmacaoExclusao.trim() !== campanhaParaExcluir.id || adminActionsDisabled}
-                                    className={`rounded-lg bg-red-600 px-4 py-2.5 font-bold text-white hover:bg-red-700 ${ADMIN_OFFLINE_ACTION_CLASS}`}
-                                >
-                                    {excluindoCampanha ? 'Excluindo...' : 'Excluir definitivamente'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            {activeTab === 'comunicados' && (
+                <ComunicadosTab
+                    comunicadoGeral={comunicadoGeral}
+                    setComunicadoGeral={setComunicadoGeral}
+                    destinoComunicado={destinoComunicado}
+                    setDestinoComunicado={setDestinoComunicado}
+                    enviandoComunicado={enviandoComunicado}
+                    enviarComunicadoGeral={enviarComunicadoGeral}
+                    totalDestinoComunicado={totalDestinoComunicado}
+                    totalAprovados={totalAprovados}
+                    totalAdmins={totalAdmins}
+                    adminActionsDisabled={adminActionsDisabled}
+                />
             )}
         </AppPage>
     );
