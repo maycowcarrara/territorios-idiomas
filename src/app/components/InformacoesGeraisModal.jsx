@@ -188,47 +188,47 @@ export const InformacoesGeraisModal = ({ isOpen, onClose }) => {
       title="Informações gerais"
       subtitle="Resumo atualizado dos territórios de idiomas."
       size="md"
-      accentClass="bg-slate-800"
+      accentClass="bg-slate-900"
       titleIcon={(
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M18 10A8 8 0 112 10a8 8 0 0116 0zM9 8a1 1 0 112 0v5a1 1 0 11-2 0V8zm1-3a1.25 1.25 0 100 2.5A1.25 1.25 0 0010 5z" clipRule="evenodd" />
         </svg>
       )}
       footer={(
-        <button onClick={onClose} className={buttonClass('primary', 'w-full')}>
+        <button onClick={onClose} className={buttonClass('secondary', 'w-full')}>
           Fechar
         </button>
       )}
     >
       {loading && !resumo ? (
-        <div className="py-10 flex flex-col items-center justify-center text-gray-500">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-3 text-sm font-medium">Carregando informações...</p>
+        <div className="py-12 flex flex-col items-center justify-center text-slate-400">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-blue-600"></div>
+          <p className="mt-3 text-xs font-semibold text-slate-500">Carregando informações...</p>
         </div>
       ) : (
         <div className="space-y-4">
           {erro ? (
-            <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <div className="rounded-xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm font-semibold text-red-700">
               {erro}
             </div>
           ) : null}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {cards.map((card) => (
-              <div key={card.label} className={`rounded-xl border px-4 py-3 ${card.bgClass} ${card.borderClass}`}>
-                <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">{card.label}</p>
-                <p className={`mt-2 text-3xl font-black leading-none ${card.textClass}`}>
+              <div key={card.label} className={`rounded-2xl border p-4 shadow-sm shadow-slate-900/5 ${card.bgClass} ${card.borderClass}`}>
+                <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">{card.label}</p>
+                <p className={`mt-2 text-3xl font-black tracking-tight leading-none ${card.textClass}`}>
                   {resumo ? formatInfoNumber(card.value) : '--'}
                 </p>
-                <p className="mt-2 min-h-8 text-xs font-semibold leading-4 text-slate-500">{card.description}</p>
+                <p className="mt-2 text-xs font-medium leading-4 text-slate-500">{card.description}</p>
               </div>
             ))}
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white">
+          <div className="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-sm shadow-slate-900/5">
             {(resumo?.detalhes || []).map((item) => (
               <div key={item.label} className="flex items-center justify-between gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0">
-                <span className="text-sm font-semibold text-slate-600">{item.label}</span>
+                <span className="text-sm font-medium text-slate-600">{item.label}</span>
                 <span className="text-sm font-black text-slate-900">{formatInfoNumber(item.value)}</span>
               </div>
             ))}

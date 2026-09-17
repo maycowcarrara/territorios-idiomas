@@ -281,25 +281,27 @@ function Dashboard() {
   if (!autorizado) {
     if (role === 'aguardando') {
       return (
-        <div className="h-[100dvh] flex items-center justify-center bg-gray-50 p-6">
-          <div className="w-full max-w-md bg-white shadow-xl rounded-2xl p-8 text-center border border-blue-100 animate-fade-in">
-            <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
-              🕒
+        <div className="h-[100dvh] flex items-center justify-center bg-gradient-to-b from-slate-100 via-slate-50 to-slate-200/90 p-6">
+          <div className="w-full max-w-md bg-white shadow-xl shadow-slate-900/10 rounded-2xl p-8 text-center border border-slate-200/80 animate-fade-in">
+            <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-blue-100 shadow-sm">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Cadastro em Análise</h2>
-            <p className="text-gray-600 mb-6 leading-relaxed">
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">Cadastro em Análise</h2>
+            <p className="text-slate-600 mb-6 text-sm leading-relaxed">
               Olá, <strong>{user.displayName || user.email}</strong>! <br />
               Seu acesso já foi solicitado e notificamos os administradores.
               <br /><br />
-              <span className="text-sm bg-blue-50 text-blue-700 py-1 px-3 rounded-full">
+              <span className="inline-block text-xs font-semibold bg-blue-50 text-blue-700 py-1.5 px-3.5 rounded-full border border-blue-100">
                 Fique tranquilo, em breve será liberado!
               </span>
             </p>
             <div className="flex flex-col gap-3">
-              <button onClick={() => window.location.reload()} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-sm">
+              <button onClick={() => window.location.reload()} className={buttonClass('primary', 'w-full')}>
                 Verificar novamente
               </button>
-              <button onClick={handleLogout} className="w-full py-3 border border-gray-200 text-gray-500 rounded-xl font-medium hover:bg-gray-50 transition-colors">
+              <button onClick={handleLogout} className={buttonClass('secondary', 'w-full')}>
                 Sair por enquanto
               </button>
             </div>
@@ -313,11 +315,16 @@ function Dashboard() {
       );
     }
     return (
-      <div className="h-[100dvh] flex items-center justify-center bg-gray-100 p-4">
-        <div className="w-full max-w-md bg-white shadow-xl rounded-xl p-6 text-center border border-red-100">
-          <h2 className="text-2xl font-bold text-red-600 mb-2">Acesso Restrito</h2>
-          <p className="mb-6 text-gray-600">O e-mail <strong>{user.email}</strong> não possui permissão de acesso.</p>
-          <button onClick={handleLogout} className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-gray-700">Sair</button>
+      <div className="h-[100dvh] flex items-center justify-center bg-gradient-to-b from-slate-100 to-slate-200 p-4">
+        <div className="w-full max-w-md bg-white shadow-xl shadow-slate-900/10 rounded-2xl p-6 text-center border border-red-100 animate-fade-in">
+          <div className="w-14 h-14 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">Acesso Restrito</h2>
+          <p className="mb-6 text-sm text-slate-600">O e-mail <strong>{user.email}</strong> não possui permissão de acesso.</p>
+          <button onClick={handleLogout} className={buttonClass('secondary', 'w-full')}>Sair</button>
         </div>
         <ModalConfirmacaoLogout
           isOpen={confirmarLogoutAberto}
@@ -412,17 +419,17 @@ function Dashboard() {
 
       {/* CABEÇALHO */}
       <div className="relative z-20 flex-shrink-0">
-        <div className={`app-safe-header min-h-16 ${temaSistema.headerBg} text-white shadow-md px-2.5 sm:px-4 flex items-center justify-between`}>
+        <div className={`app-safe-header min-h-16 ${temaSistema.headerBg} text-white shadow-md border-b border-white/10 px-2.5 sm:px-4 flex items-center justify-between`}>
           
           {/* LADO ESQUERDO: LOGO E TÍTULO */}
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             <img 
               src={APP_ICON_192} 
               alt="Logo" 
-              className={`h-9 w-9 rounded-lg shadow-sm ${temaSistema.headerBorder} border`} 
+              className="h-9 w-9 rounded-xl shadow-sm border border-white/20 object-cover"
             />
             <div className="min-w-0 flex-1">
-              <span className="text-xl font-bold tracking-wide hidden sm:block">Territórios</span>
+              <span className="text-lg sm:text-xl font-black tracking-tight text-white hidden sm:block">Territórios</span>
               <div className="sm:hidden">
                 <SistemaChip
                   contextoSistema={contextoSistema}
@@ -442,7 +449,7 @@ function Dashboard() {
           </div>
 
           {/* LADO DIREITO: ÍCONES E BOTÕES */}
-          <div className="ml-1.5 sm:ml-3 flex shrink-0 items-center gap-1 sm:gap-3">
+          <div className="ml-1.5 sm:ml-3 flex shrink-0 items-center gap-1 sm:gap-2">
             <StatusSincronizacaoChip
               isAdmin={isAdmin}
               isOnline={isOnline}
@@ -455,37 +462,37 @@ function Dashboard() {
               <button
                 type="button"
                 onClick={() => setInformacoesGeraisAberto(true)}
-                className={`p-1.5 sm:p-2 text-white/90 hover:text-white ${temaSistema.headerHover} rounded-full transition-colors relative`}
+                className="flex h-9 w-9 items-center justify-center text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-all active:scale-95"
                 title="Informações gerais"
                 aria-label="Informações gerais"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M18 10A8 8 0 112 10a8 8 0 0116 0zM9 8a1 1 0 112 0v5a1 1 0 11-2 0V8zm1-3a1.25 1.25 0 100 2.5A1.25 1.25 0 0010 5z" clipRule="evenodd" />
                 </svg>
               </button>
             )}
             
-            {/* ATALHO 1: RELATÓRIOS (SÓ ADMIN) - Sempre visível agora */}
+            {/* ATALHO 1: RELATÓRIOS (SÓ ADMIN) */}
             {isAdmin && (
               <button
                 onClick={() => navigate('/relatorios')}
-                className={`p-1.5 sm:p-2 text-white/90 hover:text-white ${temaSistema.headerHover} rounded-full transition-colors relative`}
+                className="flex h-9 w-9 items-center justify-center text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-all active:scale-95"
                 title="Relatórios"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                 </svg>
               </button>
             )}
 
-            {/* ATALHO 2: AJUDA (QUEM NÃO É ADMIN) - Sempre visível agora */}
+            {/* ATALHO 2: AJUDA (QUEM NÃO É ADMIN) */}
             {!isAdmin && (
               <button
                 onClick={() => setAjudaAberta(true)}
-                className={`p-1.5 sm:p-2 text-white/90 hover:text-white ${temaSistema.headerHover} rounded-full transition-colors relative`}
+                className="flex h-9 w-9 items-center justify-center text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-all active:scale-95"
                 title="Como Usar"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </button>
@@ -501,20 +508,23 @@ function Dashboard() {
 
             <button
               onClick={() => setMeusTerritoriosAberto(true)}
-              className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 ${temaSistema.headerSoft} ${temaSistema.headerSoftHover} rounded-full shadow-sm text-sm font-semibold transition-colors active:scale-95 ${temaSistema.headerBorder} border`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/25 border border-white/20 text-white shadow-sm transition-all active:scale-95"
+              title="Meus Territórios"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-blue-300" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
               </svg>
-              <span className="text-xs uppercase tracking-wider">Meus</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Meus</span>
             </button>
 
             <button
               onClick={() => setMenuAberto(true)}
-              className={`p-1 ${temaSistema.headerHover} rounded transition-colors ml-0.5 sm:ml-1`}
+              className="flex h-9 w-9 items-center justify-center text-white/85 hover:text-white hover:bg-white/10 rounded-xl transition-all ml-0.5"
+              title="Abrir menu"
+              aria-label="Abrir menu"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
               </svg>
             </button>
           </div>

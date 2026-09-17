@@ -86,26 +86,26 @@ export function ModalFrame({
 
   return (
     <div
-      className="fixed inset-0 z-[3000] flex items-stretch justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in sm:items-center"
+      className="fixed inset-0 z-[3000] flex items-stretch justify-center bg-slate-900/45 p-3 sm:p-4 backdrop-blur-sm animate-fade-in sm:items-center"
       onClick={onClose}
     >
       <div
         className={cn(
-          'flex h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:h-auto sm:max-h-[88vh]',
+          'flex h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl shadow-slate-900/25 border border-slate-200/80 sm:h-auto sm:max-h-[88vh]',
           modalSizeClass[size] || modalSizeClass.md,
           panelClassName
         )}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className={cn('shrink-0 border-b border-white/10 px-4 py-4 text-white sm:px-5', accentClass)}>
+        <div className={cn('shrink-0 border-b border-white/10 px-4 py-3.5 text-white sm:px-5 sm:py-4', accentClass)}>
           <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h3 className="flex items-center gap-2 text-lg font-black leading-tight">
+            <div className="min-w-0 flex-1">
+              <h3 className="flex items-center gap-2 text-base sm:text-lg font-black leading-tight">
                 {titleIcon ? <span className="shrink-0">{titleIcon}</span> : null}
-                <span>{title}</span>
+                <span className="truncate">{title}</span>
               </h3>
               {subtitle ? (
-                <p className="mt-1 text-sm font-medium text-white/80">
+                <p className="mt-1 text-xs sm:text-sm font-medium text-white/80">
                   {subtitle}
                 </p>
               ) : null}
@@ -114,10 +114,12 @@ export function ModalFrame({
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-xl font-bold leading-none text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white active:scale-95"
               aria-label="Fechar"
             >
-              &times;
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
         </div>
@@ -127,7 +129,7 @@ export function ModalFrame({
         </div>
 
         {footer ? (
-          <div className={cn('shrink-0 border-t border-slate-100 bg-slate-50 p-4', footerClassName)}>
+          <div className={cn('shrink-0 border-t border-slate-100 bg-slate-50/90 p-4', footerClassName)}>
             {footer}
           </div>
         ) : null}

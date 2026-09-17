@@ -60,33 +60,33 @@ export function getSistemaTheme(config) {
 
     if (!contexto.campanhaAtiva) {
         return {
-            headerBg: 'bg-blue-600',
-            headerBorder: 'border-blue-400/40',
-            headerHover: 'hover:bg-blue-700',
-            headerSoft: 'bg-blue-700/80',
-            headerSoftHover: 'hover:bg-blue-800',
-            chipBg: 'bg-blue-800/60',
-            chipText: 'text-blue-50',
-            chipBorder: 'border-blue-300/40',
-            panelBg: 'bg-blue-50',
-            panelBorder: 'border-blue-100',
-            panelText: 'text-blue-700',
+            headerBg: 'bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900',
+            headerBorder: 'border-blue-500/20',
+            headerHover: 'hover:bg-white/10',
+            headerSoft: 'bg-white/10',
+            headerSoftHover: 'hover:bg-white/20',
+            chipBg: 'bg-blue-900/60',
+            chipText: 'text-blue-100',
+            chipBorder: 'border-blue-400/30',
+            panelBg: 'bg-slate-50',
+            panelBorder: 'border-slate-200',
+            panelText: 'text-slate-700',
             accentText: 'text-blue-600'
         };
     }
 
     return {
-        headerBg: 'bg-violet-600',
-        headerBorder: 'border-violet-300/40',
-        headerHover: 'hover:bg-violet-700',
-        headerSoft: 'bg-violet-700/80',
-        headerSoftHover: 'hover:bg-violet-800',
-        chipBg: 'bg-violet-900/50',
-        chipText: 'text-violet-50',
-        chipBorder: 'border-violet-200/40',
-        panelBg: 'bg-violet-50',
+        headerBg: 'bg-gradient-to-r from-purple-950 via-violet-900 to-slate-900',
+        headerBorder: 'border-violet-400/30',
+        headerHover: 'hover:bg-white/10',
+        headerSoft: 'bg-white/10',
+        headerSoftHover: 'hover:bg-white/20',
+        chipBg: 'bg-violet-900/70',
+        chipText: 'text-violet-100',
+        chipBorder: 'border-violet-400/30',
+        panelBg: 'bg-violet-50/50',
         panelBorder: 'border-violet-100',
-        panelText: 'text-violet-700',
+        panelText: 'text-violet-800',
         accentText: 'text-violet-600'
     };
 }

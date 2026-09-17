@@ -4,15 +4,28 @@
 
 :root {
   --app-safe-area-top: env(safe-area-inset-top, 0px);
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --surface-elevated: #ffffff;
+  --border-subtle: rgba(226, 232, 240, 0.8);
+  --shadow-subtle: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.05);
+  --shadow-floating: 0 10px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.06);
 }
 
-/* Ajuste para o mapa ocupar a tela toda depois */
+/* Ajuste para o mapa ocupar a tela toda */
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
   padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
 }
 
 @media (max-width: 639px) {
@@ -24,6 +37,36 @@ body,
   .app-safe-panel-header {
     padding-top: calc(1rem + var(--app-safe-area-top));
   }
+}
+
+/* Utilitários visuais de superfície moderna */
+.glass-panel {
+  background-color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-panel-dark {
+  background-color: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.map-floating-btn {
+  background-color: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.12), 0 2px 6px -1px rgba(15, 23, 42, 0.08);
+}
+
+.map-floating-btn:hover {
+  background-color: #ffffff;
+  border-color: rgba(203, 213, 225, 1);
+}
+
+.map-floating-btn:active {
+  transform: scale(0.96);
 }
 
 /* Remove o fundo branco padrão dos números nas bolinhas */

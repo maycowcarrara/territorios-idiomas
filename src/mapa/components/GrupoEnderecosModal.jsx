@@ -21,7 +21,7 @@ export const GrupoEnderecosModal = ({
     return (
         <div
             ref={modalRef}
-            className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/45 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+            className="fixed inset-0 z-[9999] flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4 animate-fade-in"
             style={{ zIndex: 9999 }}
             onClick={(event) => {
                 stopMapDomEvent(event);
@@ -30,51 +30,53 @@ export const GrupoEnderecosModal = ({
             onMouseDown={stopMapDomEvent}
         >
             <div
-                className="max-h-[82vh] w-full max-w-md overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
+                className="max-h-[85vh] w-full max-w-md overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl border border-slate-200/80"
                 onClick={stopMapDomEvent}
             >
-                <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-slate-50/50 px-5 py-3.5">
                     <div>
-                        <h3 className="text-base font-extrabold leading-tight text-slate-800">Endereços do {grupoCodigo}</h3>
-                        <p className="mt-0.5 text-xs font-semibold leading-tight text-slate-500">{grupoNome}</p>
+                        <h3 className="text-base font-black leading-tight text-slate-900">Endereços do {grupoCodigo}</h3>
+                        <p className="mt-0.5 text-xs font-medium leading-tight text-slate-500">{grupoNome}</p>
                     </div>
                     <button
                         type="button"
                         onClick={onClose}
                         disabled={loading}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg font-bold leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-200/60 hover:text-slate-700 disabled:opacity-50"
                         aria-label="Fechar endereços"
                     >
-                        ×
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
                     </button>
                 </div>
-                <div className="max-h-[62vh] overflow-y-auto p-3">
-                    <div className="space-y-2">
+                <div className="max-h-[62vh] overflow-y-auto p-4">
+                    <div className="space-y-2.5">
                         {enderecos.map((endereco) => {
                             const feito = visitados.has(endereco.id);
                             return (
                                 <div
                                     key={endereco.id}
-                                    className={`grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg border p-2 text-sm transition ${feito ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}
+                                    className={`grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2.5 rounded-xl border p-3 text-sm transition-all ${feito ? 'border-emerald-200/80 bg-emerald-50/70 text-emerald-900' : 'border-slate-200/80 bg-slate-50/50 text-slate-700 hover:bg-white hover:border-slate-300'}`}
                                 >
                                     <button
                                         type="button"
                                         onClick={() => onToggleVisitado(endereco)}
                                         disabled={!podeExecutar || loading}
-                                        className="flex min-w-0 items-start gap-3 rounded-md px-1 py-0.5 text-left transition hover:bg-white/55 disabled:cursor-not-allowed disabled:opacity-60"
+                                        className="flex min-w-0 items-start gap-3 rounded-lg text-left transition disabled:cursor-not-allowed disabled:opacity-60"
                                         aria-label={`${feito ? 'Desmarcar' : 'Marcar como pregado'} ${formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}`}
                                     >
-                                        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-black ${feito ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-transparent'}`}>✓</span>
+                                        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-lg border text-xs font-black transition-colors ${feito ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-transparent'}`}>✓</span>
                                         <span className="min-w-0">
-                                            <span className="block font-extrabold leading-tight text-slate-800">{formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}</span>
-                                            <span className="mt-0.5 block leading-snug">{endereco.endereco || 'Sem endereço'}</span>
-                                            <span className="mt-1 block text-xs font-semibold text-slate-500">{endereco.quantidadeEstrangeiros || 0} estrangeiro(s)</span>
+                                            <span className="block font-black leading-tight text-slate-800">{formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}</span>
+                                            <span className="mt-0.5 block text-xs font-medium leading-snug text-slate-600">{endereco.endereco || 'Sem endereço'}</span>
+                                            <span className="mt-1 block text-[11px] font-semibold text-slate-400">{endereco.quantidadeEstrangeiros || 0} estrangeiro(s)</span>
                                         </span>
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => onNavigate(endereco)}
-                                        className="self-stretch rounded-md border border-blue-200 bg-white px-3 text-xs font-extrabold text-blue-700 transition hover:bg-blue-50"
+                                        className="self-stretch flex items-center justify-center rounded-xl border border-blue-200/80 bg-white px-3 text-xs font-bold text-blue-700 shadow-sm transition hover:bg-blue-50 active:scale-95"
                                         aria-label={`Navegar para ${formatEnderecoCodigoExibicao(endereco.codigo || endereco.id)}`}
                                     >
                                         Navegar
@@ -85,7 +87,7 @@ export const GrupoEnderecosModal = ({
                     </div>
                 </div>
                 {!podeExecutar && (
-                    <div className="border-t border-slate-200 bg-slate-50 px-4 py-2 text-center text-xs font-semibold text-slate-500">
+                    <div className="border-t border-slate-100 bg-slate-50/80 px-4 py-2.5 text-center text-xs font-semibold text-slate-500">
                         Marcação somente leitura.
                     </div>
                 )}
