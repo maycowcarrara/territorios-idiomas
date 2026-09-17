@@ -115,6 +115,17 @@ export function formatEnderecoCodigoExibicao(value) {
     return `E-${Number.parseInt(match[1], 10)}`;
 }
 
+export function formatEnderecoCodigoMarcador(value) {
+    const codigo = String(formatEnderecoCodigoExibicao(value) || value || '').trim();
+    const match = codigo.match(/(?:^|[-_])0*(\d+)$/);
+
+    if (match) {
+        return `E-${Number.parseInt(match[1], 10)}`;
+    }
+
+    return codigo || 'E';
+}
+
 export function getEnderecoDocIdFromSequence(sequence) {
     const safeSequence = Math.max(1, Number.parseInt(sequence, 10) || 1);
     return `e_${String(safeSequence).padStart(ENDERECO_CODE_WIDTH, '0')}`;

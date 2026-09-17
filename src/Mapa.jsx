@@ -78,6 +78,8 @@ import { createEmptyBairroResumo, getBairroSbsColor } from './mapa/layers/bairro
 import { stopMapDomEvent, useLeafletDomEventIsolation } from './mapa/utils/mapDomEvents';
 import { MarcadorUsuario } from './mapa/components/MarcadorUsuario';
 import { PontoMapaClicado } from './mapa/components/PontoMapaClicado';
+import { EnderecoClusterMarker } from './mapa/components/EnderecoClusterMarker';
+import { clusterEnderecos } from './mapa/utils/enderecoClusterUtils';
 import { SeletorCamadas } from './mapa/controls/SeletorCamadas';
 import { ControlesNavegacao } from './mapa/controls/ControlesNavegacao';
 import {
@@ -384,6 +386,18 @@ const cssTooltip = `
   .map-group-marker-time { padding: 1px 5px; border-radius: 999px; background: rgba(255,255,255,0.86); border: 1px solid rgba(15,23,42,0.12); color: #7c2d12; box-shadow: 0 2px 8px rgba(15,23,42,0.18); font-size: 9px; line-height: 1.1; font-weight: 950; text-transform: uppercase; text-shadow: 1px 1px 0 rgba(255,255,255,0.74); white-space: nowrap; }
   .map-click-marker { width: 28px; height: 28px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.apoio.clique}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(37,99,235,0.35); font-size: 16px; line-height: 1; font-weight: 900; }
   .map-click-marker.search { background: #7c3aed; box-shadow: 0 4px 14px rgba(124,58,237,0.38); }
+  .map-cluster-marker { position: relative; width: 38px; height: 38px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #4f46e5, #4338ca); color: white; border: 3px solid white; box-shadow: 0 4px 14px rgba(15,23,42,0.38), 0 0 0 1px rgba(79,70,229,0.2); cursor: pointer; transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .map-cluster-marker:hover { transform: scale(1.14); box-shadow: 0 6px 18px rgba(15,23,42,0.45), 0 0 0 3px rgba(99,102,241,0.35); }
+  .map-cluster-marker.large { width: 44px; height: 44px; }
+  .map-cluster-count { font-size: 13px; font-weight: 950; line-height: 1; letter-spacing: 0; }
+  .map-cluster-marker.large .map-cluster-count { font-size: 14px; }
+  .map-cluster-marker.all-visited { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 4px 14px rgba(16,185,129,0.45); }
+  .map-cluster-marker.partial-visited { background: linear-gradient(135deg, #0d9488, #0f766e); }
+  .map-cluster-marker.coincident { border-color: #fef08a; box-shadow: 0 4px 14px rgba(15,23,42,0.38), 0 0 0 2px rgba(250,204,21,0.6); }
+  .map-cluster-badge { position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; border-radius: 999px; background: #dcfce7; color: #15803d; border: 2px solid #fff; font-size: 10px; line-height: 1; font-weight: 950; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
+  .map-cluster-sub { position: absolute; bottom: -6px; background: rgba(15,23,42,0.85); color: #fff; font-size: 8px; font-weight: 900; padding: 1px 4px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.7); line-height: 1; letter-spacing: -0.2px; }
+  .leaflet-popup.cluster-enderecos-popup .leaflet-popup-content-wrapper { padding: 8px 10px; border-radius: 14px; box-shadow: 0 12px 30px rgba(15,23,42,0.25); }
+  .leaflet-popup.cluster-enderecos-popup .leaflet-popup-content { margin: 0; width: auto !important; }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-content-wrapper { padding: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 30px rgba(15,23,42,0.22); }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-content { margin: 0; width: auto !important; }
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-close-button { top: 7px; right: 7px; width: 22px; height: 22px; border-radius: 999px; color: #64748b; font-size: 16px; line-height: 21px; transition: background-color 0.2s, color 0.2s; }
@@ -694,52 +708,6 @@ const EnderecoMarker = ({
     );
 };
 
-const buildEnderecoMarkerOffsets = (enderecos, map, zoomLevel) => {
-    const zoom = Number.isFinite(Number(zoomLevel)) ? Number(zoomLevel) : map.getZoom();
-    const markers = enderecos
-        .map((endereco) => {
-            const lat = Number(endereco.lat);
-            const lng = Number(endereco.lng);
-            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-
-            return {
-                endereco,
-                point: map.project([lat, lng], zoom)
-            };
-        })
-        .filter(Boolean)
-        .sort((a, b) => String(a.endereco.codigo || a.endereco.id).localeCompare(String(b.endereco.codigo || b.endereco.id)));
-    const clusters = [];
-    const thresholdPx = 22;
-
-    markers.forEach((marker) => {
-        const cluster = clusters.find((item) => item.some((existing) => marker.point.distanceTo(existing.point) <= thresholdPx));
-        if (cluster) {
-            cluster.push(marker);
-        } else {
-            clusters.push([marker]);
-        }
-    });
-
-    const offsets = new Map();
-    clusters.forEach((cluster) => {
-        if (cluster.length <= 1) return;
-
-        const radius = cluster.length <= 3 ? 12 : 16;
-        cluster.forEach((marker, index) => {
-            const angle = (-Math.PI / 2) + ((Math.PI * 2 * index) / cluster.length);
-            const point = marker.point.add(L.point(
-                Math.round(Math.cos(angle) * radius),
-                Math.round(Math.sin(angle) * radius)
-            ));
-            const latLng = map.unproject(point, zoom);
-            offsets.set(marker.endereco.id, [latLng.lat, latLng.lng]);
-        });
-    });
-
-    return offsets;
-};
-
 const EnderecoMarkersLayer = ({
     enderecos,
     zoomLevel,
@@ -760,30 +728,53 @@ const EnderecoMarkersLayer = ({
     onToggleVisited
 }) => {
     const map = useMap();
-    const markerOffsets = useMemo(() => buildEnderecoMarkerOffsets(enderecos, map, zoomLevel), [enderecos, map, zoomLevel]);
+    const clusterItems = useMemo(
+        () => clusterEnderecos(enderecos, map, zoomLevel),
+        [enderecos, map, zoomLevel]
+    );
 
-    return enderecos.map((endereco) => (
-        <EnderecoMarker
-            key={endereco.id}
-            endereco={endereco}
-            markerPosition={markerOffsets.get(endereco.id)}
-            isHighlighted={highlightedEnderecoIds.has(endereco.id)}
-            isAdmin={isAdmin}
-            isOnline={isOnline}
-            isSelected={selectedEnderecoIds.includes(endereco.id)}
-            canSelect={canSelectEndereco(endereco)}
-            focusMode={focusMode}
-            isVisited={visitadosGrupoFocado.has(endereco.id)}
-            canMarkVisited={canMarkVisited}
-            onShare={onShare}
-            onNavigate={onNavigate}
-            onEdit={onEdit}
-            onToggleArchive={onToggleArchive}
-            onToggleSelect={onToggleSelect}
-            onRemoveFromGroup={onRemoveFromGroup}
-            onToggleVisited={onToggleVisited}
-        />
-    ));
+    return clusterItems.map((item) => {
+        if (item.isCluster) {
+            return (
+                <EnderecoClusterMarker
+                    key={item.id}
+                    cluster={item}
+                    focusMode={focusMode}
+                    visitadosGrupoFocado={visitadosGrupoFocado}
+                    canMarkVisited={canMarkVisited}
+                    isAdmin={isAdmin}
+                    isOnline={isOnline}
+                    onNavigate={onNavigate}
+                    onEdit={onEdit}
+                    onToggleVisited={onToggleVisited}
+                    onShare={onShare}
+                />
+            );
+        }
+
+        const endereco = item.endereco;
+        return (
+            <EnderecoMarker
+                key={endereco.id}
+                endereco={endereco}
+                isHighlighted={highlightedEnderecoIds?.has?.(endereco.id)}
+                isAdmin={isAdmin}
+                isOnline={isOnline}
+                isSelected={selectedEnderecoIds?.includes?.(endereco.id)}
+                canSelect={canSelectEndereco?.(endereco)}
+                focusMode={focusMode}
+                isVisited={visitadosGrupoFocado?.has?.(endereco.id)}
+                canMarkVisited={canMarkVisited}
+                onShare={onShare}
+                onNavigate={onNavigate}
+                onEdit={onEdit}
+                onToggleArchive={onToggleArchive}
+                onToggleSelect={onToggleSelect}
+                onRemoveFromGroup={onRemoveFromGroup}
+                onToggleVisited={onToggleVisited}
+            />
+        );
+    });
 };
 
 const buildGrupoBoundsPositions = (bounds) => {
