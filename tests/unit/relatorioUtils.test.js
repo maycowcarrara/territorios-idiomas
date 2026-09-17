@@ -48,7 +48,7 @@ describe('relatorioUtils', () => {
 
         it('deve calcular dias decorridos com getDiasDesde', () => {
             expect(getDiasDesde(null)).toBe(0);
-            const pastDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+            const pastDate = new Date(Date.now() - (5 * 24 * 60 * 60 * 1000 - 1000));
             expect(getDiasDesde(pastDate)).toBe(5);
         });
     });

@@ -9,6 +9,7 @@ import {
     getEnderecoDocIdFromSequence,
     formatGrupoEnderecoCodigo,
     formatGrupoEnderecoCodigoExibicao,
+    formatGrupoEnderecoCodigoMarcador,
     formatGrupoEnderecoNomeExibicao,
     getGrupoEnderecoDocIdFromSequence
 } from '../../src/enderecoModel.js';
@@ -84,10 +85,24 @@ describe('enderecoCodigos e formatadores', () => {
             expect(formatGrupoEnderecoCodigo(0)).toBe('T-001');
         });
 
-        it('formatGrupoEnderecoCodigoExibicao deve simplificar zeros à esquerda', () => {
+        it('formatGrupoEnderecoCodigoExibicao deve simplificar zeros à esquerda e decodificar docId', () => {
             expect(formatGrupoEnderecoCodigoExibicao('T-001')).toBe('T-1');
             expect(formatGrupoEnderecoCodigoExibicao('g_010')).toBe('T-10');
             expect(formatGrupoEnderecoCodigoExibicao('ES-SBS-T01')).toBe('ES-SBS-T01');
+            expect(formatGrupoEnderecoCodigoExibicao('g_es_sbs_t01')).toBe('ES-SBS-T01');
+            expect(formatGrupoEnderecoCodigoExibicao('g_t_001')).toBe('T-1');
+            expect(formatGrupoEnderecoCodigoExibicao('g_t_01')).toBe('T-1');
+            expect(formatGrupoEnderecoCodigoExibicao('')).toBe('');
+        });
+
+        it('formatGrupoEnderecoCodigoMarcador deve extrair formato curto para pino do mapa', () => {
+            expect(formatGrupoEnderecoCodigoMarcador('ES-SBS-T01')).toBe('T-1');
+            expect(formatGrupoEnderecoCodigoMarcador('g_es_sbs_t01')).toBe('T-1');
+            expect(formatGrupoEnderecoCodigoMarcador('T-001')).toBe('T-1');
+            expect(formatGrupoEnderecoCodigoMarcador('g_010')).toBe('T-10');
+            expect(formatGrupoEnderecoCodigoMarcador('T-15')).toBe('T-15');
+            expect(formatGrupoEnderecoCodigoMarcador('ES-SBS-T99')).toBe('T-99');
+            expect(formatGrupoEnderecoCodigoMarcador('')).toBe('T');
         });
 
         it('formatGrupoEnderecoNomeExibicao deve formatar o nome ou fallback para Território T-X', () => {

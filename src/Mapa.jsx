@@ -47,6 +47,7 @@ import {
     finalizarGrupoEnderecoDesignado,
     formatEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoExibicao,
+    formatGrupoEnderecoCodigoMarcador,
     formatGrupoEnderecoNomeExibicao,
     GRUPO_ENDERECO_CODIGO_PADRAO,
     getGrupoEnderecoProgresso,
@@ -59,7 +60,8 @@ import {
     setEnderecoArquivado,
     setGrupoEnderecoArquivado,
     toggleEnderecoVisitadoGrupo,
-    updateEnderecoBasico
+    updateEnderecoBasico,
+    updateGrupoEnderecoBasico
 } from './enderecoModel';
 import { extractTerritorioCodigo, normalizeTerritorioNome } from './territorioNome';
 import L from 'leaflet';
@@ -71,6 +73,7 @@ import { ModalNota } from './mapa/components/ModalNota';
 import { ModalConfirmacaoFinalizacao } from './mapa/components/ModalConfirmacaoFinalizacao';
 import { EnderecoFormModal } from './mapa/components/EnderecoFormModal';
 import { GrupoEnderecoFormModal } from './mapa/components/GrupoEnderecoFormModal';
+import { GrupoEnderecoEditModal } from './mapa/components/GrupoEnderecoEditModal';
 import { GrupoEnderecosModal } from './mapa/components/GrupoEnderecosModal';
 import { AddressSearchControl } from './mapa/controls/AddressSearchControl';
 import { BairroSbsLayer } from './mapa/layers/BairroSbsLayer';
@@ -914,6 +917,7 @@ const GrupoEnderecoLayer = ({
     enderecosGrupo,
     onShare,
     onNavigate,
+    onEdit,
     onToggleArchive,
     onDesignar,
     onDevolver,
@@ -943,10 +947,8 @@ const GrupoEnderecoLayer = ({
     const [enderecosModalAberto, setEnderecosModalAberto] = useState(false);
     const [mensagemDesignacaoPronta, setMensagemDesignacaoPronta] = useState(null);
     const markerStyle = buildBairroMarkerStyle(bairroMarkerColors);
-    const codigoPreferencial = formatGrupoEnderecoCodigoExibicao(grupo.codigo);
-    const codigoExibicao = /^T-\d+$/i.test(codigoPreferencial)
-        ? codigoPreferencial
-        : formatGrupoEnderecoCodigoExibicao(grupo.id) || codigoPreferencial || 'T';
+    const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id);
+    const codigoMarcador = formatGrupoEnderecoCodigoMarcador(grupo.codigo || grupo.id);
     const nomeExibicao = formatGrupoEnderecoNomeExibicao(grupo.nome, grupo.codigo || grupo.id);
     const totalEnderecosResumo = enderecosGrupo.length || Math.max(0, Math.trunc(Number(grupo.totalEnderecos) || 0));
     const totalEstrangeirosEnderecos = enderecosGrupo.reduce((total, endereco) => (
@@ -964,10 +966,10 @@ const GrupoEnderecoLayer = ({
     const tempoSemTrabalhar = resolveTempoSemTrabalhar(grupo.ultimaConclusao);
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
-        html: `<div class="map-group-marker-stack"><div class="map-group-marker ${arquivado ? 'archived' : ''} ${designado && !finalizado ? 'assigned' : ''} ${finalizado ? 'finished' : ''}"${markerStyle}>${codigoExibicao}</div><div class="map-group-marker-time" title="${tempoSemTrabalhar.title}">${tempoSemTrabalhar.textoCompacto}</div></div>`,
+        html: `<div class="map-group-marker-stack"><div class="map-group-marker ${arquivado ? 'archived' : ''} ${designado && !finalizado ? 'assigned' : ''} ${finalizado ? 'finished' : ''}"${markerStyle}>${codigoMarcador}</div><div class="map-group-marker-time" title="${tempoSemTrabalhar.title}">${tempoSemTrabalhar.textoCompacto}</div></div>`,
         iconSize: [64, 46],
         iconAnchor: [32, 15]
-    }), [arquivado, codigoExibicao, designado, finalizado, markerStyle, tempoSemTrabalhar.textoCompacto, tempoSemTrabalhar.title]);
+    }), [arquivado, codigoMarcador, designado, finalizado, markerStyle, tempoSemTrabalhar.textoCompacto, tempoSemTrabalhar.title]);
 
     useEffect(() => {
         setUsuarioSelecionado('');
@@ -1138,6 +1140,18 @@ const GrupoEnderecoLayer = ({
                                 <div className={`address-admin-actions ${menuAberto ? 'open' : ''}`} aria-hidden={!menuAberto}>
                                     <div className="address-admin-actions-inner">
                                         <div className="rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setMenuAberto(false);
+                                                    map.closePopup();
+                                                    onEdit?.(grupo);
+                                                }}
+                                                disabled={!isOnline || loadingAction || !menuAberto}
+                                                className="w-full rounded-md px-3 py-2 text-left text-xs font-extrabold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                                            >
+                                                Editar dados do território
+                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={alternarArquivoPeloMenu}
@@ -2339,6 +2353,8 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     const [enderecoModal, setEnderecoModal] = useState({ open: false, mode: 'create', endereco: null, ponto: null });
     const [salvandoEndereco, setSalvandoEndereco] = useState(false);
     const [salvandoGrupoEndereco, setSalvandoGrupoEndereco] = useState(false);
+    const [grupoEdicaoModal, setGrupoEdicaoModal] = useState({ open: false, grupo: null });
+    const [salvandoGrupoEdicao, setSalvandoGrupoEdicao] = useState(false);
     const [posicaoUsuario, setPosicaoUsuario] = useState(null);
     const [trilhaUsuario, setTrilhaUsuario] = useState([]);
     const [direcaoUsuario, setDirecaoUsuario] = useState(null);
@@ -3430,6 +3446,63 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         }
     };
 
+    const abrirEdicaoGrupoEndereco = (grupo) => {
+        if (!isOnline) {
+            notify({
+                title: 'Edição bloqueada offline',
+                message: ADMIN_OFFLINE_MESSAGE,
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        setGrupoEdicaoModal({
+            open: true,
+            grupo
+        });
+    };
+
+    const fecharEdicaoGrupoModal = () => {
+        if (salvandoGrupoEdicao) return;
+        setGrupoEdicaoModal({ open: false, grupo: null });
+    };
+
+    const salvarEdicaoGrupoEndereco = async (formData) => {
+        if (!isOnline) {
+            notify({
+                title: 'Edição bloqueada offline',
+                message: ADMIN_OFFLINE_MESSAGE,
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        if (!grupoEdicaoModal.grupo?.id) return;
+
+        setSalvandoGrupoEdicao(true);
+        try {
+            await updateGrupoEnderecoBasico(db, grupoEdicaoModal.grupo.id, formData, user);
+            notify({
+                title: 'Território atualizado',
+                message: `Os dados do território ${formData.codigo || ''} foram salvos com sucesso.`,
+                variant: 'success'
+            });
+            setGrupoEdicaoModal({ open: false, grupo: null });
+        } catch (error) {
+            console.error('Erro ao salvar dados do território:', error);
+            notify({
+                title: 'Erro ao salvar território',
+                message: String(error?.message || 'Não foi possível salvar os dados do território.'),
+                variant: 'error',
+                durationMs: 7000
+            });
+        } finally {
+            setSalvandoGrupoEdicao(false);
+        }
+    };
+
     const alternarArquivoGrupoEndereco = async (grupo) => {
         const arquivado = grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO;
         const codigoExibicao = formatGrupoEnderecoCodigoExibicao(grupo.codigo || grupo.id);
@@ -3877,6 +3950,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                                 bairroMarkerColors={bairroMarkerColors}
                                 onShare={compartilharGrupoEndereco}
                                 onNavigate={navegarEndereco}
+                                onEdit={abrirEdicaoGrupoEndereco}
                                 onToggleArchive={alternarArquivoGrupoEndereco}
                                 onDesignar={salvarDesignacaoGrupoEndereco}
                                 onDevolver={devolverDesignacaoGrupoEndereco}
@@ -3951,6 +4025,13 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                             if (!salvandoGrupoEndereco) setGrupoEnderecoModalAberto(false);
                         }}
                         onSubmit={salvarVinculoGrupoEndereco}
+                    />
+                    <GrupoEnderecoEditModal
+                        isOpen={grupoEdicaoModal.open}
+                        grupo={grupoEdicaoModal.grupo}
+                        loading={salvandoGrupoEdicao}
+                        onClose={fecharEdicaoGrupoModal}
+                        onSubmit={salvarEdicaoGrupoEndereco}
                     />
                     {resumoFocoGrupoEndereco && (
                         <div className="pointer-events-none absolute left-3 right-3 top-4 z-[500] flex justify-center sm:left-auto sm:right-4 sm:w-full sm:max-w-[360px] sm:justify-end">

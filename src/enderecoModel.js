@@ -138,10 +138,36 @@ export function formatGrupoEnderecoCodigo(sequence) {
 
 export function formatGrupoEnderecoCodigoExibicao(value) {
     const codigo = String(value || '').trim();
-    const match = codigo.match(/^(?:T-|g_)?0*(\d+)$/i);
-    if (!match) return codigo;
+    if (!codigo) return '';
 
-    return `T-${Number.parseInt(match[1], 10)}`;
+    const match = codigo.match(/^(?:T-|g_)?0*(\d+)$/i);
+    if (match) {
+        return `T-${Number.parseInt(match[1], 10)}`;
+    }
+
+    const matchDocId = codigo.match(/^g_([a-z0-9]+(?:_[a-z0-9]+)*)$/i);
+    if (matchDocId) {
+        const decoded = matchDocId[1].toUpperCase().replace(/_/g, '-');
+        const matchDecodedT = decoded.match(/^T-0*(\d+)$/i);
+        if (matchDecodedT) {
+            return `T-${Number.parseInt(matchDecodedT[1], 10)}`;
+        }
+        return decoded;
+    }
+
+    return codigo;
+}
+
+export function formatGrupoEnderecoCodigoMarcador(value) {
+    const codigo = String(value || '').trim();
+    if (!codigo) return 'T';
+
+    const match = codigo.match(/(?:^|[-_])(?:t|T)?0*(\d+)$/i);
+    if (match) {
+        return `T-${Number.parseInt(match[1], 10)}`;
+    }
+
+    return formatGrupoEnderecoCodigoExibicao(codigo) || 'T';
 }
 
 export function formatGrupoEnderecoNomeExibicao(nome, codigo) {
@@ -149,7 +175,7 @@ export function formatGrupoEnderecoNomeExibicao(nome, codigo) {
     const codigoExibicao = formatGrupoEnderecoCodigoExibicao(codigoBase);
     const texto = String(nome || '').trim();
 
-    if (!texto || texto === codigoBase) {
+    if (!texto || texto === codigoBase || texto === codigoExibicao) {
         return codigoExibicao ? `Território ${codigoExibicao}` : 'Território';
     }
 
@@ -915,6 +941,89 @@ export async function createGrupoEnderecoManual(db, { enderecos, nome, codigo: c
             id: grupoId,
             codigo,
             nome: nomeGrupo
+        };
+    });
+}
+
+export async function updateGrupoEnderecoBasico(db, grupoId, input = {}, user) {
+    if (!grupoId) {
+        throw new Error('Identificador do território inválido.');
+    }
+
+    if (!isAdminActor(user)) {
+        throw new Error('Apenas administradores podem editar os dados do território.');
+    }
+
+    const actorEmail = buildActorEmail(user);
+    const agora = new Date();
+
+    const novoCodigo = input.codigo ? assertCodigoManualValido(input.codigo, 'território') : null;
+    const novoNome = input.nome !== undefined ? normalizeText(input.nome, 120) : undefined;
+    const novoBairro = input.bairro !== undefined ? normalizeText(input.bairro, 120) : undefined;
+    const novaObservacao = input.observacao !== undefined ? normalizeText(input.observacao, 2000) : undefined;
+
+    return runTransaction(db, async (transaction) => {
+        const grupoRef = getGrupoEnderecoRef(db, grupoId);
+        const grupoSnapshot = await transaction.get(grupoRef);
+
+        if (!grupoSnapshot.exists()) {
+            throw new Error('Território não encontrado.');
+        }
+
+        const grupoAtual = grupoSnapshot.data();
+        const codigoFinal = novoCodigo || grupoAtual.codigo || formatGrupoEnderecoCodigoExibicao(grupoId);
+        const codigoMudou = novoCodigo && novoCodigo !== grupoAtual.codigo;
+
+        if (codigoMudou) {
+            const novoDocId = getGrupoEnderecoDocIdFromCodigo(novoCodigo);
+            if (novoDocId !== grupoId) {
+                const outroGrupoRef = getGrupoEnderecoRef(db, novoDocId);
+                const outroGrupoSnapshot = await transaction.get(outroGrupoRef);
+                if (outroGrupoSnapshot.exists()) {
+                    throw new Error(`Já existe um território cadastrado com o código ${novoCodigo}.`);
+                }
+            }
+        }
+
+        const updates = {
+            atualizadoEm: agora,
+            atualizadoPor: actorEmail,
+            ultimaAlteracao: agora
+        };
+
+        if (novoCodigo) {
+            updates.codigo = novoCodigo;
+        }
+
+        if (novoNome !== undefined) {
+            updates.nome = novoNome ?? '';
+        }
+
+        if (novoBairro !== undefined) {
+            updates.bairro = novoBairro;
+        }
+
+        if (novaObservacao !== undefined) {
+            updates.observacao = novaObservacao;
+        }
+
+        transaction.set(grupoRef, updates, { merge: true });
+
+        if (codigoMudou) {
+            const enderecoIds = ensureArray(grupoAtual.enderecoIds).filter(Boolean);
+            enderecoIds.forEach((enderecoId) => {
+                transaction.set(getEnderecoRef(db, enderecoId), {
+                    grupoCodigo: novoCodigo,
+                    atualizadoEm: agora,
+                    atualizadoPor: actorEmail
+                }, { merge: true });
+            });
+        }
+
+        return {
+            id: grupoId,
+            codigo: codigoFinal,
+            nome: updates.nome ?? grupoAtual.nome
         };
     });
 }
