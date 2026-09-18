@@ -1,33 +1,83 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+    normalizeEnderecoConfig
+} from '../../enderecoConfig';
 import {
     formatGrupoEnderecoCodigoExibicao,
     formatGrupoEnderecoNomeExibicao,
-    GRUPO_ENDERECO_STATUS
+    verificarNumeroGrupoEnderecoExistente,
+    GRUPO_ENDERECO_STATUS,
+    IDIOMA_PADRAO_ENDERECOS
 } from '../../enderecoModel';
 import { stopMapDomEvent, useLeafletDomEventIsolation } from '../utils/mapDomEvents';
 import { formatAuditDateTime } from '../utils/enderecoModalUtils';
 
-export const GrupoEnderecoEditModal = ({ isOpen, grupo, loading, onClose, onSubmit }) => {
+function resolveGrupoCodigoPartes(codigo, defaultPrefix) {
+    const raw = String(codigo || '').trim();
+    if (!raw) return { prefixo: defaultPrefix, numero: '' };
+    if (defaultPrefix && raw.startsWith(defaultPrefix)) {
+        const numStr = raw.slice(defaultPrefix.length).replace(/^[-_]+/, '');
+        return { prefixo: defaultPrefix, numero: numStr };
+    }
+    const match = raw.match(/^(.*?[A-Z0-9]+-)(0*\d+)$/i);
+    if (match) {
+        return { prefixo: match[1].toUpperCase(), numero: match[2] };
+    }
+    return { prefixo: defaultPrefix, numero: raw };
+}
+
+export const GrupoEnderecoEditModal = ({
+    isOpen,
+    grupo,
+    todosGrupos = [],
+    enderecoConfig,
+    loading,
+    onClose,
+    onSubmit
+}) => {
     const modalRef = useLeafletDomEventIsolation();
+    const config = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
+    const prefixoTerritorioPadrao = config.prefixoTerritorioPadrao || IDIOMA_PADRAO_ENDERECOS.codigoPrefixoTerritorio;
+
+    const { prefixoTerritorioAtivo, numeroInicial } = useMemo(() => {
+        const codigoInicial = grupo?.codigo || formatGrupoEnderecoCodigoExibicao(grupo?.id) || '';
+        const partes = resolveGrupoCodigoPartes(codigoInicial, prefixoTerritorioPadrao);
+        return {
+            prefixoTerritorioAtivo: partes.prefixo,
+            numeroInicial: partes.numero
+        };
+    }, [grupo, prefixoTerritorioPadrao]);
+
+    const [numero, setNumero] = useState(numeroInicial);
     const [form, setForm] = useState({
-        codigo: '',
         nome: '',
         bairro: '',
         observacao: ''
     });
     const [activeTab, setActiveTab] = useState('dados');
 
+    const conflitoNumero = useMemo(() => {
+        if (!numero.trim()) return null;
+        const ignorarIdOuCodigo = grupo?.id || grupo?.codigo || null;
+        const res = verificarNumeroGrupoEnderecoExistente(
+            todosGrupos,
+            prefixoTerritorioAtivo,
+            numero,
+            ignorarIdOuCodigo
+        );
+        return res.existe ? res.codigoExistente : null;
+    }, [numero, todosGrupos, prefixoTerritorioAtivo, grupo]);
+
     useEffect(() => {
         if (!isOpen || !grupo) return;
-        const codigoInicial = grupo.codigo || formatGrupoEnderecoCodigoExibicao(grupo.id) || '';
         setForm({
-            codigo: codigoInicial,
             nome: grupo.nome || '',
             bairro: grupo.bairro || '',
             observacao: grupo.observacao || ''
         });
+        setNumero(numeroInicial);
         setActiveTab('dados');
-    }, [grupo, isOpen]);
+    }, [grupo, isOpen, numeroInicial]);
 
     if (!isOpen || !grupo) return null;
 
@@ -43,6 +93,16 @@ export const GrupoEnderecoEditModal = ({ isOpen, grupo, loading, onClose, onSubm
                 ? 'Designado'
                 : 'Ativo';
 
+    const handleNumeroChange = (event) => {
+        let val = event.target.value.toUpperCase();
+        if (prefixoTerritorioAtivo && val.startsWith(prefixoTerritorioAtivo.toUpperCase())) {
+            val = val.slice(prefixoTerritorioAtivo.length);
+        }
+        val = val.replace(/^[-_]+/, '');
+        val = val.replace(/[^A-Z0-9-]/g, '');
+        setNumero(val);
+    };
+
     const handleChange = (field) => (event) => {
         setForm((current) => ({
             ...current,
@@ -54,15 +114,17 @@ export const GrupoEnderecoEditModal = ({ isOpen, grupo, loading, onClose, onSubm
         event.preventDefault();
         const formElement = event.currentTarget;
 
-        const codigoLimpo = form.codigo.trim().toUpperCase();
-        if (!codigoLimpo) {
+        const numeroLimpo = numero.trim();
+        if (!numeroLimpo || conflitoNumero) {
             setActiveTab('dados');
             window.requestAnimationFrame(() => formElement?.reportValidity?.());
             return;
         }
 
+        const codigoFinal = `${prefixoTerritorioAtivo}${numeroLimpo}`;
+
         onSubmit({
-            codigo: codigoLimpo,
+            codigo: codigoFinal,
             nome: form.nome.trim(),
             bairro: form.bairro.trim(),
             observacao: form.observacao.trim()
@@ -141,18 +203,32 @@ export const GrupoEnderecoEditModal = ({ isOpen, grupo, loading, onClose, onSubm
                                 <span className="mb-1 block text-xs font-bold uppercase text-slate-500">
                                     Código do território <span className="text-rose-500">*</span>
                                 </span>
-                                <input
-                                    value={form.codigo}
-                                    onChange={handleChange('codigo')}
-                                    maxLength={40}
-                                    required
-                                    disabled={loading}
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
-                                    placeholder="Ex.: ES-SBS-T001"
-                                />
-                                <span className="mt-1 block text-[11px] text-slate-400">
-                                    Identificador oficial do território (ex.: ES-SBS-T001 ou T-001).
-                                </span>
+                                <div className={`flex overflow-hidden rounded-lg border bg-white shadow-sm transition focus-within:ring-2 ${conflitoNumero ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-rose-100' : 'border-slate-300 focus-within:border-indigo-600 focus-within:ring-indigo-100'}`}>
+                                    <span
+                                        className="inline-flex shrink-0 whitespace-nowrap select-none items-center border-r border-slate-200 bg-slate-100 px-3 font-mono text-sm font-bold text-slate-600"
+                                        title={`Prefixo fixo configurado: ${prefixoTerritorioAtivo}`}
+                                    >
+                                        {prefixoTerritorioAtivo}
+                                    </span>
+                                    <input
+                                        value={numero}
+                                        onChange={handleNumeroChange}
+                                        maxLength={20}
+                                        required
+                                        disabled={loading}
+                                        className="w-full min-w-0 bg-transparent px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-800 outline-none disabled:bg-slate-100"
+                                        placeholder={numeroInicial || '001'}
+                                    />
+                                </div>
+                                {conflitoNumero ? (
+                                    <p className="mt-1 text-xs font-bold text-rose-600">
+                                        ⚠️ Já existe o território {conflitoNumero} com este número.
+                                    </p>
+                                ) : (
+                                    <span className="mt-1 block text-[11px] text-slate-400">
+                                        O prefixo padrão é fixo. Altere apenas a numeração/sufixo do território.
+                                    </span>
+                                )}
                             </label>
 
                             <label className="block">
@@ -243,7 +319,7 @@ export const GrupoEnderecoEditModal = ({ isOpen, grupo, loading, onClose, onSubm
                     </button>
                     <button
                         type="submit"
-                        disabled={loading}
+                        disabled={loading || !numero.trim() || Boolean(conflitoNumero)}
                         className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800 disabled:cursor-wait disabled:opacity-70"
                     >
                         {loading ? 'Salvando...' : 'Salvar alterações'}

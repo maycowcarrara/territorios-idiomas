@@ -18,6 +18,20 @@ import {
     hasEnderecoAuditInfo
 } from '../utils/enderecoModalUtils';
 
+function resolveEnderecoCodigoPartes(codigo, defaultPrefix) {
+    const raw = String(codigo || '').trim();
+    if (!raw) return { prefixo: defaultPrefix, numero: '' };
+    if (defaultPrefix && raw.startsWith(defaultPrefix)) {
+        const numStr = raw.slice(defaultPrefix.length).replace(/^[-_]+/, '');
+        return { prefixo: defaultPrefix, numero: numStr };
+    }
+    const match = raw.match(/^(.*?[A-Z0-9]+-)(0*\d+)$/i);
+    if (match) {
+        return { prefixo: match[1].toUpperCase(), numero: match[2] };
+    }
+    return { prefixo: defaultPrefix, numero: raw };
+}
+
 export const EnderecoFormModal = ({
     isOpen,
     mode,
@@ -37,6 +51,10 @@ export const EnderecoFormModal = ({
     const prefixoTerritorio = config.prefixoTerritorioPadrao || IDIOMA_PADRAO_ENDERECOS.codigoPrefixoTerritorio;
     const prefixoEndereco = config.prefixoEnderecoPadrao || IDIOMA_PADRAO_ENDERECOS.codigoPrefixoEndereco;
 
+    const isEdit = mode === 'edit';
+    const titulo = isEdit ? `Editar ${endereco?.codigo || 'endereço'}` : 'Cadastrar endereço';
+    const auditInfoAvailable = hasEnderecoAuditInfo(endereco);
+
     const sequenciaTerritorio = useMemo(() => {
         const listaGrupos = Array.isArray(todosGrupos) && todosGrupos.length
             ? todosGrupos
@@ -48,8 +66,22 @@ export const EnderecoFormModal = ({
         return getProximoEnderecoSequencia(todosEnderecos, prefixoEndereco);
     }, [todosEnderecos, prefixoEndereco]);
 
+    const { prefixoEnderecoAtivo, numeroEnderecoInicial } = useMemo(() => {
+        if (isEdit && endereco?.codigo) {
+            const partes = resolveEnderecoCodigoPartes(endereco.codigo, prefixoEndereco);
+            return {
+                prefixoEnderecoAtivo: partes.prefixo,
+                numeroEnderecoInicial: partes.numero
+            };
+        }
+        return {
+            prefixoEnderecoAtivo: prefixoEndereco,
+            numeroEnderecoInicial: sequenciaEndereco.proximoSufixo
+        };
+    }, [isEdit, endereco, prefixoEndereco, sequenciaEndereco.proximoSufixo]);
+
     const [form, setForm] = useState(getEnderecoInitialForm(endereco, ponto, config));
-    const [enderecoNumero, setEnderecoNumero] = useState(sequenciaEndereco.proximoSufixo);
+    const [enderecoNumero, setEnderecoNumero] = useState(numeroEnderecoInicial);
     const [grupoNumero, setGrupoNumero] = useState(sequenciaTerritorio.proximoSufixo);
     const [activeTab, setActiveTab] = useState('dados');
 
@@ -63,24 +95,27 @@ export const EnderecoFormModal = ({
     }, [mode, form.grupoEscolha, grupoNumero, todosGrupos, gruposDisponiveis, prefixoTerritorio]);
 
     const conflitoNumeroEndereco = useMemo(() => {
-        if (mode === 'edit' || !enderecoNumero.trim()) return null;
-        const res = verificarNumeroEnderecoExistente(todosEnderecos, prefixoEndereco, enderecoNumero);
+        if (!enderecoNumero.trim()) return null;
+        const ignorarIdOuCodigo = isEdit ? (endereco?.id || endereco?.codigo) : null;
+        const res = verificarNumeroEnderecoExistente(
+            todosEnderecos,
+            prefixoEnderecoAtivo,
+            enderecoNumero,
+            ignorarIdOuCodigo
+        );
         return res.existe ? res.codigoExistente : null;
-    }, [mode, enderecoNumero, todosEnderecos, prefixoEndereco]);
+    }, [enderecoNumero, isEdit, endereco, todosEnderecos, prefixoEnderecoAtivo]);
 
     useEffect(() => {
         if (!isOpen) return;
         setForm(getEnderecoInitialForm(endereco, ponto, config));
-        setEnderecoNumero(sequenciaEndereco.proximoSufixo);
+        setEnderecoNumero(numeroEnderecoInicial);
         setGrupoNumero(sequenciaTerritorio.proximoSufixo);
         setActiveTab('dados');
-    }, [config, endereco, isOpen, ponto, sequenciaEndereco.proximoSufixo, sequenciaTerritorio.proximoSufixo]);
+    }, [config, endereco, isOpen, ponto, numeroEnderecoInicial, sequenciaTerritorio.proximoSufixo]);
 
     if (!isOpen) return null;
 
-    const isEdit = mode === 'edit';
-    const titulo = isEdit ? `Editar ${endereco?.codigo || 'endereço'}` : 'Cadastrar endereço';
-    const auditInfoAvailable = hasEnderecoAuditInfo(endereco);
     const activeSection = isEdit ? activeTab : 'dados';
 
     const handleChange = (field) => (event) => {
@@ -92,8 +127,8 @@ export const EnderecoFormModal = ({
 
     const handleEnderecoNumeroChange = (event) => {
         let val = event.target.value.toUpperCase();
-        if (prefixoEndereco && val.startsWith(prefixoEndereco.toUpperCase())) {
-            val = val.slice(prefixoEndereco.length);
+        if (prefixoEnderecoAtivo && val.startsWith(prefixoEnderecoAtivo.toUpperCase())) {
+            val = val.slice(prefixoEnderecoAtivo.length);
         }
         val = val.replace(/^[-_]+/, '');
         val = val.replace(/[^A-Z0-9-]/g, '');
@@ -114,9 +149,7 @@ export const EnderecoFormModal = ({
         event.preventDefault();
         const formElement = event.currentTarget;
 
-        const enderecoCodigoFinal = isEdit
-            ? form.codigo
-            : `${prefixoEndereco}${enderecoNumero.trim() || sequenciaEndereco.proximoSufixo}`;
+        const enderecoCodigoFinal = `${prefixoEnderecoAtivo}${enderecoNumero.trim() || numeroEnderecoInicial}`;
 
         const grupoCodigoFinal = form.grupoEscolha === '__novo__'
             ? `${prefixoTerritorio}${grupoNumero.trim() || sequenciaTerritorio.proximoSufixo}`
@@ -125,7 +158,8 @@ export const EnderecoFormModal = ({
         if (
             !enderecoCodigoFinal ||
             !form.endereco ||
-            (!isEdit && (!enderecoNumero.trim() || Boolean(conflitoNumeroEndereco))) ||
+            !enderecoNumero.trim() ||
+            Boolean(conflitoNumeroEndereco) ||
             (!isEdit && form.grupoEscolha === '__novo__' && (!grupoNumero.trim() || Boolean(conflitoNumeroTerritorio)))
         ) {
             setActiveTab('dados');
@@ -184,38 +218,32 @@ export const EnderecoFormModal = ({
                             </div>
                             <label className="block">
                                 <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
-                                {isEdit ? (
+                                <div className={`flex overflow-hidden rounded-lg border bg-white shadow-sm transition focus-within:ring-2 ${conflitoNumeroEndereco ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-rose-100' : 'border-slate-300 focus-within:border-teal-600 focus-within:ring-teal-100'}`}>
+                                    <span
+                                        className="inline-flex shrink-0 whitespace-nowrap select-none items-center border-r border-slate-200 bg-slate-100 px-3 font-mono text-sm font-bold text-slate-600"
+                                        title={`Prefixo fixo configurado: ${prefixoEnderecoAtivo}`}
+                                    >
+                                        {prefixoEnderecoAtivo}
+                                    </span>
                                     <input
-                                        value={form.codigo}
-                                        disabled
-                                        className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-500 outline-none"
+                                        value={enderecoNumero}
+                                        onChange={handleEnderecoNumeroChange}
+                                        maxLength={20}
+                                        required
+                                        disabled={loading}
+                                        className="w-full min-w-0 bg-transparent px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-800 outline-none disabled:bg-slate-100"
+                                        placeholder={numeroEnderecoInicial}
                                     />
-                                ) : (
-                                    <>
-                                        <div className={`flex overflow-hidden rounded-lg border bg-white shadow-sm transition focus-within:ring-2 ${conflitoNumeroEndereco ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-rose-100' : 'border-slate-300 focus-within:border-teal-600 focus-within:ring-teal-100'}`}>
-                                            <span
-                                                className="inline-flex select-none items-center border-r border-slate-200 bg-slate-100 px-3 font-mono text-sm font-bold text-slate-600"
-                                                title={`Prefixo fixo configurado: ${prefixoEndereco}`}
-                                            >
-                                                {prefixoEndereco}
-                                            </span>
-                                            <input
-                                                value={enderecoNumero}
-                                                onChange={handleEnderecoNumeroChange}
-                                                maxLength={20}
-                                                required
-                                                disabled={loading}
-                                                className="w-full bg-transparent px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-800 outline-none disabled:bg-slate-100"
-                                                placeholder={sequenciaEndereco.proximoSufixo}
-                                            />
-                                        </div>
-                                        {conflitoNumeroEndereco && (
-                                            <p className="mt-1 text-xs font-bold text-rose-600">
-                                                ⚠️ Já existe o endereço {conflitoNumeroEndereco} com este número.
-                                            </p>
-                                        )}
-                                    </>
-                                )}
+                                </div>
+                                {conflitoNumeroEndereco ? (
+                                    <p className="mt-1 text-xs font-bold text-rose-600">
+                                        ⚠️ Já existe o endereço {conflitoNumeroEndereco} com este número.
+                                    </p>
+                                ) : isEdit ? (
+                                    <span className="mt-1 block text-[11px] text-slate-400">
+                                        O prefixo padrão é fixo. Altere apenas a numeração/sufixo do endereço.
+                                    </span>
+                                ) : null}
                             </label>
                             {!isEdit && (
                                 <label className="block">
@@ -242,7 +270,7 @@ export const EnderecoFormModal = ({
                                         <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código do território</span>
                                         <div className={`flex overflow-hidden rounded-lg border bg-white shadow-sm transition focus-within:ring-2 ${conflitoNumeroTerritorio ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-rose-100' : 'border-slate-300 focus-within:border-teal-600 focus-within:ring-teal-100'}`}>
                                             <span
-                                                className="inline-flex select-none items-center border-r border-slate-200 bg-slate-100 px-3 font-mono text-sm font-bold text-slate-600"
+                                                className="inline-flex shrink-0 whitespace-nowrap select-none items-center border-r border-slate-200 bg-slate-100 px-3 font-mono text-sm font-bold text-slate-600"
                                                 title={`Prefixo fixo configurado: ${prefixoTerritorio}`}
                                             >
                                                 {prefixoTerritorio}
@@ -253,7 +281,7 @@ export const EnderecoFormModal = ({
                                                 maxLength={20}
                                                 required
                                                 disabled={loading}
-                                                className="w-full bg-transparent px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-800 outline-none disabled:bg-slate-100"
+                                                className="w-full min-w-0 bg-transparent px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-800 outline-none disabled:bg-slate-100"
                                                 placeholder={sequenciaTerritorio.proximoSufixo}
                                             />
                                         </div>
@@ -373,7 +401,7 @@ export const EnderecoFormModal = ({
                     </button>
                     <button
                         type="submit"
-                        disabled={loading || (!isEdit && (!enderecoNumero.trim() || Boolean(conflitoNumeroEndereco))) || (!isEdit && form.grupoEscolha === '__novo__' && (!grupoNumero.trim() || Boolean(conflitoNumeroTerritorio)))}
+                        disabled={loading || !enderecoNumero.trim() || Boolean(conflitoNumeroEndereco) || (!isEdit && form.grupoEscolha === '__novo__' && (!grupoNumero.trim() || Boolean(conflitoNumeroTerritorio)))}
                         className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         {loading ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Cadastrar'}

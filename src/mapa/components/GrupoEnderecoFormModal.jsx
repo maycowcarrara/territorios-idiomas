@@ -123,7 +123,7 @@ export const GrupoEnderecoFormModal = ({
                                 <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
                                 <div className={`flex overflow-hidden rounded-lg border bg-white shadow-sm transition focus-within:ring-2 ${conflitoNumero ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-rose-100' : 'border-slate-300 focus-within:border-indigo-600 focus-within:ring-indigo-100'}`}>
                                     <span
-                                        className="inline-flex select-none items-center border-r border-slate-200 bg-slate-100 px-3 font-mono text-sm font-bold text-slate-600"
+                                        className="inline-flex shrink-0 whitespace-nowrap select-none items-center border-r border-slate-200 bg-slate-100 px-3 font-mono text-sm font-bold text-slate-600"
                                         title={`Prefixo fixo configurado: ${prefixoTerritorio}`}
                                     >
                                         {prefixoTerritorio}
@@ -134,7 +134,7 @@ export const GrupoEnderecoFormModal = ({
                                         maxLength={20}
                                         required
                                         disabled={loading}
-                                        className="w-full bg-transparent px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-800 outline-none disabled:bg-slate-100"
+                                        className="w-full min-w-0 bg-transparent px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-800 outline-none disabled:bg-slate-100"
                                         placeholder={sequencia.proximoSufixo}
                                     />
                                 </div>

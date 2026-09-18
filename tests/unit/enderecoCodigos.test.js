@@ -269,6 +269,18 @@ describe('enderecoCodigos e formatadores', () => {
                 const res = verificarNumeroGrupoEnderecoExistente(gruposOutroIdioma, 'ES-SBS-T', '5');
                 expect(res.existe).toBe(false);
             });
+
+            it('deve ignorar o próprio registro ao editar (ignorarIdOuCodigo)', () => {
+                const resMesmoCodigo = verificarNumeroGrupoEnderecoExistente(grupos, 'ES-SBS-T', '05', 'ES-SBS-T05');
+                expect(resMesmoCodigo.existe).toBe(false);
+
+                const resMesmoId = verificarNumeroGrupoEnderecoExistente([{ id: 'g_es_sbs_t05', codigo: 'ES-SBS-T05' }], 'ES-SBS-T', '05', 'g_es_sbs_t05');
+                expect(resMesmoId.existe).toBe(false);
+
+                const resOutroGrupo = verificarNumeroGrupoEnderecoExistente(grupos, 'ES-SBS-T', '01', 'ES-SBS-T05');
+                expect(resOutroGrupo.existe).toBe(true);
+                expect(resOutroGrupo.codigoExistente).toBe('ES-SBS-T01');
+            });
         });
     });
 
@@ -380,6 +392,18 @@ describe('enderecoCodigos e formatadores', () => {
                 const enderecosOutroIdioma = [{ codigo: 'EN-SBS-026' }];
                 const res = verificarNumeroEnderecoExistente(enderecosOutroIdioma, 'ES-SBS-', '26');
                 expect(res.existe).toBe(false);
+            });
+
+            it('deve ignorar o próprio registro ao editar (ignorarIdOuCodigo)', () => {
+                const resMesmoCodigo = verificarNumeroEnderecoExistente(enderecos, 'ES-SBS-', '026', 'ES-SBS-026');
+                expect(resMesmoCodigo.existe).toBe(false);
+
+                const resMesmoId = verificarNumeroEnderecoExistente([{ id: 'e_es_sbs_026', codigo: 'ES-SBS-026' }], 'ES-SBS-', '026', 'e_es_sbs_026');
+                expect(resMesmoId.existe).toBe(false);
+
+                const resOutroEndereco = verificarNumeroEnderecoExistente(enderecos, 'ES-SBS-', '001', 'ES-SBS-026');
+                expect(resOutroEndereco.existe).toBe(true);
+                expect(resOutroEndereco.codigoExistente).toBe('ES-SBS-001');
             });
         });
     });

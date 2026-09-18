@@ -4121,6 +4121,8 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                     <GrupoEnderecoEditModal
                         isOpen={grupoEdicaoModal.open}
                         grupo={grupoEdicaoModal.grupo}
+                        todosGrupos={gruposEnderecoCompletos}
+                        enderecoConfig={enderecoConfigAtiva}
                         loading={salvandoGrupoEdicao}
                         onClose={fecharEdicaoGrupoModal}
                         onSubmit={salvarEdicaoGrupoEndereco}

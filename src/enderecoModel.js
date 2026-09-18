@@ -284,7 +284,7 @@ export function getProximoGrupoEnderecoSequencia(grupos = [], prefixo = 'ES-SBS-
     };
 }
 
-export function verificarNumeroGrupoEnderecoExistente(grupos = [], prefixo = 'ES-SBS-T', numeroOuSufixo = '') {
+export function verificarNumeroGrupoEnderecoExistente(grupos = [], prefixo = 'ES-SBS-T', numeroOuSufixo = '', ignorarIdOuCodigo = null) {
     const rawNumero = String(numeroOuSufixo || '').trim();
     if (!rawNumero) return { existe: false, codigoExistente: null };
 
@@ -300,9 +300,20 @@ export function verificarNumeroGrupoEnderecoExistente(grupos = [], prefixo = 'ES
         return { existe: false, codigoExistente: null };
     }
 
+    const ignorarNormalizado = ignorarIdOuCodigo ? String(ignorarIdOuCodigo).trim().toLowerCase() : null;
+
     for (const grupo of grupos) {
         const raw = String(grupo?.codigo || grupo?.id || grupo || '').trim();
         if (!raw) continue;
+
+        if (ignorarNormalizado) {
+            const grupoId = String(grupo?.id || '').trim().toLowerCase();
+            const grupoCodigo = String(grupo?.codigo || '').trim().toLowerCase();
+            const rawLower = raw.toLowerCase();
+            if (grupoId === ignorarNormalizado || grupoCodigo === ignorarNormalizado || rawLower === ignorarNormalizado) {
+                continue;
+            }
+        }
 
         let codigoFormatado = raw;
         const matchDocId = raw.match(/^g_([a-z0-9]+(?:_[a-z0-9]+)*)$/i);
@@ -411,7 +422,7 @@ export function getProximoEnderecoSequencia(enderecos = [], prefixo = 'ES-SBS-')
     };
 }
 
-export function verificarNumeroEnderecoExistente(enderecos = [], prefixo = 'ES-SBS-', numeroOuSufixo = '') {
+export function verificarNumeroEnderecoExistente(enderecos = [], prefixo = 'ES-SBS-', numeroOuSufixo = '', ignorarIdOuCodigo = null) {
     const rawNumero = String(numeroOuSufixo || '').trim();
     if (!rawNumero) return { existe: false, codigoExistente: null };
 
@@ -427,9 +438,20 @@ export function verificarNumeroEnderecoExistente(enderecos = [], prefixo = 'ES-S
         return { existe: false, codigoExistente: null };
     }
 
+    const ignorarNormalizado = ignorarIdOuCodigo ? String(ignorarIdOuCodigo).trim().toLowerCase() : null;
+
     for (const endereco of enderecos) {
         const raw = String(endereco?.codigo || endereco?.id || endereco || '').trim();
         if (!raw) continue;
+
+        if (ignorarNormalizado) {
+            const endId = String(endereco?.id || '').trim().toLowerCase();
+            const endCodigo = String(endereco?.codigo || '').trim().toLowerCase();
+            const rawLower = raw.toLowerCase();
+            if (endId === ignorarNormalizado || endCodigo === ignorarNormalizado || rawLower === ignorarNormalizado) {
+                continue;
+            }
+        }
 
         let codigoFormatado = raw;
         const matchDocId = raw.match(/^e_([a-z0-9]+(?:_[a-z0-9]+)*)$/i);
@@ -995,6 +1017,7 @@ export async function importarEnderecosCsvNovos(db, { preview, user }) {
 
 export async function updateEnderecoBasico(db, enderecoId, input, user) {
     const fields = normalizeEnderecoFields(input);
+    const novoCodigo = input?.codigo ? assertCodigoManualValido(input.codigo, 'endereço') : null;
     const agora = new Date();
     const actorEmail = buildActorEmail(user);
 
@@ -1010,9 +1033,21 @@ export async function updateEnderecoBasico(db, enderecoId, input, user) {
             id: enderecoSnapshot.id,
             ...enderecoSnapshot.data()
         };
+
+        if (novoCodigo && novoCodigo !== enderecoAtual.codigo) {
+            const novoDocId = getEnderecoDocIdFromCodigo(novoCodigo);
+            if (novoDocId !== enderecoId) {
+                const outroSnapshot = await transaction.get(getEnderecoRef(db, novoDocId));
+                if (outroSnapshot.exists()) {
+                    throw new Error(`Já existe um endereço com o código ${novoCodigo}.`);
+                }
+            }
+        }
+
         const enderecoAtualizado = {
             ...enderecoAtual,
             ...fields,
+            ...(novoCodigo ? { codigo: novoCodigo } : {}),
             status: fields.status
         };
         const idiomaAtual = normalizeText(enderecoAtual.idiomaId, 32) || IDIOMA_PADRAO_ENDERECOS.id;
@@ -1052,7 +1087,7 @@ export async function updateEnderecoBasico(db, enderecoId, input, user) {
             }
         }
 
-        transaction.set(enderecoRef, {
+        const updates = {
             idiomaId: fields.idiomaId,
             idiomaNome: fields.idiomaNome,
             bairro: fields.bairro,
@@ -1066,7 +1101,13 @@ export async function updateEnderecoBasico(db, enderecoId, input, user) {
             atualizadoPor: actorEmail,
             arquivadoEm: fields.status === ENDERECO_STATUS.ARQUIVADO ? (enderecoAtual.arquivadoEm || agora) : null,
             arquivadoPor: fields.status === ENDERECO_STATUS.ARQUIVADO ? (enderecoAtual.arquivadoPor || actorEmail) : null
-        }, { merge: true });
+        };
+
+        if (novoCodigo) {
+            updates.codigo = novoCodigo;
+        }
+
+        transaction.set(enderecoRef, updates, { merge: true });
     });
 }
 
