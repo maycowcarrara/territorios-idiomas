@@ -12,7 +12,11 @@ import {
     formatGrupoEnderecoCodigoMarcador,
     formatGrupoEnderecoCodigoBadge,
     formatGrupoEnderecoNomeExibicao,
-    getGrupoEnderecoDocIdFromSequence
+    getGrupoEnderecoDocIdFromSequence,
+    getProximoGrupoEnderecoSequencia,
+    verificarNumeroGrupoEnderecoExistente,
+    getProximoEnderecoSequencia,
+    verificarNumeroEnderecoExistente
 } from '../../src/enderecoModel.js';
 
 describe('enderecoCodigos e formatadores', () => {
@@ -133,5 +137,252 @@ describe('enderecoCodigos e formatadores', () => {
             expect(getGrupoEnderecoDocIdFromSequence(1)).toBe('g_001');
             expect(getGrupoEnderecoDocIdFromSequence(42)).toBe('g_042');
         });
+
+        describe('getProximoGrupoEnderecoSequencia', () => {
+            it('deve retornar 001 quando lista de grupos for vazia', () => {
+                const res = getProximoGrupoEnderecoSequencia([], 'ES-SBS-T');
+                expect(res.proximoNumero).toBe(1);
+                expect(res.proximoSufixo).toBe('001');
+                expect(res.proximoCodigo).toBe('ES-SBS-T001');
+                expect(res.prefixo).toBe('ES-SBS-T');
+            });
+
+            it('deve encontrar o próximo número da sequência a partir de grupos existentes em formato 3 dígitos', () => {
+                const grupos = [
+                    { codigo: 'ES-SBS-T001' },
+                    { codigo: 'ES-SBS-T002' }
+                ];
+                const res = getProximoGrupoEnderecoSequencia(grupos, 'ES-SBS-T');
+                expect(res.proximoNumero).toBe(3);
+                expect(res.proximoSufixo).toBe('003');
+                expect(res.proximoCodigo).toBe('ES-SBS-T003');
+            });
+
+            it('deve lidar com lacunas na numeração e pegar o maior número + 1', () => {
+                const grupos = [
+                    { codigo: 'ES-SBS-T001' },
+                    { codigo: 'ES-SBS-T005' }
+                ];
+                const res = getProximoGrupoEnderecoSequencia(grupos, 'ES-SBS-T');
+                expect(res.proximoNumero).toBe(6);
+                expect(res.proximoSufixo).toBe('006');
+                expect(res.proximoCodigo).toBe('ES-SBS-T006');
+            });
+
+            it('deve preservar ou expandir a largura quando houver 3 dígitos', () => {
+                const grupos = [
+                    { codigo: 'ES-SBS-T001' },
+                    { codigo: 'ES-SBS-T002' }
+                ];
+                const res = getProximoGrupoEnderecoSequencia(grupos, 'ES-SBS-T');
+                expect(res.proximoNumero).toBe(3);
+                expect(res.proximoSufixo).toBe('003');
+                expect(res.proximoCodigo).toBe('ES-SBS-T003');
+            });
+
+            it('deve formatar número 10 como 010', () => {
+                const grupos = [
+                    { codigo: 'ES-SBS-T009' }
+                ];
+                const res = getProximoGrupoEnderecoSequencia(grupos, 'ES-SBS-T');
+                expect(res.proximoNumero).toBe(10);
+                expect(res.proximoSufixo).toBe('010');
+                expect(res.proximoCodigo).toBe('ES-SBS-T010');
+            });
+
+            it('deve reconhecer grupos através do id no padrão docId g_es_sbs_tXX e sugerir 3 dígitos', () => {
+                const grupos = [
+                    { id: 'g_es_sbs_t04' }
+                ];
+                const res = getProximoGrupoEnderecoSequencia(grupos, 'ES-SBS-T');
+                expect(res.proximoNumero).toBe(5);
+                expect(res.proximoSufixo).toBe('005');
+                expect(res.proximoCodigo).toBe('ES-SBS-T005');
+            });
+
+            it('deve respeitar prefixos alternativos de idioma com 3 dígitos (ex: EN-SBS-T)', () => {
+                const grupos = [
+                    { codigo: 'ES-SBS-T005' },
+                    { codigo: 'EN-SBS-T001' }
+                ];
+                const res = getProximoGrupoEnderecoSequencia(grupos, 'EN-SBS-T');
+                expect(res.proximoNumero).toBe(2);
+                expect(res.proximoSufixo).toBe('002');
+                expect(res.proximoCodigo).toBe('EN-SBS-T002');
+            });
+
+            it('deve usar fallback de territórios legados T-01 se nenhum tiver o prefixo atual com 3 dígitos', () => {
+                const grupos = [
+                    { codigo: 'T-01' },
+                    { codigo: 'T-02' }
+                ];
+                const res = getProximoGrupoEnderecoSequencia(grupos, 'ES-SBS-T');
+                expect(res.proximoNumero).toBe(3);
+                expect(res.proximoSufixo).toBe('003');
+                expect(res.proximoCodigo).toBe('ES-SBS-T003');
+            });
+        });
+
+        describe('verificarNumeroGrupoEnderecoExistente', () => {
+            const grupos = [
+                { codigo: 'ES-SBS-T01' },
+                { codigo: 'ES-SBS-T05' }
+            ];
+
+            it('deve detectar repetição com o número exato 05', () => {
+                const res = verificarNumeroGrupoEnderecoExistente(grupos, 'ES-SBS-T', '05');
+                expect(res.existe).toBe(true);
+                expect(res.codigoExistente).toBe('ES-SBS-T05');
+            });
+
+            it('deve detectar repetição quando informado apenas 5 (sem zero à esquerda)', () => {
+                const res = verificarNumeroGrupoEnderecoExistente(grupos, 'ES-SBS-T', '5');
+                expect(res.existe).toBe(true);
+                expect(res.codigoExistente).toBe('ES-SBS-T05');
+            });
+
+            it('deve detectar repetição quando informado com mais zeros à esquerda como 005', () => {
+                const res = verificarNumeroGrupoEnderecoExistente(grupos, 'ES-SBS-T', '005');
+                expect(res.existe).toBe(true);
+                expect(res.codigoExistente).toBe('ES-SBS-T05');
+            });
+
+            it('deve permitir número novo como 6 ou 06', () => {
+                const res1 = verificarNumeroGrupoEnderecoExistente(grupos, 'ES-SBS-T', '6');
+                expect(res1.existe).toBe(false);
+                expect(res1.codigoExistente).toBeNull();
+
+                const res2 = verificarNumeroGrupoEnderecoExistente(grupos, 'ES-SBS-T', '06');
+                expect(res2.existe).toBe(false);
+                expect(res2.codigoExistente).toBeNull();
+            });
+
+            it('deve reconhecer territórios armazenados como docId g_es_sbs_t05', () => {
+                const gruposComDocId = [{ id: 'g_es_sbs_t05' }];
+                const res = verificarNumeroGrupoEnderecoExistente(gruposComDocId, 'ES-SBS-T', '5');
+                expect(res.existe).toBe(true);
+                expect(res.codigoExistente).toBe('ES-SBS-T05');
+            });
+
+            it('não deve acusar colisão se o número pertencer a outro prefixo de idioma', () => {
+                const gruposOutroIdioma = [{ codigo: 'EN-SBS-T05' }];
+                const res = verificarNumeroGrupoEnderecoExistente(gruposOutroIdioma, 'ES-SBS-T', '5');
+                expect(res.existe).toBe(false);
+            });
+        });
+    });
+
+    describe('geradores de sequência e validação de endereços com 3 dígitos', () => {
+        describe('getProximoEnderecoSequencia', () => {
+            it('deve retornar 001 quando a lista de endereços for vazia', () => {
+                const res = getProximoEnderecoSequencia([]);
+                expect(res.proximoNumero).toBe(1);
+                expect(res.proximoSufixo).toBe('001');
+                expect(res.proximoCodigo).toBe('ES-SBS-001');
+                expect(res.prefixo).toBe('ES-SBS-');
+            });
+
+            it('deve calcular próximo endereço considerando formato de 3 dígitos', () => {
+                const enderecos = [
+                    { codigo: 'ES-SBS-001' },
+                    { codigo: 'ES-SBS-026' }
+                ];
+                const res = getProximoEnderecoSequencia(enderecos);
+                expect(res.proximoNumero).toBe(27);
+                expect(res.proximoSufixo).toBe('027');
+                expect(res.proximoCodigo).toBe('ES-SBS-027');
+            });
+
+            it('deve lidar com saltos na numeração pegando o maior + 1', () => {
+                const enderecos = [
+                    { codigo: 'ES-SBS-001' },
+                    { codigo: 'ES-SBS-010' }
+                ];
+                const res = getProximoEnderecoSequencia(enderecos);
+                expect(res.proximoNumero).toBe(11);
+                expect(res.proximoSufixo).toBe('011');
+                expect(res.proximoCodigo).toBe('ES-SBS-011');
+            });
+
+            it('deve expandir para 4 dígitos se a contagem atingir 1000', () => {
+                const enderecos = [{ codigo: 'ES-SBS-999' }];
+                const res = getProximoEnderecoSequencia(enderecos);
+                expect(res.proximoNumero).toBe(1000);
+                expect(res.proximoSufixo).toBe('1000');
+                expect(res.proximoCodigo).toBe('ES-SBS-1000');
+            });
+
+            it('deve respeitar prefixos alternativos de idioma (ex: EN-SBS-)', () => {
+                const enderecos = [
+                    { codigo: 'ES-SBS-025' },
+                    { codigo: 'EN-SBS-003' }
+                ];
+                const res = getProximoEnderecoSequencia(enderecos, 'EN-SBS-');
+                expect(res.proximoNumero).toBe(4);
+                expect(res.proximoSufixo).toBe('004');
+                expect(res.proximoCodigo).toBe('EN-SBS-004');
+            });
+
+            it('deve usar fallback de endereços legados E-01 ou E-0001 se nenhum tiver o prefixo atual', () => {
+                const enderecos = [
+                    { codigo: 'E-01' },
+                    { codigo: 'E-02' }
+                ];
+                const res = getProximoEnderecoSequencia(enderecos, 'ES-SBS-');
+                expect(res.proximoNumero).toBe(3);
+                expect(res.proximoSufixo).toBe('003');
+                expect(res.proximoCodigo).toBe('ES-SBS-003');
+            });
+        });
+
+        describe('verificarNumeroEnderecoExistente', () => {
+            const enderecos = [
+                { codigo: 'ES-SBS-001' },
+                { codigo: 'ES-SBS-026' }
+            ];
+
+            it('deve detectar repetição com o número exato 026', () => {
+                const res = verificarNumeroEnderecoExistente(enderecos, 'ES-SBS-', '026');
+                expect(res.existe).toBe(true);
+                expect(res.codigoExistente).toBe('ES-SBS-026');
+            });
+
+            it('deve detectar repetição quando informado apenas 26 (sem zero à esquerda)', () => {
+                const res = verificarNumeroEnderecoExistente(enderecos, 'ES-SBS-', '26');
+                expect(res.existe).toBe(true);
+                expect(res.codigoExistente).toBe('ES-SBS-026');
+            });
+
+            it('deve detectar repetição quando informado com zeros extras como 0026', () => {
+                const res = verificarNumeroEnderecoExistente(enderecos, 'ES-SBS-', '0026');
+                expect(res.existe).toBe(true);
+                expect(res.codigoExistente).toBe('ES-SBS-026');
+            });
+
+            it('deve permitir número novo como 27 ou 027', () => {
+                const res1 = verificarNumeroEnderecoExistente(enderecos, 'ES-SBS-', '27');
+                expect(res1.existe).toBe(false);
+                expect(res1.codigoExistente).toBeNull();
+
+                const res2 = verificarNumeroEnderecoExistente(enderecos, 'ES-SBS-', '027');
+                expect(res2.existe).toBe(false);
+                expect(res2.codigoExistente).toBeNull();
+            });
+
+            it('deve reconhecer endereços armazenados como docId e_es_sbs_001', () => {
+                const enderecosComDocId = [{ id: 'e_es_sbs_001' }];
+                const res = verificarNumeroEnderecoExistente(enderecosComDocId, 'ES-SBS-', '1');
+                expect(res.existe).toBe(true);
+                expect(res.codigoExistente).toBe('ES-SBS-001');
+            });
+
+            it('não deve acusar colisão se o número pertencer a outro prefixo de idioma', () => {
+                const enderecosOutroIdioma = [{ codigo: 'EN-SBS-026' }];
+                const res = verificarNumeroEnderecoExistente(enderecosOutroIdioma, 'ES-SBS-', '26');
+                expect(res.existe).toBe(false);
+            });
+        });
     });
 });
+
+

@@ -57,6 +57,8 @@ import {
     getEnderecosCollectionRef,
     getGruposEnderecoCollectionRef,
     getGrupoEnderecoDocIdFromSequence,
+    getGrupoEnderecoDocIdFromCodigo,
+    isCodigoManualValido,
     removerEnderecoDoGrupo,
     setEnderecoArquivado,
     setGrupoEnderecoArquivado,
@@ -138,9 +140,14 @@ const formatEnderecoCodigoMarcador = (value) => {
 };
 
 const getGrupoEnderecoDocIdCandidate = (value) => {
-    const codigo = formatGrupoEnderecoCodigoExibicao(value);
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (isCodigoManualValido(raw)) {
+        return getGrupoEnderecoDocIdFromCodigo(raw);
+    }
+    const codigo = formatGrupoEnderecoCodigoExibicao(raw);
     const match = String(codigo || '').match(/^T-(\d+)$/i);
-    return match ? getGrupoEnderecoDocIdFromSequence(match[1]) : String(value || '').trim();
+    return match ? getGrupoEnderecoDocIdFromSequence(match[1]) : raw;
 };
 
 const isSameGrupoEndereco = (grupo, grupoId) => {
@@ -4092,6 +4099,8 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         endereco={enderecoModal.endereco}
                         ponto={enderecoModal.ponto}
                         gruposDisponiveis={gruposEnderecoParaCadastroEndereco}
+                        todosGrupos={gruposEnderecoCompletos}
+                        todosEnderecos={isAdmin ? enderecos : enderecosOperacionais}
                         enderecoConfig={enderecoConfigAtiva}
                         loading={salvandoEndereco}
                         onClose={fecharEnderecoModal}
@@ -4101,6 +4110,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         isOpen={grupoEnderecoModalAberto}
                         selectedEnderecos={enderecosSelecionadosDados}
                         gruposDisponiveis={gruposEnderecoParaVinculo}
+                        todosGrupos={gruposEnderecoCompletos}
                         enderecoConfig={enderecoConfigAtiva}
                         loading={salvandoGrupoEndereco}
                         onClose={() => {

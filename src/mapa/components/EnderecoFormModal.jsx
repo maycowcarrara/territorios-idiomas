@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-    getEnderecoCodigoPadraoFromConfig,
-    getGrupoEnderecoCodigoPadraoFromConfig,
     normalizeEnderecoConfig
 } from '../../enderecoConfig';
-import { ENDERECO_CLASSES } from '../../enderecoModel';
+import {
+    ENDERECO_CLASSES,
+    getProximoGrupoEnderecoSequencia,
+    verificarNumeroGrupoEnderecoExistente,
+    getProximoEnderecoSequencia,
+    verificarNumeroEnderecoExistente,
+    IDIOMA_PADRAO_ENDERECOS
+} from '../../enderecoModel';
 import { stopMapDomEvent, useLeafletDomEventIsolation } from '../utils/mapDomEvents';
 import {
     formatAuditDateTime,
@@ -13,18 +18,63 @@ import {
     hasEnderecoAuditInfo
 } from '../utils/enderecoModalUtils';
 
-export const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponiveis = [], enderecoConfig, loading, onClose, onSubmit }) => {
+export const EnderecoFormModal = ({
+    isOpen,
+    mode,
+    endereco,
+    ponto,
+    gruposDisponiveis = [],
+    todosGrupos = [],
+    todosEnderecos = [],
+    enderecoConfig,
+    loading,
+    onClose,
+    onSubmit
+}) => {
     const modalRef = useLeafletDomEventIsolation();
     const config = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
     const tiposEnderecoAtivos = config.tiposEndereco.filter((tipo) => tipo.ativo);
+    const prefixoTerritorio = config.prefixoTerritorioPadrao || IDIOMA_PADRAO_ENDERECOS.codigoPrefixoTerritorio;
+    const prefixoEndereco = config.prefixoEnderecoPadrao || IDIOMA_PADRAO_ENDERECOS.codigoPrefixoEndereco;
+
+    const sequenciaTerritorio = useMemo(() => {
+        const listaGrupos = Array.isArray(todosGrupos) && todosGrupos.length
+            ? todosGrupos
+            : gruposDisponiveis;
+        return getProximoGrupoEnderecoSequencia(listaGrupos, prefixoTerritorio);
+    }, [todosGrupos, gruposDisponiveis, prefixoTerritorio]);
+
+    const sequenciaEndereco = useMemo(() => {
+        return getProximoEnderecoSequencia(todosEnderecos, prefixoEndereco);
+    }, [todosEnderecos, prefixoEndereco]);
+
     const [form, setForm] = useState(getEnderecoInitialForm(endereco, ponto, config));
+    const [enderecoNumero, setEnderecoNumero] = useState(sequenciaEndereco.proximoSufixo);
+    const [grupoNumero, setGrupoNumero] = useState(sequenciaTerritorio.proximoSufixo);
     const [activeTab, setActiveTab] = useState('dados');
+
+    const conflitoNumeroTerritorio = useMemo(() => {
+        if (mode === 'edit' || form.grupoEscolha !== '__novo__' || !grupoNumero.trim()) return null;
+        const listaGrupos = Array.isArray(todosGrupos) && todosGrupos.length
+            ? todosGrupos
+            : gruposDisponiveis;
+        const res = verificarNumeroGrupoEnderecoExistente(listaGrupos, prefixoTerritorio, grupoNumero);
+        return res.existe ? res.codigoExistente : null;
+    }, [mode, form.grupoEscolha, grupoNumero, todosGrupos, gruposDisponiveis, prefixoTerritorio]);
+
+    const conflitoNumeroEndereco = useMemo(() => {
+        if (mode === 'edit' || !enderecoNumero.trim()) return null;
+        const res = verificarNumeroEnderecoExistente(todosEnderecos, prefixoEndereco, enderecoNumero);
+        return res.existe ? res.codigoExistente : null;
+    }, [mode, enderecoNumero, todosEnderecos, prefixoEndereco]);
 
     useEffect(() => {
         if (!isOpen) return;
         setForm(getEnderecoInitialForm(endereco, ponto, config));
+        setEnderecoNumero(sequenciaEndereco.proximoSufixo);
+        setGrupoNumero(sequenciaTerritorio.proximoSufixo);
         setActiveTab('dados');
-    }, [config, endereco, isOpen, ponto]);
+    }, [config, endereco, isOpen, ponto, sequenciaEndereco.proximoSufixo, sequenciaTerritorio.proximoSufixo]);
 
     if (!isOpen) return null;
 
@@ -40,11 +90,44 @@ export const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponi
         }));
     };
 
+    const handleEnderecoNumeroChange = (event) => {
+        let val = event.target.value.toUpperCase();
+        if (prefixoEndereco && val.startsWith(prefixoEndereco.toUpperCase())) {
+            val = val.slice(prefixoEndereco.length);
+        }
+        val = val.replace(/^[-_]+/, '');
+        val = val.replace(/[^A-Z0-9-]/g, '');
+        setEnderecoNumero(val);
+    };
+
+    const handleGrupoNumeroChange = (event) => {
+        let val = event.target.value.toUpperCase();
+        if (prefixoTerritorio && val.startsWith(prefixoTerritorio.toUpperCase())) {
+            val = val.slice(prefixoTerritorio.length);
+        }
+        val = val.replace(/^[-_]+/, '');
+        val = val.replace(/[^A-Z0-9-]/g, '');
+        setGrupoNumero(val);
+    };
+
     const handleSubmit = (event) => {
         event.preventDefault();
         const formElement = event.currentTarget;
 
-        if (!form.codigo || !form.endereco || (!isEdit && form.grupoEscolha === '__novo__' && !form.grupoCodigo)) {
+        const enderecoCodigoFinal = isEdit
+            ? form.codigo
+            : `${prefixoEndereco}${enderecoNumero.trim() || sequenciaEndereco.proximoSufixo}`;
+
+        const grupoCodigoFinal = form.grupoEscolha === '__novo__'
+            ? `${prefixoTerritorio}${grupoNumero.trim() || sequenciaTerritorio.proximoSufixo}`
+            : form.grupoCodigo;
+
+        if (
+            !enderecoCodigoFinal ||
+            !form.endereco ||
+            (!isEdit && (!enderecoNumero.trim() || Boolean(conflitoNumeroEndereco))) ||
+            (!isEdit && form.grupoEscolha === '__novo__' && (!grupoNumero.trim() || Boolean(conflitoNumeroTerritorio)))
+        ) {
             setActiveTab('dados');
             window.requestAnimationFrame(() => formElement?.reportValidity?.());
             return;
@@ -52,7 +135,8 @@ export const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponi
 
         onSubmit({
             ...form,
-            codigo: form.codigo,
+            codigo: enderecoCodigoFinal,
+            grupoCodigo: grupoCodigoFinal,
             informacao: form.informacao,
             observacao: form.informacao,
             lat: Number(form.lat),
@@ -100,15 +184,38 @@ export const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponi
                             </div>
                             <label className="block">
                                 <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código</span>
-                                <input
-                                    value={form.codigo}
-                                    onChange={handleChange('codigo')}
-                                    maxLength={40}
-                                    required
-                                    disabled={loading || isEdit}
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                    placeholder={getEnderecoCodigoPadraoFromConfig(config)}
-                                />
+                                {isEdit ? (
+                                    <input
+                                        value={form.codigo}
+                                        disabled
+                                        className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-500 outline-none"
+                                    />
+                                ) : (
+                                    <>
+                                        <div className={`flex overflow-hidden rounded-lg border bg-white shadow-sm transition focus-within:ring-2 ${conflitoNumeroEndereco ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-rose-100' : 'border-slate-300 focus-within:border-teal-600 focus-within:ring-teal-100'}`}>
+                                            <span
+                                                className="inline-flex select-none items-center border-r border-slate-200 bg-slate-100 px-3 font-mono text-sm font-bold text-slate-600"
+                                                title={`Prefixo fixo configurado: ${prefixoEndereco}`}
+                                            >
+                                                {prefixoEndereco}
+                                            </span>
+                                            <input
+                                                value={enderecoNumero}
+                                                onChange={handleEnderecoNumeroChange}
+                                                maxLength={20}
+                                                required
+                                                disabled={loading}
+                                                className="w-full bg-transparent px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-800 outline-none disabled:bg-slate-100"
+                                                placeholder={sequenciaEndereco.proximoSufixo}
+                                            />
+                                        </div>
+                                        {conflitoNumeroEndereco && (
+                                            <p className="mt-1 text-xs font-bold text-rose-600">
+                                                ⚠️ Já existe o endereço {conflitoNumeroEndereco} com este número.
+                                            </p>
+                                        )}
+                                    </>
+                                )}
                             </label>
                             {!isEdit && (
                                 <label className="block">
@@ -133,15 +240,28 @@ export const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponi
                                 <div className="grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
                                     <label className="block">
                                         <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Código do território</span>
-                                        <input
-                                            value={form.grupoCodigo}
-                                            onChange={handleChange('grupoCodigo')}
-                                            maxLength={40}
-                                            required
-                                            disabled={loading}
-                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
-                                            placeholder={getGrupoEnderecoCodigoPadraoFromConfig(config)}
-                                        />
+                                        <div className={`flex overflow-hidden rounded-lg border bg-white shadow-sm transition focus-within:ring-2 ${conflitoNumeroTerritorio ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-rose-100' : 'border-slate-300 focus-within:border-teal-600 focus-within:ring-teal-100'}`}>
+                                            <span
+                                                className="inline-flex select-none items-center border-r border-slate-200 bg-slate-100 px-3 font-mono text-sm font-bold text-slate-600"
+                                                title={`Prefixo fixo configurado: ${prefixoTerritorio}`}
+                                            >
+                                                {prefixoTerritorio}
+                                            </span>
+                                            <input
+                                                value={grupoNumero}
+                                                onChange={handleGrupoNumeroChange}
+                                                maxLength={20}
+                                                required
+                                                disabled={loading}
+                                                className="w-full bg-transparent px-3 py-2 font-mono text-sm font-semibold uppercase text-slate-800 outline-none disabled:bg-slate-100"
+                                                placeholder={sequenciaTerritorio.proximoSufixo}
+                                            />
+                                        </div>
+                                        {conflitoNumeroTerritorio && (
+                                            <p className="mt-1 text-xs font-bold text-rose-600">
+                                                ⚠️ Já existe o território {conflitoNumeroTerritorio} com este número.
+                                            </p>
+                                        )}
                                     </label>
                                     <label className="block">
                                         <span className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome do território</span>
@@ -253,8 +373,8 @@ export const EnderecoFormModal = ({ isOpen, mode, endereco, ponto, gruposDisponi
                     </button>
                     <button
                         type="submit"
-                        disabled={loading}
-                        className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-wait disabled:opacity-70"
+                        disabled={loading || (!isEdit && (!enderecoNumero.trim() || Boolean(conflitoNumeroEndereco))) || (!isEdit && form.grupoEscolha === '__novo__' && (!grupoNumero.trim() || Boolean(conflitoNumeroTerritorio)))}
+                        className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         {loading ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Cadastrar'}
                     </button>

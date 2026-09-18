@@ -168,7 +168,7 @@ export function getEnderecoCodigoPadraoFromConfig(config) {
 
 export function getGrupoEnderecoCodigoPadraoFromConfig(config) {
     const normalized = normalizeEnderecoConfig(config);
-    return appendDefaultSuffix(normalized.prefixoTerritorioPadrao, '01') || GRUPO_ENDERECO_CODIGO_PADRAO;
+    return appendDefaultSuffix(normalized.prefixoTerritorioPadrao, '001') || GRUPO_ENDERECO_CODIGO_PADRAO;
 }
 
 export function getEnderecoConfigRef(db) {

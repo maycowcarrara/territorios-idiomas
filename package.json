@@ -1,7 +1,7 @@
 {
   "name": "territorios-idiomas",
   "private": true,
-  "version": "3.5.357",
+  "version": "3.5.358",
   "type": "module",
   "scripts": {
     "dev": "vite --mode idiomas",

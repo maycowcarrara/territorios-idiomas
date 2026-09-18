@@ -36,7 +36,7 @@ export const IDIOMA_PADRAO_ENDERECOS = Object.freeze({
 });
 
 export const ENDERECO_CODIGO_PADRAO = 'ES-SBS-001';
-export const GRUPO_ENDERECO_CODIGO_PADRAO = 'ES-SBS-T01';
+export const GRUPO_ENDERECO_CODIGO_PADRAO = 'ES-SBS-T001';
 
 export const ENDERECO_CLASSES = Object.freeze({
     CONFIRMADO: 'confirmado',
@@ -202,6 +202,264 @@ export function formatGrupoEnderecoNomeExibicao(nome, codigo) {
 export function getGrupoEnderecoDocIdFromSequence(sequence) {
     const safeSequence = Math.max(1, Number.parseInt(sequence, 10) || 1);
     return `g_${String(safeSequence).padStart(GRUPO_ENDERECO_CODE_WIDTH, '0')}`;
+}
+
+function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function getProximoGrupoEnderecoSequencia(grupos = [], prefixo = 'ES-SBS-T') {
+    const prefixoNormalizado = normalizeCodigoManual(prefixo || 'ES-SBS-T');
+    let maxNumero = 0;
+    let maxDigitos = 3;
+
+    const escapedPrefix = escapeRegExp(prefixoNormalizado);
+    const regexPrefixo = new RegExp(`^${escapedPrefix}[-_]?(\\d+)$`, 'i');
+    const regexLegacy = /^(?:T-?|g_t_?|g_)0*(\d+)$/i;
+
+    let encontrouComPrefixo = false;
+
+    if (Array.isArray(grupos)) {
+        for (const grupo of grupos) {
+            const raw = String(grupo?.codigo || grupo?.id || grupo || '').trim();
+            if (!raw) continue;
+
+            let codigoFormatado = raw;
+            const matchDocId = raw.match(/^g_([a-z0-9]+(?:_[a-z0-9]+)*)$/i);
+            if (matchDocId) {
+                codigoFormatado = matchDocId[1].toUpperCase().replace(/_/g, '-');
+            }
+
+            const matchPrefixo = codigoFormatado.match(regexPrefixo);
+            if (matchPrefixo) {
+                encontrouComPrefixo = true;
+                const digitsStr = matchPrefixo[1];
+                const num = Number.parseInt(digitsStr, 10);
+                if (Number.isFinite(num) && num > maxNumero) {
+                    maxNumero = num;
+                    if (digitsStr.length > maxDigitos) {
+                        maxDigitos = digitsStr.length;
+                    }
+                }
+            }
+        }
+
+        if (!encontrouComPrefixo) {
+            for (const grupo of grupos) {
+                const raw = String(grupo?.codigo || grupo?.id || grupo || '').trim();
+                if (!raw) continue;
+
+                let codigoFormatado = raw;
+                const matchDocId = raw.match(/^g_([a-z0-9]+(?:_[a-z0-9]+)*)$/i);
+                if (matchDocId) {
+                    codigoFormatado = matchDocId[1].toUpperCase().replace(/_/g, '-');
+                }
+
+                if (/^E-\d+/i.test(codigoFormatado)) continue;
+
+                const matchLegacy = codigoFormatado.match(regexLegacy);
+                if (matchLegacy) {
+                    const digitsStr = matchLegacy[1];
+                    const num = Number.parseInt(digitsStr, 10);
+                    if (Number.isFinite(num) && num > maxNumero) {
+                        maxNumero = num;
+                        if (digitsStr.length > maxDigitos) {
+                            maxDigitos = digitsStr.length;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    const proximoNumero = maxNumero + 1;
+    const proximoSufixo = String(proximoNumero).padStart(maxDigitos, '0');
+    const proximoCodigo = `${prefixoNormalizado}${proximoSufixo}`;
+
+    return {
+        proximoNumero,
+        proximoSufixo,
+        proximoCodigo,
+        prefixo: prefixoNormalizado
+    };
+}
+
+export function verificarNumeroGrupoEnderecoExistente(grupos = [], prefixo = 'ES-SBS-T', numeroOuSufixo = '') {
+    const rawNumero = String(numeroOuSufixo || '').trim();
+    if (!rawNumero) return { existe: false, codigoExistente: null };
+
+    const prefixoNormalizado = normalizeCodigoManual(prefixo || 'ES-SBS-T');
+    const escapedPrefix = escapeRegExp(prefixoNormalizado);
+    const regexPrefixo = new RegExp(`^${escapedPrefix}[-_]?(\\d+)$`, 'i');
+    const regexLegacy = /^(?:T-?|g_t_?|g_)0*(\d+)$/i;
+
+    const parsedInput = Number.parseInt(rawNumero, 10);
+    const hasNumericInput = Number.isFinite(parsedInput) && (String(parsedInput) === rawNumero.replace(/^0+/, '') || rawNumero === '0');
+
+    if (!Array.isArray(grupos)) {
+        return { existe: false, codigoExistente: null };
+    }
+
+    for (const grupo of grupos) {
+        const raw = String(grupo?.codigo || grupo?.id || grupo || '').trim();
+        if (!raw) continue;
+
+        let codigoFormatado = raw;
+        const matchDocId = raw.match(/^g_([a-z0-9]+(?:_[a-z0-9]+)*)$/i);
+        if (matchDocId) {
+            codigoFormatado = matchDocId[1].toUpperCase().replace(/_/g, '-');
+        }
+
+        const codigoTentativa = `${prefixoNormalizado}${rawNumero.toUpperCase()}`;
+        if (codigoFormatado.toUpperCase() === codigoTentativa) {
+            return { existe: true, codigoExistente: codigoFormatado };
+        }
+
+        const matchPrefixo = codigoFormatado.match(regexPrefixo);
+        if (matchPrefixo) {
+            const numExistente = Number.parseInt(matchPrefixo[1], 10);
+            if (hasNumericInput && numExistente === parsedInput) {
+                return { existe: true, codigoExistente: codigoFormatado };
+            }
+        } else {
+            const matchLegacy = codigoFormatado.match(regexLegacy);
+            if (matchLegacy && !/^E-\d+/i.test(codigoFormatado)) {
+                const numExistente = Number.parseInt(matchLegacy[1], 10);
+                if (hasNumericInput && numExistente === parsedInput) {
+                    return { existe: true, codigoExistente: codigoFormatado };
+                }
+            }
+        }
+    }
+
+    return { existe: false, codigoExistente: null };
+}
+
+export function getProximoEnderecoSequencia(enderecos = [], prefixo = 'ES-SBS-') {
+    const prefixoNormalizado = normalizeCodigoManual(prefixo || 'ES-SBS-');
+    let maxNumero = 0;
+    let maxDigitos = 3;
+
+    const escapedPrefix = escapeRegExp(prefixoNormalizado);
+    const regexPrefixo = new RegExp(`^${escapedPrefix}[-_]?(\\d+)$`, 'i');
+    const regexLegacy = /^(?:E-?|e_)0*(\d+)$/i;
+
+    let encontrouComPrefixo = false;
+
+    if (Array.isArray(enderecos)) {
+        for (const endereco of enderecos) {
+            const raw = String(endereco?.codigo || endereco?.id || endereco || '').trim();
+            if (!raw) continue;
+
+            let codigoFormatado = raw;
+            const matchDocId = raw.match(/^e_([a-z0-9]+(?:_[a-z0-9]+)*)$/i);
+            if (matchDocId) {
+                codigoFormatado = matchDocId[1].toUpperCase().replace(/_/g, '-');
+            }
+
+            const matchPrefixo = codigoFormatado.match(regexPrefixo);
+            if (matchPrefixo) {
+                encontrouComPrefixo = true;
+                const digitsStr = matchPrefixo[1];
+                const num = Number.parseInt(digitsStr, 10);
+                if (Number.isFinite(num) && num > maxNumero) {
+                    maxNumero = num;
+                    if (digitsStr.length > maxDigitos) {
+                        maxDigitos = digitsStr.length;
+                    }
+                }
+            }
+        }
+
+        if (!encontrouComPrefixo) {
+            for (const endereco of enderecos) {
+                const raw = String(endereco?.codigo || endereco?.id || endereco || '').trim();
+                if (!raw) continue;
+
+                let codigoFormatado = raw;
+                const matchDocId = raw.match(/^e_([a-z0-9]+(?:_[a-z0-9]+)*)$/i);
+                if (matchDocId) {
+                    codigoFormatado = matchDocId[1].toUpperCase().replace(/_/g, '-');
+                }
+
+                if (/^T-\d+/i.test(codigoFormatado)) continue;
+
+                const matchLegacy = codigoFormatado.match(regexLegacy);
+                if (matchLegacy) {
+                    const digitsStr = matchLegacy[1];
+                    const num = Number.parseInt(digitsStr, 10);
+                    if (Number.isFinite(num) && num > maxNumero) {
+                        maxNumero = num;
+                        if (digitsStr.length > maxDigitos) {
+                            maxDigitos = digitsStr.length;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    const proximoNumero = maxNumero + 1;
+    const proximoSufixo = String(proximoNumero).padStart(maxDigitos, '0');
+    const proximoCodigo = `${prefixoNormalizado}${proximoSufixo}`;
+
+    return {
+        proximoNumero,
+        proximoSufixo,
+        proximoCodigo,
+        prefixo: prefixoNormalizado
+    };
+}
+
+export function verificarNumeroEnderecoExistente(enderecos = [], prefixo = 'ES-SBS-', numeroOuSufixo = '') {
+    const rawNumero = String(numeroOuSufixo || '').trim();
+    if (!rawNumero) return { existe: false, codigoExistente: null };
+
+    const prefixoNormalizado = normalizeCodigoManual(prefixo || 'ES-SBS-');
+    const escapedPrefix = escapeRegExp(prefixoNormalizado);
+    const regexPrefixo = new RegExp(`^${escapedPrefix}[-_]?(\\d+)$`, 'i');
+    const regexLegacy = /^(?:E-?|e_)0*(\d+)$/i;
+
+    const parsedInput = Number.parseInt(rawNumero, 10);
+    const hasNumericInput = Number.isFinite(parsedInput) && (String(parsedInput) === rawNumero.replace(/^0+/, '') || rawNumero === '0');
+
+    if (!Array.isArray(enderecos)) {
+        return { existe: false, codigoExistente: null };
+    }
+
+    for (const endereco of enderecos) {
+        const raw = String(endereco?.codigo || endereco?.id || endereco || '').trim();
+        if (!raw) continue;
+
+        let codigoFormatado = raw;
+        const matchDocId = raw.match(/^e_([a-z0-9]+(?:_[a-z0-9]+)*)$/i);
+        if (matchDocId) {
+            codigoFormatado = matchDocId[1].toUpperCase().replace(/_/g, '-');
+        }
+
+        const codigoTentativa = `${prefixoNormalizado}${rawNumero.toUpperCase()}`;
+        if (codigoFormatado.toUpperCase() === codigoTentativa) {
+            return { existe: true, codigoExistente: codigoFormatado };
+        }
+
+        const matchPrefixo = codigoFormatado.match(regexPrefixo);
+        if (matchPrefixo) {
+            const numExistente = Number.parseInt(matchPrefixo[1], 10);
+            if (hasNumericInput && numExistente === parsedInput) {
+                return { existe: true, codigoExistente: codigoFormatado };
+            }
+        } else {
+            const matchLegacy = codigoFormatado.match(regexLegacy);
+            if (matchLegacy && !/^T-\d+/i.test(codigoFormatado)) {
+                const numExistente = Number.parseInt(matchLegacy[1], 10);
+                if (hasNumericInput && numExistente === parsedInput) {
+                    return { existe: true, codigoExistente: codigoFormatado };
+                }
+            }
+        }
+    }
+
+    return { existe: false, codigoExistente: null };
 }
 
 export function getEnderecosCollectionRef(db) {

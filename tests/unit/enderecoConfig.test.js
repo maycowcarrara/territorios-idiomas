@@ -118,7 +118,7 @@ describe('enderecoConfig', () => {
             };
 
             expect(getEnderecoCodigoPadraoFromConfig(config)).toBe('ES-SBS-001');
-            expect(getGrupoEnderecoCodigoPadraoFromConfig(config)).toBe('ES-SBS-T01');
+            expect(getGrupoEnderecoCodigoPadraoFromConfig(config)).toBe('ES-SBS-T001');
         });
 
         it('não deve duplicar números se o prefixo já terminar com dígito', () => {

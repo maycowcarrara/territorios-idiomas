@@ -671,7 +671,7 @@ const AdminPanel = () => {
         if (idiomaInvalido) {
             notify({
                 title: 'Prefixo inválido',
-                message: `Os prefixos de ${idiomaInvalido.nome} precisam gerar códigos com hífen, como ES-SBS-001 e ES-SBS-T01.`,
+                message: `Os prefixos de ${idiomaInvalido.nome} precisam gerar códigos com hífen, como ES-SBS-001 e ES-SBS-T001.`,
                 variant: 'warning',
                 durationMs: 7000
             });
