@@ -210,7 +210,7 @@ const normalizeConfirmInput = (input) => {
 };
 
 const ToastViewport = ({ toasts, onDismiss }) => (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[6000] flex justify-center px-4 sm:justify-end">
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[10060] flex justify-center px-4 sm:justify-end" style={{ zIndex: 10060 }}>
         <div className="flex w-full max-w-md flex-col gap-3">
             {toasts.map((toast) => {
                 const style = VARIANT_STYLES[toast.variant];
@@ -256,7 +256,8 @@ const ConfirmDialog = ({ request, onConfirm, onCancel }) => {
 
     return (
         <div
-            className="fixed inset-0 z-[7000] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
+            className="fixed inset-0 z-[10050] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
+            style={{ zIndex: 10050 }}
             onClick={onCancel}
         >
             <div

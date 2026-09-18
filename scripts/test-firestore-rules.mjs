@@ -349,7 +349,7 @@ async function main() {
             await deleteDoc(doc(designadoClient.db, 'enderecos/e_rules_001'));
         });
 
-        await expectPermissionDenied('Admin tentando exclusão física de endereço (proibida para todos)', async () => {
+        await expectAllowed('Admin realizando exclusão física de endereço permitida', async () => {
             await deleteDoc(doc(adminClient.db, 'enderecos/e_rules_001'));
         });
 

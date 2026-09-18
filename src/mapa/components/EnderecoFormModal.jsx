@@ -43,7 +43,8 @@ export const EnderecoFormModal = ({
     enderecoConfig,
     loading,
     onClose,
-    onSubmit
+    onSubmit,
+    onDelete
 }) => {
     const modalRef = useLeafletDomEventIsolation();
     const config = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
@@ -390,22 +391,39 @@ export const EnderecoFormModal = ({
                         </div>
                     )}
                 </div>
-                <div className="flex flex-col-reverse gap-2 border-t border-slate-200 px-4 py-3 sm:flex-row sm:justify-end">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        disabled={loading}
-                        className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                    >
-                        Cancelar
-                    </button>
-                    <button
-                        type="submit"
-                        disabled={loading || !enderecoNumero.trim() || Boolean(conflitoNumeroEndereco) || (!isEdit && form.grupoEscolha === '__novo__' && (!grupoNumero.trim() || Boolean(conflitoNumeroTerritorio)))}
-                        className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                        {loading ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Cadastrar'}
-                    </button>
+                <div className="flex flex-col gap-2 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    {isEdit && onDelete ? (
+                        <button
+                            type="button"
+                            onClick={() => onDelete(endereco)}
+                            disabled={loading}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 transition hover:bg-rose-100 hover:text-rose-800 disabled:opacity-50"
+                        >
+                            <svg className="h-4 w-4 shrink-0 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Excluir endereço
+                        </button>
+                    ) : (
+                        <div />
+                    )}
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={loading}
+                            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={loading || !enderecoNumero.trim() || Boolean(conflitoNumeroEndereco) || (!isEdit && form.grupoEscolha === '__novo__' && (!grupoNumero.trim() || Boolean(conflitoNumeroTerritorio)))}
+                            className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {loading ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Cadastrar'}
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>

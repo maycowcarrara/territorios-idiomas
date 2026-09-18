@@ -1929,3 +1929,84 @@ export async function removerEnderecoDoGrupo(db, { enderecoId, grupoId, user }) 
         }, { merge: true });
     });
 }
+
+export async function excluirEndereco(db, enderecoId, user) {
+    if (!enderecoId) {
+        throw new Error('Identificador do endereço inválido.');
+    }
+
+    if (!isAdminActor(user)) {
+        throw new Error('Apenas administradores podem excluir endereços.');
+    }
+
+    const actorEmail = buildActorEmail(user);
+    const agora = new Date();
+
+    return runTransaction(db, async (transaction) => {
+        const enderecoRef = getEnderecoRef(db, enderecoId);
+        const enderecoSnapshot = await transaction.get(enderecoRef);
+
+        if (!enderecoSnapshot.exists()) {
+            throw new Error('Endereço não encontrado.');
+        }
+
+        const endereco = enderecoSnapshot.data();
+        const grupoId = endereco.grupoId || (endereco.grupoCodigo ? getGrupoEnderecoDocIdFromCodigo(endereco.grupoCodigo) : null);
+        let grupoRef = null;
+        let grupoSnapshot = null;
+        let enderecosRestantesSnapshots = [];
+        let proximosEnderecoIds = [];
+        let proximosVisitados = [];
+
+        if (grupoId) {
+            grupoRef = getGrupoEnderecoRef(db, grupoId);
+            grupoSnapshot = await transaction.get(grupoRef);
+
+            if (grupoSnapshot.exists()) {
+                const grupo = grupoSnapshot.data();
+                proximosEnderecoIds = ensureArray(grupo.enderecoIds).filter((id) => id !== enderecoId);
+                proximosVisitados = ensureArray(grupo.enderecos_visitados).filter((id) => id !== enderecoId);
+
+                enderecosRestantesSnapshots = await Promise.all(
+                    proximosEnderecoIds.map((id) => transaction.get(getEnderecoRef(db, id)))
+                );
+            }
+        }
+
+        if (grupoSnapshot && grupoSnapshot.exists()) {
+            const grupo = grupoSnapshot.data();
+            const enderecosRestantes = enderecosRestantesSnapshots
+                .filter((snapshot) => snapshot.exists())
+                .map((snapshot) => ({
+                    id: snapshot.id,
+                    ...snapshot.data()
+                }));
+
+            const stats = calculateGrupoEnderecoStats(enderecosRestantes);
+            const statsPersistidos = stats.totalEnderecos > 0
+                ? stats
+                : {
+                    ...stats,
+                    centro: grupo.centro || null,
+                    bounds: grupo.bounds || null
+                };
+
+            transaction.set(grupoRef, {
+                enderecoIds: proximosEnderecoIds,
+                enderecos_visitados: proximosVisitados,
+                ...statsPersistidos,
+                ultimaAlteracao: agora,
+                atualizadoEm: agora,
+                atualizadoPor: actorEmail
+            }, { merge: true });
+        }
+
+        transaction.delete(enderecoRef);
+
+        return {
+            id: enderecoId,
+            codigo: endereco.codigo
+        };
+    });
+}
+

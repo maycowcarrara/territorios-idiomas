@@ -65,7 +65,8 @@ import {
     setGrupoEnderecoArquivado,
     toggleEnderecoVisitadoGrupo,
     updateEnderecoBasico,
-    updateGrupoEnderecoBasico
+    updateGrupoEnderecoBasico,
+    excluirEndereco
 } from './enderecoModel';
 import { extractTerritorioCodigo, normalizeTerritorioNome } from './territorioNome';
 import L from 'leaflet';
@@ -3384,6 +3385,59 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         }
     };
 
+    const excluirEnderecoDoBanco = async (endereco) => {
+        if (!endereco?.id) return;
+
+        if (!isOnline) {
+            notify({
+                title: 'Exclusão bloqueada offline',
+                message: ADMIN_OFFLINE_MESSAGE,
+                variant: 'warning',
+                durationMs: 7000
+            });
+            return;
+        }
+
+        const codigoExibicao = formatEnderecoCodigoExibicao(endereco.codigo || endereco.id);
+        const confirmado = await confirm({
+            title: 'Excluir endereço definitivamente',
+            message: `Tem certeza que deseja excluir o endereço ${codigoExibicao || 'selecionado'} do banco de dados?\n\nEsta ação é permanente. Se este for o último número cadastrado, o código será liberado para uso em outro endereço.`,
+            tone: 'danger',
+            confirmLabel: 'Excluir definitivamente',
+            cancelLabel: 'Cancelar'
+        });
+
+        if (!confirmado) return;
+
+        setSalvandoEndereco(true);
+        try {
+            const resultado = await excluirEndereco(db, endereco.id, actorUser);
+
+            setEnderecosSelecionadosGrupo((selecionadosAtuais) => (
+                selecionadosAtuais.filter((id) => id !== endereco.id)
+            ));
+            setPontoMapaSelecionado(null);
+
+            notify({
+                title: 'Endereço excluído',
+                message: `O endereço ${formatEnderecoCodigoExibicao(resultado?.codigo || endereco.codigo)} foi excluído definitivamente do banco de dados.`,
+                variant: 'success'
+            });
+
+            fecharEnderecoModal();
+        } catch (error) {
+            console.error('Erro ao excluir endereço:', error);
+            notify({
+                title: 'Erro ao excluir endereço',
+                message: String(error?.message || 'Verifique sua conexão e permissões antes de tentar novamente.'),
+                variant: 'error',
+                durationMs: 7000
+            });
+        } finally {
+            setSalvandoEndereco(false);
+        }
+    };
+
     const alternarArquivoEndereco = async (endereco) => {
         const arquivado = endereco.status === ENDERECO_STATUS.ARQUIVADO;
         const codigoExibicao = formatEnderecoCodigoExibicao(endereco.codigo || endereco.id);
@@ -4117,6 +4171,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         loading={salvandoEndereco}
                         onClose={fecharEnderecoModal}
                         onSubmit={salvarEndereco}
+                        onDelete={isAdmin ? excluirEnderecoDoBanco : undefined}
                     />
                     <GrupoEnderecoFormModal
                         isOpen={grupoEnderecoModalAberto}

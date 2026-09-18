@@ -762,7 +762,7 @@ service cloud.firestore {
       allow create: if podeCriarEndereco();
       allow update: if podeLimparDesignacaoEndereco(enderecoId) ||
                        atualizacaoAdminOperacionalEnderecoValida();
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     match /grupos_enderecos/{grupoId} {
