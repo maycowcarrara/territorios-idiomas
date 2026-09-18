@@ -645,7 +645,10 @@ function normalizeEmail(value) {
 }
 
 function isAdminActor(user) {
-    return user?.isAdmin === true || user?.role === 'admin';
+    if (!user) return false;
+    if (user.isAdmin === true || user.admin === true) return true;
+    const role = String(user.role || '').trim().toLowerCase();
+    return role === 'admin' || role === 'administrador';
 }
 
 function normalizeGrupoNome(value, fallback) {

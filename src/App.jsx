@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
@@ -110,6 +110,15 @@ function Dashboard() {
 
   const { isAdmin, autorizado, loading: verificandoBanco, role } = useUsuario(user);
   const isOnline = useOnlineStatus();
+
+  const usuarioCompleto = useMemo(() => {
+    if (!user) return null;
+    return {
+      ...user,
+      isAdmin,
+      role
+    };
+  }, [user, isAdmin, role]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -378,7 +387,7 @@ function Dashboard() {
       <MeusTerritoriosModal
         isOpen={meusTerritoriosAberto}
         onClose={() => setMeusTerritoriosAberto(false)}
-        user={user}
+        user={usuarioCompleto}
         navigate={navigate}
         contextoSistema={contextoSistema}
         listaInicial={meusTerritoriosPrecarregados}
@@ -499,7 +508,7 @@ function Dashboard() {
             )}
 
             <SininhoNotificacoes
-              user={user}
+              user={usuarioCompleto}
               isAdmin={isAdmin}
               pushStatus={pushStatus}
               ativandoPush={ativandoPush}
@@ -543,7 +552,7 @@ function Dashboard() {
           }
         >
           <Mapa
-            user={user}
+            user={usuarioCompleto}
             isAdmin={isAdmin}
             contextoSistema={contextoSistema}
             isOnline={isOnline}

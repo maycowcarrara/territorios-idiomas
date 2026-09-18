@@ -37,6 +37,29 @@ describe('Edição de dados do território (updateGrupoEnderecoBasico)', () => {
         const nonAdminUser = { email: 'publicador@teste.com', isAdmin: false };
         await expect(updateGrupoEnderecoBasico(mockDb, 'g_001', { nome: 'Centro' }, nonAdminUser))
             .rejects.toThrow('Apenas administradores podem editar os dados do território.');
+
+        const plainUser = { email: 'publicador@teste.com' };
+        await expect(updateGrupoEnderecoBasico(mockDb, 'g_001', { nome: 'Centro' }, plainUser))
+            .rejects.toThrow('Apenas administradores podem editar os dados do território.');
+
+        const comumUser = { email: 'publicador@teste.com', role: 'comum' };
+        await expect(updateGrupoEnderecoBasico(mockDb, 'g_001', { nome: 'Centro' }, comumUser))
+            .rejects.toThrow('Apenas administradores podem editar os dados do território.');
+    });
+
+    it('deve aceitar diferentes formatos de credencial admin (role: admin, admin: true, isAdmin: true)', async () => {
+        const mockDb = {};
+        // Com role: 'admin'
+        await expect(updateGrupoEnderecoBasico(mockDb, '', { nome: 'Centro' }, { email: 'a@b.com', role: 'admin' }))
+            .rejects.toThrow('Identificador do território inválido.');
+
+        // Com role: 'ADMIN' em maiúsculo
+        await expect(updateGrupoEnderecoBasico(mockDb, '', { nome: 'Centro' }, { email: 'a@b.com', role: 'ADMIN' }))
+            .rejects.toThrow('Identificador do território inválido.');
+
+        // Com admin: true
+        await expect(updateGrupoEnderecoBasico(mockDb, '', { nome: 'Centro' }, { email: 'a@b.com', admin: true }))
+            .rejects.toThrow('Identificador do território inválido.');
     });
 
     it('deve rejeitar código manual inválido', async () => {

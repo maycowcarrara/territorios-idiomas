@@ -2362,6 +2362,13 @@ const TerritorioDetalhado = ({ dados, idTerritorio, zoomLevel, user, isAdmin, is
 
 // --- MAPA PRINCIPAL ---
 const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
+    const actorUser = useMemo(() => {
+        if (!user) return null;
+        return {
+            ...user,
+            isAdmin: Boolean(isAdmin || user.isAdmin)
+        };
+    }, [user, isAdmin]);
     const location = useLocation();
     const adminControlsRef = useLeafletDomEventIsolation();
     const focusSummaryRef = useLeafletDomEventIsolation();
@@ -3302,7 +3309,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         setSalvandoEndereco(true);
         try {
             if (enderecoModal.mode === 'edit' && enderecoModal.endereco?.id) {
-                await updateEnderecoBasico(db, enderecoModal.endereco.id, form, user);
+                await updateEnderecoBasico(db, enderecoModal.endereco.id, form, actorUser);
                 notify({
                     title: 'Endereço atualizado',
                     message: 'Os dados básicos do endereço foram salvos.',
@@ -3317,7 +3324,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                 } = form;
                 const resultado = await createEnderecoManual(db, {
                     ...enderecoFields,
-                    user
+                    user: actorUser
                 });
                 let vinculoResultado = null;
 
@@ -3328,12 +3335,12 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                                 enderecos: [{ id: resultado.id }],
                                 codigo: grupoCodigo,
                                 nome: grupoNome,
-                                user
+                                user: actorUser
                             })
                             : await adicionarEnderecosAoGrupo(db, {
                                 enderecoIds: [resultado.id],
                                 grupoId: grupoEscolha,
-                                user
+                                user: actorUser
                             });
                     } catch (vinculoError) {
                         console.error('Erro ao salvar território do endereço:', vinculoError);
@@ -3392,7 +3399,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         if (!confirmar) return;
 
         try {
-            await setEnderecoArquivado(db, endereco.id, !arquivado, user);
+            await setEnderecoArquivado(db, endereco.id, !arquivado, actorUser);
             notify({
                 title: arquivado ? 'Endereço reativado' : 'Endereço arquivado',
                 message: arquivado ? 'O endereço voltou para o mapa padrão.' : 'O endereço foi ocultado do mapa padrão, sem exclusão física.',
@@ -3457,13 +3464,13 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                 ? await adicionarEnderecosAoGrupo(db, {
                     enderecoIds: enderecosSelecionadosDados.map((endereco) => endereco.id),
                     grupoId,
-                    user
+                    user: actorUser
                 })
                 : await createGrupoEnderecoManual(db, {
                     enderecos: enderecosSelecionadosDados,
                     codigo,
                     nome,
-                    user
+                    user: actorUser
                 });
             setEnderecosSelecionadosGrupo([]);
             setGrupoEnderecoModalAberto(false);
@@ -3529,7 +3536,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
 
         setSalvandoGrupoEdicao(true);
         try {
-            await updateGrupoEnderecoBasico(db, grupoEdicaoModal.grupo.id, formData, user);
+            await updateGrupoEnderecoBasico(db, grupoEdicaoModal.grupo.id, formData, actorUser);
             notify({
                 title: 'Território atualizado',
                 message: `Os dados do território ${formData.codigo || ''} foram salvos com sucesso.`,
@@ -3564,7 +3571,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         if (!confirmar) return;
 
         try {
-            await setGrupoEnderecoArquivado(db, grupo.id, !arquivado, user);
+            await setGrupoEnderecoArquivado(db, grupo.id, !arquivado, actorUser);
             notify({
                 title: arquivado ? 'Território reativado' : 'Território arquivado',
                 message: arquivado ? 'O território voltou para o mapa padrão.' : 'O território foi ocultado do mapa padrão.',
@@ -3599,14 +3606,14 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                 const resultado = await designarGrupoEnderecoComUsuarioAprovado(db, {
                     grupoId: grupo.id,
                     convite: opcoes.convite,
-                    user
+                    user: actorUser
                 });
                 usuario = resultado.usuario;
             } else if (usuario) {
                 await designarGrupoEndereco(db, {
                     grupoId: grupo.id,
                     usuario,
-                    user
+                    user: actorUser
                 });
             }
 
@@ -3675,7 +3682,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         try {
             await devolverGrupoEndereco(db, {
                 grupoId: grupo.id,
-                user
+                user: actorUser
             });
             notify({
                 title: finalizado ? 'Território disponibilizado' : 'Território devolvido',
@@ -3709,7 +3716,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
             await toggleEnderecoVisitadoGrupo(db, {
                 grupoId: grupo.id,
                 enderecoId: endereco.id,
-                user: { ...user, isAdmin }
+                user: actorUser
             });
 
             if (completouAgora) {
@@ -3726,7 +3733,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                     try {
                         await finalizarGrupoEnderecoDesignado(db, {
                             grupoId: grupo.id,
-                            user: { ...user, isAdmin }
+                            user: actorUser
                         });
                         notify({
                             title: 'Território finalizado',
@@ -3769,7 +3776,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         try {
             await finalizarGrupoEnderecoDesignado(db, {
                 grupoId: grupo.id,
-                user: { ...user, isAdmin }
+                user: actorUser
             });
             notify({
                 title: 'Território finalizado',
@@ -3804,7 +3811,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
             await removerEnderecoDoGrupo(db, {
                 enderecoId: endereco.id,
                 grupoId: endereco.grupoId,
-                user
+                user: actorUser
             });
             notify({
                 title: 'Endereço removido',
