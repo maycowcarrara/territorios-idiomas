@@ -128,6 +128,7 @@ service cloud.firestore {
         'idiomaNome',
         'bairro',
         'nome',
+        'observacao',
         'status',
         'enderecoIds',
         'totalEnderecos',
@@ -282,6 +283,7 @@ service cloud.firestore {
 
     function camposAdminOperacionaisEndereco() {
       return [
+        'codigo',
         'status',
         'grupoId',
         'grupoCodigo',
@@ -308,7 +310,9 @@ service cloud.firestore {
       return isAdmin() &&
              camposAlteradosApenas(camposAdminOperacionaisEndereco()) &&
              request.resource.data.atualizadoEm is timestamp &&
-             request.resource.data.atualizadoPor == meuEmail();
+             request.resource.data.atualizadoPor == meuEmail() &&
+             (!('codigo' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               codigoManualValido(request.resource.data.codigo));
     }
 
     function podeLimparDesignacaoEndereco(enderecoId) {
@@ -330,6 +334,7 @@ service cloud.firestore {
              textoOpcionalValido(request.resource.data.idiomaId, 32) &&
              textoOpcionalValido(request.resource.data.idiomaNome, 80) &&
              textoOpcionalValido(request.resource.data.bairro, 120) &&
+             (!('observacao' in request.resource.data) || textoOpcionalValido(request.resource.data.observacao, 2000)) &&
              request.resource.data.nome is string &&
              request.resource.data.nome.size() > 0 &&
              request.resource.data.nome.size() <= 120 &&
@@ -381,6 +386,8 @@ service cloud.firestore {
 
     function camposAdminOperacionaisGrupoEndereco() {
       return [
+        'codigo',
+        'observacao',
         'idiomaId',
         'idiomaNome',
         'bairro',
@@ -411,7 +418,15 @@ service cloud.firestore {
       return isAdmin() &&
              camposAlteradosApenas(camposAdminOperacionaisGrupoEndereco()) &&
              request.resource.data.atualizadoEm is timestamp &&
-             request.resource.data.atualizadoPor == meuEmail();
+             request.resource.data.atualizadoPor == meuEmail() &&
+             (!('codigo' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               codigoManualValido(request.resource.data.codigo)) &&
+             (!('observacao' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               textoOpcionalValido(request.resource.data.observacao, 2000)) &&
+             (!('nome' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               (request.resource.data.nome is string && request.resource.data.nome.size() > 0 && request.resource.data.nome.size() <= 120)) &&
+             (!('bairro' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               textoOpcionalValido(request.resource.data.bairro, 120));
     }
 
     function enderecosVisitadosGrupoEnderecoValidos() {

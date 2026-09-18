@@ -1321,6 +1321,7 @@ export async function createGrupoEnderecoManual(db, { enderecos, nome, codigo: c
             codigo,
             ...metadata,
             nome: nomeGrupo,
+            observacao: normalizeText(input.observacao, 2000) || '',
             status: GRUPO_ENDERECO_STATUS.ATIVO,
             enderecoIds,
             ...stats,

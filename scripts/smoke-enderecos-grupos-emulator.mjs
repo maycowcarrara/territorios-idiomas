@@ -215,11 +215,11 @@ async function main() {
         assert(configPublicadorDoc.exists(), 'Publicador aprovado deveria ler padrões de cadastro.');
         const configPublicador = normalizeEnderecoConfig(configPublicadorDoc.data());
         assert(getEnderecoCodigoPadraoFromConfig(configPublicador) === 'ES-SBS-001', 'Config deveria sugerir ES-SBS-001.');
-        assert(getGrupoEnderecoCodigoPadraoFromConfig(configPublicador) === 'ES-SBS-T01', 'Config deveria sugerir ES-SBS-T01.');
+        assert(getGrupoEnderecoCodigoPadraoFromConfig(configPublicador) === 'ES-SBS-T001', 'Config deveria sugerir ES-SBS-T001.');
         assert(getEnderecoIdiomasAtivos(configPublicador).length === 2, 'Config deveria permitir dois idiomas ativos.');
         const configIngles = getEnderecoConfigForIdioma(configPublicador, 'en');
         assert(getEnderecoCodigoPadraoFromConfig(configIngles) === 'EN-SBS-001', 'Config deveria sugerir EN-SBS-001 para inglês.');
-        assert(getGrupoEnderecoCodigoPadraoFromConfig(configIngles) === 'EN-SBS-T01', 'Config deveria sugerir EN-SBS-T01 para inglês.');
+        assert(getGrupoEnderecoCodigoPadraoFromConfig(configIngles) === 'EN-SBS-T001', 'Config deveria sugerir EN-SBS-T001 para inglês.');
         const configDuplicada = normalizeEnderecoConfig({
             ...configCadastros,
             idiomas: [
@@ -358,7 +358,7 @@ async function main() {
             enderecos: [{ id: enderecoInglesDoc.id, ...enderecoInglesDoc.data() }]
         });
         const grupoInglesDoc = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoIngles.id));
-        assert(grupoIngles.codigo === 'EN-SBS-T01', 'Território em inglês deveria salvar EN-SBS-T01 normalizado.');
+        assert(grupoIngles.codigo === 'EN-SBS-T001', 'Território em inglês deveria salvar EN-SBS-T001 normalizado.');
         assert(grupoInglesDoc.data().idiomaId === 'en', 'Território em inglês deveria herdar idiomaId do endereço.');
         await expectDomainBlocked('vincular endereço de outro idioma ao território existente', () => (
             adicionarEnderecosAoGrupo(adminClient.db, {
@@ -376,7 +376,7 @@ async function main() {
                 { id: enderecoBDoc.id, ...enderecoBDoc.data() }
             ]
         });
-        assert(grupo.codigo === 'ES-SBS-T01', 'Primeiro grupo deveria salvar ES-SBS-T01 normalizado.');
+        assert(grupo.codigo === 'ES-SBS-T001', 'Primeiro grupo deveria salvar ES-SBS-T001 normalizado.');
         const enderecoAdminDesignado = await createEnderecoManual(adminClient.db, {
             user: adminUser,
             codigo: 'es-sbs-004',
@@ -405,14 +405,14 @@ async function main() {
 
         const csvImportacao = [
             'Territorio,Codigos (Total 7),Barrio,Dirección,Información,Classe,Cuántas personas (Total 15),"Lat, Long",Latitude,Longitude,Link Maps',
-            'ES-SBS-T02,ES-SBS-901,Serra Alta,"Rua Import Smoke 901, 10","Pessoa privada",✅Confirmado,4,"-26.2794, 49.3900",,,',
-            'ES-SBS-T90,ES-SBS-902,Centro,"Rua Import Smoke 902, 20",,📖Estúdio,2,,-26.25,-49.37,',
-            'ES-SBS-T90,ES-SBS-903,Centro,"Rua Fora da Area",,✅Confirmado,1,"-10.1, -48.1",,,',
-            'ES-SBS-T01,ES-SBS-002,Serra Alta,"Rua Smoke B Importada, 222",,✅Confirmado,7,"-26.2800, -49.3905",,,',
-            'ES-SBS-T90,ES-SBS-904,Centro,"Rua Duplicada A",,✅Confirmado,1,"-26.251, -49.371",,,',
-            'ES-SBS-T90,ES-SBS-904,Centro,"Rua Duplicada B",,✅Confirmado,1,"-26.252, -49.372",,,',
-            'ES-SBS-T90,ES-SBS-004,Centro,"Rua Existente",,✅Confirmado,1,"-26.253, -49.373",,,',
-            'ES-SBS-T91,ES-SBS-905,Centro,"Rua Excluida",,❌Excluido,1,"-26.254, -49.374",,,'
+            'ES-SBS-T002,ES-SBS-901,Serra Alta,"Rua Import Smoke 901, 10","Pessoa privada",✅Confirmado,4,"-26.2794, 49.3900",,,',
+            'ES-SBS-T090,ES-SBS-902,Centro,"Rua Import Smoke 902, 20",,📖Estúdio,2,,-26.25,-49.37,',
+            'ES-SBS-T090,ES-SBS-903,Centro,"Rua Fora da Area",,✅Confirmado,1,"-10.1, -48.1",,,',
+            'ES-SBS-T001,ES-SBS-002,Serra Alta,"Rua Smoke B Importada, 222",,✅Confirmado,7,"-26.2800, -49.3905",,,',
+            'ES-SBS-T090,ES-SBS-904,Centro,"Rua Duplicada A",,✅Confirmado,1,"-26.251, -49.371",,,',
+            'ES-SBS-T090,ES-SBS-904,Centro,"Rua Duplicada B",,✅Confirmado,1,"-26.252, -49.372",,,',
+            'ES-SBS-T090,ES-SBS-004,Centro,"Rua Existente",,✅Confirmado,1,"-26.253, -49.373",,,',
+            'ES-SBS-T091,ES-SBS-905,Centro,"Rua Excluida",,❌Excluido,1,"-26.254, -49.374",,,'
         ].join('\n');
         const contextoImportacao = await carregarContextoImportacao(adminClient.db);
         const previewImportacao = analyzeEnderecoCsvImport({
@@ -427,7 +427,7 @@ async function main() {
         assert(previewImportacao.totals.semCoordenada === 1, 'Importação deveria apontar 1 endereço sem coordenada ou fora da área.');
         assert(previewImportacao.totals.duplicados === 2, 'Importação deveria apontar códigos duplicados pela posição da coluna.');
         assert(previewImportacao.totals.conflitos === 1, 'Importação deveria apontar conflito sem mover endereço existente.');
-        assert(previewImportacao.territoriosCriar.includes('ES-SBS-T90'), 'Importação deveria prever criação de território novo.');
+        assert(previewImportacao.territoriosCriar.includes('ES-SBS-T090'), 'Importação deveria prever criação de território novo.');
         assert(
             !previewImportacao.rows.some((row) => String(row.geocodeQuery || '').includes('Pessoa privada')),
             'Informação da planilha não deveria entrar na query de geocodificação.'
@@ -451,21 +451,21 @@ async function main() {
         const enderecoDuplicado = await getDoc(getEnderecoRef(adminClient.db, 'e_es_sbs_904'));
         const grupoImportadoExistente = await getDoc(getGrupoEnderecoRef(adminClient.db, grupoAdminDesignado.id));
         const grupoAtualizadoExistente = await getDoc(getGrupoEnderecoRef(adminClient.db, grupo.id));
-        const grupoImportadoNovo = await getDoc(getGrupoEnderecoRef(adminClient.db, 'g_es_sbs_t90'));
+        const grupoImportadoNovo = await getDoc(getGrupoEnderecoRef(adminClient.db, 'g_es_sbs_t090'));
 
         assert(enderecoImportadoExistenteGrupo.exists(), 'Endereço importado para território existente deveria existir.');
-        assert(enderecoImportadoExistenteGrupo.data().grupoCodigo === 'ES-SBS-T02', 'Endereço importado deveria vincular ao território existente.');
+        assert(enderecoImportadoExistenteGrupo.data().grupoCodigo === 'ES-SBS-T002', 'Endereço importado deveria vincular ao território existente.');
         assert(enderecoImportadoExistenteGrupo.data().grupoDesignadoPara === adminInfo.email, 'Importação deveria preservar designação do território existente no endereço novo.');
         assert(enderecoImportadoExistenteGrupo.data().quantidadeEstrangeiros === 4, 'Quantidade deveria vir da posição da coluna dinâmica.');
         assert(enderecoImportadoExistenteGrupo.data().lng < 0, 'Longitude positiva da planilha deveria ser corrigida pela área configurada.');
-        assert(enderecoImportadoNovoGrupo.data().grupoCodigo === 'ES-SBS-T90', 'Endereço importado deveria vincular ao território criado.');
+        assert(enderecoImportadoNovoGrupo.data().grupoCodigo === 'ES-SBS-T090', 'Endereço importado deveria vincular ao território criado.');
         assert(grupoImportadoNovo.exists(), 'Território informado na planilha deveria ser criado.');
         assert(grupoImportadoNovo.data().enderecoIds.includes('e_es_sbs_902'), 'Território criado deveria conter endereço importado ativo.');
         assert(grupoImportadoExistente.data().designadoPara === adminInfo.email, 'Importação deveria preservar responsável do território existente.');
         assert(grupoImportadoExistente.data().designacaoId, 'Importação deveria preservar designacaoId do território existente.');
         assert(enderecoAtualizado.data().endereco === 'Rua Smoke B Importada, 222', 'Importação deveria atualizar cadastro de endereço existente.');
         assert(enderecoAtualizado.data().quantidadeEstrangeiros === 7, 'Importação deveria atualizar quantidade do endereço existente.');
-        assert(enderecoAtualizado.data().grupoCodigo === 'ES-SBS-T01', 'Importação não deveria mover endereço existente de território.');
+        assert(enderecoAtualizado.data().grupoCodigo === 'ES-SBS-T001', 'Importação não deveria mover endereço existente de território.');
         assert(grupoAtualizadoExistente.data().enderecoIds.includes(enderecoB.id), 'Território existente atualizado deveria preservar endereço já vinculado.');
         assert(enderecoImportadoExcluido.data().status === 'arquivado', 'Classe Excluido da planilha deveria arquivar o endereço.');
         assert(enderecoImportadoExcluido.data().grupoId === null, 'Endereço excluído não deveria entrar em território ativo.');
@@ -663,11 +663,11 @@ async function main() {
         await expectDomainBlocked('codigo duplicado de território', () => (
             createGrupoEnderecoManual(adminClient.db, {
                 user: adminUser,
-                codigo: 'ES-SBS-T01',
+                codigo: 'ES-SBS-T001',
                 nome: 'Grupo Smoke Duplicado',
                 enderecos: [{ id: enderecoExcluidoDoc.id, ...enderecoExcluidoDoc.data() }]
             })
-        ), 'Já existe um território com o código ES-SBS-T01');
+        ), 'Já existe um território com o código ES-SBS-T001');
 
         await designarGrupoEndereco(adminClient.db, {
             grupoId: grupo.id,

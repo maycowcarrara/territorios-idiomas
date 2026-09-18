@@ -387,6 +387,18 @@ async function main() {
             });
         });
 
+        await expectAllowed('Admin atualizando dados básicos do território (código, nome, bairro, observação)', async () => {
+            await updateDoc(doc(adminClient.db, 'grupos_enderecos/g_rules_t01'), {
+                codigo: 'ES-SBS-T01',
+                nome: 'Centro Atualizado',
+                bairro: 'Centro',
+                observacao: 'Notas administrativas',
+                ultimaAlteracao: new Date(),
+                atualizadoEm: new Date(),
+                atualizadoPor: 'admin@rules.local'
+            });
+        });
+
         await expectPermissionDenied('Publicador tentando excluir fisicamente grupo de endereços (proibida)', async () => {
             await deleteDoc(doc(designadoClient.db, 'grupos_enderecos/g_rules_t01'));
         });
