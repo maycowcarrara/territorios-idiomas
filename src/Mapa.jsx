@@ -49,6 +49,7 @@ import {
     formatGrupoEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoMarcador,
     formatGrupoEnderecoCodigoBadge,
+    formatGrupoEnderecoTotalEnderecosBadge,
     formatGrupoEnderecoNomeExibicao,
     GRUPO_ENDERECO_CODIGO_PADRAO,
     getGrupoEnderecoProgresso,
@@ -391,9 +392,10 @@ const cssTooltip = `
   .map-group-marker { position: relative; min-width: 44px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.grupoEndereco.ativo.marker}; color: white; border: 3px solid white; box-shadow: 0 4px 14px rgba(15,23,42,0.38); font-size: 12px; line-height: 1; font-weight: 900; padding: 0 7px; white-space: nowrap; }
   .map-group-marker.archived { background: ${MAP_COLORS.grupoEndereco.arquivado.marker}; opacity: 0.78; border-style: dashed; filter: grayscale(0.35); }
   .map-group-marker.assigned { background: ${MAP_COLORS.grupoEndereco.designado.marker}; box-shadow: 0 0 0 4px rgba(37,99,235,0.48), 0 4px 14px rgba(15,23,42,0.38); }
-  .map-group-marker.assigned::after { content: ""; position: absolute; top: -5px; right: -5px; width: 12px; height: 12px; border-radius: 999px; background: #2563eb; border: 2px solid #fff; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
+  .map-group-marker.assigned::after { content: ""; position: absolute; top: -5px; left: -5px; width: 12px; height: 12px; border-radius: 999px; background: #2563eb; border: 2px solid #fff; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
   .map-group-marker.finished { background: ${MAP_COLORS.grupoEndereco.finalizado.marker}; box-shadow: 0 0 0 4px rgba(34,197,94,0.48), 0 4px 14px rgba(15,23,42,0.38); }
-  .map-group-marker.finished::after { content: "✓"; position: absolute; top: -7px; right: -7px; display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; background: #dcfce7; color: #15803d; border: 2px solid #fff; font-size: 10px; line-height: 1; font-weight: 950; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
+  .map-group-marker.finished::after { content: "✓"; position: absolute; top: -7px; left: -7px; display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; background: #dcfce7; color: #15803d; border: 2px solid #fff; font-size: 10px; line-height: 1; font-weight: 950; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
+  .map-group-address-badge { position: absolute; top: -7px; right: -7px; display: flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 999px; background: #fff; color: #5b21b6; border: 2px solid #7c3aed; font-size: 8.5px; line-height: 1; font-weight: 950; letter-spacing: -0.2px; box-shadow: 0 2px 5px rgba(15,23,42,0.22); box-sizing: border-box; white-space: nowrap; pointer-events: none; z-index: 2; }
   .map-group-marker-time { padding: 1px 5px; border-radius: 999px; background: rgba(255,255,255,0.86); border: 1px solid rgba(15,23,42,0.12); color: #7c2d12; box-shadow: 0 2px 8px rgba(15,23,42,0.18); font-size: 9px; line-height: 1.1; font-weight: 950; text-transform: uppercase; text-shadow: 1px 1px 0 rgba(255,255,255,0.74); white-space: nowrap; }
   .map-click-marker { width: 28px; height: 28px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.apoio.clique}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(37,99,235,0.35); font-size: 16px; line-height: 1; font-weight: 900; }
   .map-click-marker.search { background: #7c3aed; box-shadow: 0 4px 14px rgba(124,58,237,0.38); }
@@ -976,6 +978,7 @@ const GrupoEnderecoLayer = ({
     const codigoMarcador = formatGrupoEnderecoCodigoMarcador(grupo.codigo || grupo.id);
     const nomeExibicao = formatGrupoEnderecoNomeExibicao(grupo.nome, grupo.codigo || grupo.id);
     const totalEnderecosResumo = enderecosGrupo.length || Math.max(0, Math.trunc(Number(grupo.totalEnderecos) || 0));
+    const totalEnderecosBadge = formatGrupoEnderecoTotalEnderecosBadge(totalEnderecosResumo);
     const totalEstrangeirosEnderecos = enderecosGrupo.reduce((total, endereco) => (
         total + Math.max(0, Math.trunc(Number(endereco.quantidadeEstrangeiros) || 0))
     ), 0);
@@ -991,10 +994,10 @@ const GrupoEnderecoLayer = ({
     const tempoSemTrabalhar = resolveTempoSemTrabalhar(grupo.ultimaConclusao);
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
-        html: `<div class="map-group-marker-stack"><div class="map-group-marker ${arquivado ? 'archived' : ''} ${designado && !finalizado ? 'assigned' : ''} ${finalizado ? 'finished' : ''}"${markerStyle}>${codigoMarcador}</div><div class="map-group-marker-time" title="${tempoSemTrabalhar.title}">${tempoSemTrabalhar.textoCompacto}</div></div>`,
-        iconSize: [64, 46],
-        iconAnchor: [32, 15]
-    }), [arquivado, codigoMarcador, designado, finalizado, markerStyle, tempoSemTrabalhar.textoCompacto, tempoSemTrabalhar.title]);
+        html: `<div class="map-group-marker-stack"><div class="map-group-marker ${arquivado ? 'archived' : ''} ${designado && !finalizado ? 'assigned' : ''} ${finalizado ? 'finished' : ''}"${markerStyle}>${codigoMarcador}<span class="map-group-address-badge" title="${totalEnderecosBadge} endereço${totalEnderecosBadge === '1' ? '' : 's'}">${totalEnderecosBadge}</span></div><div class="map-group-marker-time" title="${tempoSemTrabalhar.title}">${tempoSemTrabalhar.textoCompacto}</div></div>`,
+        iconSize: [68, 46],
+        iconAnchor: [34, 15]
+    }), [arquivado, codigoMarcador, designado, finalizado, markerStyle, tempoSemTrabalhar.textoCompacto, tempoSemTrabalhar.title, totalEnderecosBadge]);
 
     useEffect(() => {
         setUsuarioSelecionado('');

@@ -187,6 +187,17 @@ export function formatGrupoEnderecoCodigoBadge(value) {
     return 'T';
 }
 
+export function formatGrupoEnderecoTotalEnderecosBadge(value) {
+    if (Array.isArray(value)) {
+        return String(value.length);
+    }
+    if (typeof value === 'object' && value !== null) {
+        return String(Math.max(0, Math.trunc(Number(value.totalEnderecos) || 0)));
+    }
+    const seguro = Math.max(0, Math.trunc(Number(value) || 0));
+    return String(seguro);
+}
+
 export function formatGrupoEnderecoNomeExibicao(nome, codigo) {
     const codigoBase = String(codigo || '').trim();
     const codigoExibicao = formatGrupoEnderecoCodigoExibicao(codigoBase);

@@ -11,6 +11,7 @@ import {
     formatGrupoEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoMarcador,
     formatGrupoEnderecoCodigoBadge,
+    formatGrupoEnderecoTotalEnderecosBadge,
     formatGrupoEnderecoNomeExibicao,
     getGrupoEnderecoDocIdFromSequence,
     getProximoGrupoEnderecoSequencia,
@@ -124,6 +125,20 @@ describe('enderecoCodigos e formatadores', () => {
             expect(formatGrupoEnderecoCodigoBadge('T1')).toBe('T1');
             expect(formatGrupoEnderecoCodigoBadge('')).toBe('T');
             expect(formatGrupoEnderecoCodigoBadge(null)).toBe('T');
+        });
+
+        it('formatGrupoEnderecoTotalEnderecosBadge deve extrair somente o número da quantidade de endereços do território', () => {
+            expect(formatGrupoEnderecoTotalEnderecosBadge(0)).toBe('0');
+            expect(formatGrupoEnderecoTotalEnderecosBadge(1)).toBe('1');
+            expect(formatGrupoEnderecoTotalEnderecosBadge(6)).toBe('6');
+            expect(formatGrupoEnderecoTotalEnderecosBadge(14)).toBe('14');
+            expect(formatGrupoEnderecoTotalEnderecosBadge('22')).toBe('22');
+            expect(formatGrupoEnderecoTotalEnderecosBadge([{}, {}, {}])).toBe('3');
+            expect(formatGrupoEnderecoTotalEnderecosBadge([])).toBe('0');
+            expect(formatGrupoEnderecoTotalEnderecosBadge({ totalEnderecos: 10 })).toBe('10');
+            expect(formatGrupoEnderecoTotalEnderecosBadge(null)).toBe('0');
+            expect(formatGrupoEnderecoTotalEnderecosBadge(undefined)).toBe('0');
+            expect(formatGrupoEnderecoTotalEnderecosBadge(-5)).toBe('0');
         });
 
         it('formatGrupoEnderecoNomeExibicao deve formatar o nome ou fallback para Território T-X', () => {
