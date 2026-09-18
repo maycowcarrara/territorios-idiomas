@@ -6,6 +6,7 @@ import {
     formatEnderecoCodigoExibicao,
     getProximoGrupoEnderecoSequencia,
     verificarNumeroGrupoEnderecoExistente,
+    normalizeGrupoEnderecoCodigoEntrada,
     IDIOMA_PADRAO_ENDERECOS
 } from '../../enderecoModel';
 
@@ -61,15 +62,34 @@ export const GrupoEnderecoFormModal = ({
             val = val.slice(prefixoTerritorio.length);
         }
         val = val.replace(/^[-_]+/, '');
+        if (prefixoTerritorio && prefixoTerritorio.toUpperCase().endsWith('T')) {
+            val = val.replace(/^T-?/i, '');
+        }
         val = val.replace(/[^A-Z0-9-]/g, '');
         setNumero(val);
+    };
+
+    const handleNumeroBlur = () => {
+        let val = numero.trim();
+        if (!val) return;
+        if (prefixoTerritorio && val.toUpperCase().startsWith(prefixoTerritorio.toUpperCase())) {
+            val = val.slice(prefixoTerritorio.length).replace(/^[-_]+/, '');
+        }
+        if (prefixoTerritorio && prefixoTerritorio.toUpperCase().endsWith('T')) {
+            val = val.replace(/^T-?/i, '');
+        }
+        const match = val.match(/^0*(\d+)$/);
+        if (match) {
+            const num = Number.parseInt(match[1], 10);
+            setNumero(String(num).padStart(3, '0'));
+        }
     };
 
     const handleSubmit = (event) => {
         event.preventDefault();
         if (modo === 'novo' && conflitoNumero) return;
         const numeroFinal = numero.trim() || sequencia.proximoSufixo;
-        const codigo = modo === 'novo' ? `${prefixoTerritorio}${numeroFinal}` : '';
+        const codigo = modo === 'novo' ? normalizeGrupoEnderecoCodigoEntrada(numeroFinal, prefixoTerritorio) : '';
         onSubmit({ modo, codigo, nome: nome.trim(), grupoId: grupoIdSelecionado });
     };
 
@@ -131,6 +151,7 @@ export const GrupoEnderecoFormModal = ({
                                     <input
                                         value={numero}
                                         onChange={handleNumeroChange}
+                                        onBlur={handleNumeroBlur}
                                         maxLength={20}
                                         required
                                         disabled={loading}

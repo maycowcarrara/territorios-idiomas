@@ -5,6 +5,7 @@ import {
 import {
     formatGrupoEnderecoCodigoExibicao,
     formatGrupoEnderecoNomeExibicao,
+    normalizeGrupoEnderecoCodigoEntrada,
     verificarNumeroGrupoEnderecoExistente,
     GRUPO_ENDERECO_STATUS,
     IDIOMA_PADRAO_ENDERECOS
@@ -16,12 +17,22 @@ function resolveGrupoCodigoPartes(codigo, defaultPrefix) {
     const raw = String(codigo || '').trim();
     if (!raw) return { prefixo: defaultPrefix, numero: '' };
     if (defaultPrefix && raw.startsWith(defaultPrefix)) {
-        const numStr = raw.slice(defaultPrefix.length).replace(/^[-_]+/, '');
+        let numStr = raw.slice(defaultPrefix.length).replace(/^[-_]+/, '');
+        if (defaultPrefix.toUpperCase().endsWith('T')) {
+            numStr = numStr.replace(/^T-?/i, '');
+        }
+        if (/^\d+$/.test(numStr)) {
+            numStr = String(Number.parseInt(numStr, 10)).padStart(3, '0');
+        }
         return { prefixo: defaultPrefix, numero: numStr };
     }
-    const match = raw.match(/^(.*?[A-Z0-9]+-)(0*\d+)$/i);
+    const match = raw.match(/^(.*?[A-Z0-9]+-T?)(0*\d+)$/i);
     if (match) {
-        return { prefixo: match[1].toUpperCase(), numero: match[2] };
+        let numStr = match[2];
+        if (/^\d+$/.test(numStr)) {
+            numStr = String(Number.parseInt(numStr, 10)).padStart(3, '0');
+        }
+        return { prefixo: match[1].toUpperCase(), numero: numStr };
     }
     return { prefixo: defaultPrefix, numero: raw };
 }
@@ -99,8 +110,27 @@ export const GrupoEnderecoEditModal = ({
             val = val.slice(prefixoTerritorioAtivo.length);
         }
         val = val.replace(/^[-_]+/, '');
+        if (prefixoTerritorioAtivo && prefixoTerritorioAtivo.toUpperCase().endsWith('T')) {
+            val = val.replace(/^T-?/i, '');
+        }
         val = val.replace(/[^A-Z0-9-]/g, '');
         setNumero(val);
+    };
+
+    const handleNumeroBlur = () => {
+        let val = numero.trim();
+        if (!val) return;
+        if (prefixoTerritorioAtivo && val.toUpperCase().startsWith(prefixoTerritorioAtivo.toUpperCase())) {
+            val = val.slice(prefixoTerritorioAtivo.length).replace(/^[-_]+/, '');
+        }
+        if (prefixoTerritorioAtivo && prefixoTerritorioAtivo.toUpperCase().endsWith('T')) {
+            val = val.replace(/^T-?/i, '');
+        }
+        const match = val.match(/^0*(\d+)$/);
+        if (match) {
+            const num = Number.parseInt(match[1], 10);
+            setNumero(String(num).padStart(3, '0'));
+        }
     };
 
     const handleChange = (field) => (event) => {
@@ -121,11 +151,16 @@ export const GrupoEnderecoEditModal = ({
             return;
         }
 
-        const codigoFinal = `${prefixoTerritorioAtivo}${numeroLimpo}`;
+        const codigoFinal = normalizeGrupoEnderecoCodigoEntrada(numeroLimpo, prefixoTerritorioAtivo);
+        let nomeFinal = form.nome.trim();
+        const codigoAntigo = grupo.codigo || formatGrupoEnderecoCodigoExibicao(grupo.id);
+        if (!nomeFinal || (codigoAntigo && nomeFinal.startsWith(codigoAntigo))) {
+            nomeFinal = nomeFinal ? nomeFinal.replace(codigoAntigo, codigoFinal) : `${codigoFinal} - Endereços de idioma`;
+        }
 
         onSubmit({
             codigo: codigoFinal,
-            nome: form.nome.trim(),
+            nome: nomeFinal,
             bairro: form.bairro.trim(),
             observacao: form.observacao.trim()
         });
@@ -213,6 +248,7 @@ export const GrupoEnderecoEditModal = ({
                                     <input
                                         value={numero}
                                         onChange={handleNumeroChange}
+                                        onBlur={handleNumeroBlur}
                                         maxLength={20}
                                         required
                                         disabled={loading}

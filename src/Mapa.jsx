@@ -1133,12 +1133,14 @@ const GrupoEnderecoLayer = ({
                         <div className="flex min-w-[260px] max-w-[285px] flex-col gap-2 p-1">
                             <div className="border-b border-slate-200 pb-2">
                                 <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0">
-                                        <div className="flex flex-wrap items-center gap-1.5">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-1.5">
                                             <span className="text-lg font-black leading-none text-slate-800">{codigoExibicao}</span>
                                             <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : finalizado ? 'bg-emerald-50 text-emerald-700' : designado ? 'bg-blue-50 text-blue-700' : 'bg-indigo-50 text-indigo-700'}`}>
                                                 {statusLabel}
                                             </span>
+                                        </div>
+                                        <div className="mt-1.5 flex items-center gap-1.5">
                                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black leading-none text-slate-600">
                                                 {totalEnderecosResumo} end.
                                             </span>

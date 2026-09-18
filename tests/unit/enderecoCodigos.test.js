@@ -13,6 +13,8 @@ import {
     formatGrupoEnderecoCodigoBadge,
     formatGrupoEnderecoTotalEnderecosBadge,
     formatGrupoEnderecoNomeExibicao,
+    normalizeGrupoEnderecoCodigoEntrada,
+    normalizeEnderecoCodigoEntrada,
     getGrupoEnderecoDocIdFromSequence,
     getProximoGrupoEnderecoSequencia,
     verificarNumeroGrupoEnderecoExistente,
@@ -139,6 +141,38 @@ describe('enderecoCodigos e formatadores', () => {
             expect(formatGrupoEnderecoTotalEnderecosBadge(null)).toBe('0');
             expect(formatGrupoEnderecoTotalEnderecosBadge(undefined)).toBe('0');
             expect(formatGrupoEnderecoTotalEnderecosBadge(-5)).toBe('0');
+        });
+
+        describe('normalizeGrupoEnderecoCodigoEntrada', () => {
+            it('deve normalizar t11, T11, 11 e ES-SBS-T11 para ES-SBS-T011 com 3 dígitos', () => {
+                expect(normalizeGrupoEnderecoCodigoEntrada('t11')).toBe('ES-SBS-T011');
+                expect(normalizeGrupoEnderecoCodigoEntrada('T11')).toBe('ES-SBS-T011');
+                expect(normalizeGrupoEnderecoCodigoEntrada('t-11')).toBe('ES-SBS-T011');
+                expect(normalizeGrupoEnderecoCodigoEntrada('T-11')).toBe('ES-SBS-T011');
+                expect(normalizeGrupoEnderecoCodigoEntrada('11')).toBe('ES-SBS-T011');
+                expect(normalizeGrupoEnderecoCodigoEntrada('011')).toBe('ES-SBS-T011');
+                expect(normalizeGrupoEnderecoCodigoEntrada('1')).toBe('ES-SBS-T001');
+                expect(normalizeGrupoEnderecoCodigoEntrada('t1')).toBe('ES-SBS-T001');
+                expect(normalizeGrupoEnderecoCodigoEntrada('ES-SBS-T11')).toBe('ES-SBS-T011');
+                expect(normalizeGrupoEnderecoCodigoEntrada('ES-SBS-T1')).toBe('ES-SBS-T001');
+                expect(normalizeGrupoEnderecoCodigoEntrada('ES-SBS-T011')).toBe('ES-SBS-T011');
+                expect(normalizeGrupoEnderecoCodigoEntrada('ES-SBS-T100')).toBe('ES-SBS-T100');
+                expect(normalizeGrupoEnderecoCodigoEntrada('t100')).toBe('ES-SBS-T100');
+                expect(normalizeGrupoEnderecoCodigoEntrada('')).toBe('');
+            });
+        });
+
+        describe('normalizeEnderecoCodigoEntrada', () => {
+            it('deve normalizar e14, 14 e ES-SBS-14 para ES-SBS-014 com 3 dígitos', () => {
+                expect(normalizeEnderecoCodigoEntrada('14')).toBe('ES-SBS-014');
+                expect(normalizeEnderecoCodigoEntrada('e14')).toBe('ES-SBS-014');
+                expect(normalizeEnderecoCodigoEntrada('E-14')).toBe('ES-SBS-014');
+                expect(normalizeEnderecoCodigoEntrada('1')).toBe('ES-SBS-001');
+                expect(normalizeEnderecoCodigoEntrada('ES-SBS-14')).toBe('ES-SBS-014');
+                expect(normalizeEnderecoCodigoEntrada('ES-SBS-014')).toBe('ES-SBS-014');
+                expect(normalizeEnderecoCodigoEntrada('ES-SBS-100')).toBe('ES-SBS-100');
+                expect(normalizeEnderecoCodigoEntrada('')).toBe('');
+            });
         });
 
         it('formatGrupoEnderecoNomeExibicao deve formatar o nome ou fallback para Território T-X', () => {

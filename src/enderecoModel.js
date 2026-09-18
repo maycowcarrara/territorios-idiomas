@@ -215,6 +215,82 @@ export function getGrupoEnderecoDocIdFromSequence(sequence) {
     return `g_${String(safeSequence).padStart(GRUPO_ENDERECO_CODE_WIDTH, '0')}`;
 }
 
+export function normalizeGrupoEnderecoCodigoEntrada(value, prefixoPadrao = IDIOMA_PADRAO_ENDERECOS.codigoPrefixoTerritorio) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    const prefixo = normalizeCodigoManual(prefixoPadrao || IDIOMA_PADRAO_ENDERECOS.codigoPrefixoTerritorio || 'ES-SBS-T');
+
+    // 1. Se é formato curto ou apenas número: "t11", "T11", "T-11", "t-011", "11", "1"
+    const matchCurto = raw.match(/^(?:T-?|g_t_?|g_)?0*(\d+)$/i);
+    if (matchCurto) {
+        const num = Number.parseInt(matchCurto[1], 10);
+        const numPadrao = String(num).padStart(GRUPO_ENDERECO_CODE_WIDTH, '0');
+        return `${prefixo}${numPadrao}`;
+    }
+
+    // 2. Se começa com o prefixo configurado
+    if (prefixo && raw.toUpperCase().startsWith(prefixo)) {
+        let resto = raw.slice(prefixo.length).replace(/^[-_]+/, '');
+        if (prefixo.toUpperCase().endsWith('T')) {
+            resto = resto.replace(/^T-?/i, '');
+        }
+        const matchNum = resto.match(/^0*(\d+)$/);
+        if (matchNum) {
+            const num = Number.parseInt(matchNum[1], 10);
+            return `${prefixo}${String(num).padStart(GRUPO_ENDERECO_CODE_WIDTH, '0')}`;
+        }
+        return `${prefixo}${resto.toUpperCase()}`;
+    }
+
+    // 3. Se já contém outro prefixo com -T seguido de dígitos (ex.: EN-SBS-T11)
+    const matchComPrefixoT = raw.match(/^(.*?[A-Z0-9]+-T)0*(\d+)$/i);
+    if (matchComPrefixoT) {
+        const pref = matchComPrefixoT[1].toUpperCase();
+        const num = Number.parseInt(matchComPrefixoT[2], 10);
+        return `${pref}${String(num).padStart(GRUPO_ENDERECO_CODE_WIDTH, '0')}`;
+    }
+
+    return normalizeCodigoManual(raw);
+}
+
+export function normalizeEnderecoCodigoEntrada(value, prefixoPadrao = IDIOMA_PADRAO_ENDERECOS.codigoPrefixoEndereco) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    const prefixo = normalizeCodigoManual(prefixoPadrao || IDIOMA_PADRAO_ENDERECOS.codigoPrefixoEndereco || 'ES-SBS-');
+
+    // 1. Se é formato curto ou apenas número: "e14", "E-14", "14", "1"
+    const matchCurto = raw.match(/^(?:E-?|e_)?0*(\d+)$/i);
+    if (matchCurto) {
+        const num = Number.parseInt(matchCurto[1], 10);
+        const numPadrao = String(num).padStart(3, '0');
+        return `${prefixo}${numPadrao}`;
+    }
+
+    // 2. Se começa com o prefixo configurado
+    if (prefixo && raw.toUpperCase().startsWith(prefixo)) {
+        let resto = raw.slice(prefixo.length).replace(/^[-_]+/, '');
+        resto = resto.replace(/^E-?/i, '');
+        const matchNum = resto.match(/^0*(\d+)$/);
+        if (matchNum) {
+            const num = Number.parseInt(matchNum[1], 10);
+            return `${prefixo}${String(num).padStart(3, '0')}`;
+        }
+        return `${prefixo}${resto.toUpperCase()}`;
+    }
+
+    // 3. Se já contém outro prefixo com hífen seguido de dígitos (ex.: EN-SBS-14, EN-SBS-014)
+    const matchComPrefixo = raw.match(/^(.*?[A-Z0-9]+-)0*(\d+)$/i);
+    if (matchComPrefixo) {
+        const pref = matchComPrefixo[1].toUpperCase();
+        const num = Number.parseInt(matchComPrefixo[2], 10);
+        return `${pref}${String(num).padStart(3, '0')}`;
+    }
+
+    return normalizeCodigoManual(raw);
+}
+
 function escapeRegExp(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -304,8 +380,9 @@ export function verificarNumeroGrupoEnderecoExistente(grupos = [], prefixo = 'ES
     const regexPrefixo = new RegExp(`^${escapedPrefix}[-_]?(\\d+)$`, 'i');
     const regexLegacy = /^(?:T-?|g_t_?|g_)0*(\d+)$/i;
 
-    const parsedInput = Number.parseInt(rawNumero, 10);
-    const hasNumericInput = Number.isFinite(parsedInput) && (String(parsedInput) === rawNumero.replace(/^0+/, '') || rawNumero === '0');
+    const cleaned = rawNumero.replace(/^(?:T-?|g_t_?|g_)/i, '');
+    const parsedInput = Number.parseInt(cleaned, 10);
+    const hasNumericInput = Number.isFinite(parsedInput) && (String(parsedInput) === cleaned.replace(/^0+/, '') || cleaned === '0');
 
     if (!Array.isArray(grupos)) {
         return { existe: false, codigoExistente: null };
@@ -442,8 +519,9 @@ export function verificarNumeroEnderecoExistente(enderecos = [], prefixo = 'ES-S
     const regexPrefixo = new RegExp(`^${escapedPrefix}[-_]?(\\d+)$`, 'i');
     const regexLegacy = /^(?:E-?|e_)0*(\d+)$/i;
 
-    const parsedInput = Number.parseInt(rawNumero, 10);
-    const hasNumericInput = Number.isFinite(parsedInput) && (String(parsedInput) === rawNumero.replace(/^0+/, '') || rawNumero === '0');
+    const cleaned = rawNumero.replace(/^(?:E-?|e_)/i, '');
+    const parsedInput = Number.parseInt(cleaned, 10);
+    const hasNumericInput = Number.isFinite(parsedInput) && (String(parsedInput) === cleaned.replace(/^0+/, '') || cleaned === '0');
 
     if (!Array.isArray(enderecos)) {
         return { existe: false, codigoExistente: null };
@@ -694,7 +772,7 @@ export function calculateGrupoEnderecoStats(enderecos = []) {
 
 export async function createEnderecoManual(db, { user, ...input }) {
     const fields = normalizeEnderecoFields(input);
-    const codigo = assertCodigoManualValido(input.codigo || ENDERECO_CODIGO_PADRAO, 'endereço');
+    const codigo = assertCodigoManualValido(normalizeEnderecoCodigoEntrada(input.codigo || ENDERECO_CODIGO_PADRAO), 'endereço');
     const actorEmail = buildActorEmail(user);
     const agora = new Date();
     const enderecoId = getEnderecoDocIdFromCodigo(codigo);
@@ -1028,7 +1106,13 @@ export async function importarEnderecosCsvNovos(db, { preview, user }) {
 
 export async function updateEnderecoBasico(db, enderecoId, input, user) {
     const fields = normalizeEnderecoFields(input);
-    const novoCodigo = input?.codigo ? assertCodigoManualValido(input.codigo, 'endereço') : null;
+    const rawCodigo = input?.codigo ? String(input.codigo).trim() : null;
+    let novoCodigo = null;
+    if (rawCodigo) {
+        novoCodigo = isCodigoManualValido(rawCodigo)
+            ? assertCodigoManualValido(rawCodigo, 'endereço')
+            : assertCodigoManualValido(normalizeEnderecoCodigoEntrada(rawCodigo), 'endereço');
+    }
     const agora = new Date();
     const actorEmail = buildActorEmail(user);
 
@@ -1188,7 +1272,7 @@ export async function setEnderecoArquivado(db, enderecoId, arquivar, user) {
 
 export async function createGrupoEnderecoManual(db, { enderecos, nome, codigo: codigoInput, user, ...input }) {
     const enderecoIds = [...new Set((enderecos || []).map((endereco) => endereco.id).filter(Boolean))];
-    const codigo = assertCodigoManualValido(codigoInput || GRUPO_ENDERECO_CODIGO_PADRAO, 'território');
+    const codigo = assertCodigoManualValido(normalizeGrupoEnderecoCodigoEntrada(codigoInput || GRUPO_ENDERECO_CODIGO_PADRAO), 'território');
     const actorEmail = buildActorEmail(user);
     const agora = new Date();
     const grupoId = getGrupoEnderecoDocIdFromCodigo(codigo);
@@ -1284,7 +1368,13 @@ export async function updateGrupoEnderecoBasico(db, grupoId, input = {}, user) {
     const actorEmail = buildActorEmail(user);
     const agora = new Date();
 
-    const novoCodigo = input.codigo ? assertCodigoManualValido(input.codigo, 'território') : null;
+    const rawCodigo = input?.codigo ? String(input.codigo).trim() : null;
+    let novoCodigo = null;
+    if (rawCodigo) {
+        novoCodigo = isCodigoManualValido(rawCodigo)
+            ? assertCodigoManualValido(rawCodigo, 'território')
+            : assertCodigoManualValido(normalizeGrupoEnderecoCodigoEntrada(rawCodigo), 'território');
+    }
     const novoNome = input.nome !== undefined ? normalizeText(input.nome, 120) : undefined;
     const novoBairro = input.bairro !== undefined ? normalizeText(input.bairro, 120) : undefined;
     const novaObservacao = input.observacao !== undefined ? normalizeText(input.observacao, 2000) : undefined;
