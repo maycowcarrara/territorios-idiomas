@@ -941,7 +941,11 @@ const AdminPanel = () => {
         try {
             const resultado = await importarEnderecosCsvNovos(db, {
                 preview: enderecoCsvPreview,
-                user
+                user: {
+                    ...user,
+                    isAdmin: true,
+                    role: 'admin'
+                }
             });
             notify({
                 title: 'Endereços importados',
