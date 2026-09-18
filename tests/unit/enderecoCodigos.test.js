@@ -10,6 +10,7 @@ import {
     formatGrupoEnderecoCodigo,
     formatGrupoEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoMarcador,
+    formatGrupoEnderecoCodigoBadge,
     formatGrupoEnderecoNomeExibicao,
     getGrupoEnderecoDocIdFromSequence
 } from '../../src/enderecoModel.js';
@@ -103,6 +104,22 @@ describe('enderecoCodigos e formatadores', () => {
             expect(formatGrupoEnderecoCodigoMarcador('T-15')).toBe('T-15');
             expect(formatGrupoEnderecoCodigoMarcador('ES-SBS-T99')).toBe('T-99');
             expect(formatGrupoEnderecoCodigoMarcador('')).toBe('T');
+        });
+
+        it('formatGrupoEnderecoCodigoBadge deve extrair formato compacto TX (sem hífen) para o badge do marcador do endereço', () => {
+            expect(formatGrupoEnderecoCodigoBadge('ES-SBS-T01')).toBe('T1');
+            expect(formatGrupoEnderecoCodigoBadge('g_es_sbs_t01')).toBe('T1');
+            expect(formatGrupoEnderecoCodigoBadge('T-001')).toBe('T1');
+            expect(formatGrupoEnderecoCodigoBadge('T-1')).toBe('T1');
+            expect(formatGrupoEnderecoCodigoBadge('T-9')).toBe('T9');
+            expect(formatGrupoEnderecoCodigoBadge('T-11')).toBe('T11');
+            expect(formatGrupoEnderecoCodigoBadge('g_010')).toBe('T10');
+            expect(formatGrupoEnderecoCodigoBadge('T-15')).toBe('T15');
+            expect(formatGrupoEnderecoCodigoBadge('ES-SBS-T99')).toBe('T99');
+            expect(formatGrupoEnderecoCodigoBadge('1')).toBe('T1');
+            expect(formatGrupoEnderecoCodigoBadge('T1')).toBe('T1');
+            expect(formatGrupoEnderecoCodigoBadge('')).toBe('T');
+            expect(formatGrupoEnderecoCodigoBadge(null)).toBe('T');
         });
 
         it('formatGrupoEnderecoNomeExibicao deve formatar o nome ou fallback para Território T-X', () => {

@@ -170,6 +170,23 @@ export function formatGrupoEnderecoCodigoMarcador(value) {
     return formatGrupoEnderecoCodigoExibicao(codigo) || 'T';
 }
 
+export function formatGrupoEnderecoCodigoBadge(value) {
+    const codigo = String(value || '').trim();
+    if (!codigo) return 'T';
+
+    const marcador = formatGrupoEnderecoCodigoMarcador(codigo);
+    const match = marcador.match(/^T-(\d+)$/i);
+    if (match) {
+        return `T${match[1]}`;
+    }
+
+    if (marcador && marcador !== 'T') {
+        return marcador.replace(/^T-/i, 'T');
+    }
+
+    return 'T';
+}
+
 export function formatGrupoEnderecoNomeExibicao(nome, codigo) {
     const codigoBase = String(codigo || '').trim();
     const codigoExibicao = formatGrupoEnderecoCodigoExibicao(codigoBase);

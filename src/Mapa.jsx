@@ -48,6 +48,7 @@ import {
     formatEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoExibicao,
     formatGrupoEnderecoCodigoMarcador,
+    formatGrupoEnderecoCodigoBadge,
     formatGrupoEnderecoNomeExibicao,
     GRUPO_ENDERECO_CODIGO_PADRAO,
     getGrupoEnderecoProgresso,
@@ -372,7 +373,7 @@ const cssTooltip = `
   .map-poi-marker.condo { border-color: ${MAP_COLORS.apoio.condominio}; }
   .map-address-marker { position: relative; width: 34px; max-width: 34px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: ${MAP_COLORS.endereco.ativo}; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(15,23,42,0.35); font-size: 11px; line-height: 1; font-weight: 900; padding: 0 3px; white-space: nowrap; text-align: center; letter-spacing: 0; }
   .map-address-marker.grouped { background: ${MAP_COLORS.endereco.agrupado}; box-shadow: 0 0 0 3px rgba(124,58,237,0.45), 0 4px 12px rgba(15,23,42,0.35); }
-  .map-address-marker.grouped::after { content: "T"; position: absolute; top: -7px; right: -7px; display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 999px; background: #fff; color: #5b21b6; border: 2px solid #7c3aed; font-size: 8px; line-height: 1; font-weight: 950; box-shadow: 0 2px 5px rgba(15,23,42,0.22); }
+  .map-address-badge { position: absolute; top: -7px; right: -7px; display: flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 2.5px; border-radius: 999px; background: #fff; color: #5b21b6; border: 2px solid #7c3aed; font-size: 8px; line-height: 1; font-weight: 950; letter-spacing: -0.2px; box-shadow: 0 2px 5px rgba(15,23,42,0.22); box-sizing: border-box; white-space: nowrap; pointer-events: none; z-index: 2; }
   .map-address-marker.selected { background: ${MAP_COLORS.endereco.selecionado}; color: #111827; box-shadow: 0 0 0 4px rgba(245,158,11,0.68), 0 5px 16px rgba(15,23,42,0.38); }
   .map-address-marker.archived { background: ${MAP_COLORS.endereco.arquivado}; opacity: 0.76; border-style: dashed; filter: grayscale(0.35); }
   .map-address-marker.import-highlight { box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.72), 0 5px 16px rgba(15,23,42,0.38); border-color: #fef3c7; }
@@ -427,7 +428,10 @@ const cssTooltip = `
     100% { opacity: 0; transform: translateY(-50%) translateY(-4px); }
   }
 
-  .map-layer-btn { width: 48px; height: 48px; border-radius: 8px; border: 2px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.3); cursor: pointer; transition: transform 0.1s, border-color 0.2s; overflow: hidden; position: relative; background-size: cover; }
+  .map-layer-btn { width: 44px; height: 44px; border-radius: 1rem; border: 2px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.3); cursor: pointer; transition: transform 0.1s, border-color 0.2s; overflow: hidden; position: relative; background-size: cover; }
+  @media (min-width: 640px) {
+    .map-layer-btn { width: 48px; height: 48px; }
+  }
   .map-layer-btn:active { transform: scale(0.95); }
   .map-layer-btn.active { border-color: ${MAP_COLORS.apoio.clique}; transform: scale(1.05); z-index: 10; }
 
@@ -451,8 +455,13 @@ const cssTooltip = `
   .thumb-satelite::after {
     content: '🛰️';
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    font-size: 24px;
+    font-size: 22px;
     filter: drop-shadow(0 0 4px rgba(255,255,255,0.5));
+  }
+  @media (min-width: 640px) {
+    .thumb-satelite::after {
+      font-size: 24px;
+    }
   }
 
   .leaflet-tooltip.sem-fundo {
@@ -516,6 +525,7 @@ const EnderecoMarker = ({
     canMarkVisited = false,
     markerPosition = null,
     isHighlighted = false,
+    grupoCodigoMap = null,
     onShare,
     onNavigate,
     onEdit,
@@ -528,17 +538,23 @@ const EnderecoMarker = ({
     const agrupado = Boolean(endereco.grupoId || endereco.grupoCodigo);
     const codigoExibicao = formatEnderecoCodigoExibicao(endereco.codigo || endereco.id);
     const codigoMarcador = formatEnderecoCodigoMarcador(endereco.codigo || endereco.id);
-    const grupoCodigoExibicao = endereco.grupoCodigo ? formatGrupoEnderecoCodigoExibicao(endereco.grupoCodigo) : '';
+    const grupoCodigoResolvido = (endereco.grupoId && grupoCodigoMap?.get(endereco.grupoId))
+        || (endereco.grupoCodigo && grupoCodigoMap?.get(endereco.grupoCodigo))
+        || endereco.grupoCodigo
+        || endereco.grupoId
+        || '';
+    const grupoCodigoExibicao = grupoCodigoResolvido ? formatGrupoEnderecoCodigoExibicao(grupoCodigoResolvido) : '';
+    const grupoBadge = agrupado ? formatGrupoEnderecoCodigoBadge(grupoCodigoResolvido) : '';
     const statusLabel = arquivado ? 'Arquivado' : focusMode ? isVisited ? 'Pregado' : 'Pendente' : 'Ativo';
     const isPublicadorEmExecucao = !isAdmin && focusMode;
     const toggleVisitadoLabel = isVisited ? 'Desmarcar' : 'Marcar pregado';
     const [menuAberto, setMenuAberto] = useState(false);
     const icon = useMemo(() => L.divIcon({
         className: 'bg-transparent',
-        html: `<div class="map-address-marker ${focusMode ? isVisited ? 'focus-done' : 'focus-pending' : ''} ${!focusMode && agrupado ? 'grouped' : ''} ${isSelected ? 'selected' : ''} ${arquivado ? 'archived' : ''} ${isHighlighted ? 'import-highlight' : ''}">${codigoMarcador}</div>`,
+        html: `<div class="map-address-marker ${focusMode ? isVisited ? 'focus-done' : 'focus-pending' : ''} ${!focusMode && agrupado ? 'grouped' : ''} ${isSelected ? 'selected' : ''} ${arquivado ? 'archived' : ''} ${isHighlighted ? 'import-highlight' : ''}">${codigoMarcador}${!focusMode && agrupado && grupoBadge ? `<span class="map-address-badge">${grupoBadge}</span>` : ''}</div>`,
         iconSize: [44, 30],
         iconAnchor: [22, 15]
-    }), [agrupado, arquivado, codigoMarcador, focusMode, isHighlighted, isSelected, isVisited]);
+    }), [agrupado, arquivado, codigoMarcador, focusMode, grupoBadge, isHighlighted, isSelected, isVisited]);
 
     return (
         <Marker
@@ -722,6 +738,7 @@ const EnderecoMarkersLayer = ({
     focusMode,
     visitadosGrupoFocado,
     canMarkVisited,
+    grupoCodigoMap,
     onShare,
     onNavigate,
     onEdit,
@@ -768,6 +785,7 @@ const EnderecoMarkersLayer = ({
                 focusMode={focusMode}
                 isVisited={visitadosGrupoFocado?.has?.(endereco.id)}
                 canMarkVisited={canMarkVisited}
+                grupoCodigoMap={grupoCodigoMap}
                 onShare={onShare}
                 onNavigate={onNavigate}
                 onEdit={onEdit}
@@ -2863,6 +2881,22 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         return grupos.sort((a, b) => String(a.codigo || a.id).localeCompare(String(b.codigo || b.id)));
     }, [enderecosPorGrupo, enderecosPorGrupoCanonico, enderecosPorId, filtrarPorIdiomaEndereco, gruposEndereco, isAdmin, pertenceAoIdiomaAtivoEndereco]);
 
+    const grupoCodigoMap = useMemo(() => {
+        const map = new Map();
+        gruposEnderecoCompletos.forEach((grupo) => {
+            const codigo = grupo.codigo || grupo.id || '';
+            if (grupo.id) {
+                map.set(grupo.id, codigo);
+                map.set(getGrupoEnderecoCanonicalKey(grupo.id), codigo);
+            }
+            if (grupo.codigo) {
+                map.set(grupo.codigo, codigo);
+                map.set(getGrupoEnderecoCanonicalKey(grupo.codigo), codigo);
+            }
+        });
+        return map;
+    }, [gruposEnderecoCompletos]);
+
     const podeFocarGrupoEndereco = useCallback((grupo) => {
         if (!grupo) return false;
         if (isAdmin) return true;
@@ -3826,9 +3860,9 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         hasBairros={Boolean(bairrosGeoJson?.features?.length)}
                     />
                     {isAdmin && (
-                        <div ref={adminControlsRef} className="map-popup-aware-control absolute top-20 right-4 z-[400] flex max-w-[190px] flex-col gap-2" onClick={stopMapDomEvent}>
+                        <div ref={adminControlsRef} className="map-popup-aware-control absolute top-20 right-4 z-[400] flex max-w-[190px] flex-col items-end gap-2.5" onClick={stopMapDomEvent}>
                             {mostrarAlternadorIdiomaEndereco && (
-                                <div className="rounded-lg border border-teal-200 bg-white p-2 shadow-xl">
+                                <div className="w-full rounded-lg border border-teal-200 bg-white p-2 shadow-xl">
                                     <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-teal-700">Idioma</label>
                                     <select
                                         value={idiomaAtivoEndereco?.id || ''}
@@ -3842,7 +3876,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                                 </div>
                             )}
                             {enderecosSelecionadosDados.length > 0 && (
-                                <div className="rounded-lg border border-indigo-200 bg-white p-2 shadow-xl">
+                                <div className="w-full rounded-lg border border-indigo-200 bg-white p-2 shadow-xl">
                                     <div className="mb-2 text-center text-xs font-extrabold text-indigo-700">
                                         {enderecosSelecionadosDados.length} selecionado(s)
                                     </div>
@@ -3864,24 +3898,71 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                                 </div>
                             )}
                             {totalEnderecosArquivados > 0 && (
-                                <button
-                                    type="button"
-                                    onClick={() => setMostrarEnderecosArquivados((current) => !current)}
-                                    className={`rounded-lg border px-3 py-2 text-xs font-extrabold shadow-xl transition active:scale-95 ${mostrarEnderecosArquivados ? 'border-slate-500 bg-slate-700 text-white' : 'border-slate-200 bg-white text-slate-600'}`}
-                                    title={mostrarEnderecosArquivados ? 'Ocultar endereços arquivados' : 'Mostrar endereços arquivados'}
-                                >
-                                    End. arquivados
-                                </button>
+                                <div className="relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setMostrarEnderecosArquivados((current) => !current)}
+                                        aria-pressed={mostrarEnderecosArquivados}
+                                        aria-label={mostrarEnderecosArquivados ? 'Ocultar endereços arquivados' : `Mostrar endereços arquivados (${totalEnderecosArquivados})`}
+                                        title={mostrarEnderecosArquivados ? 'Ocultar endereços arquivados' : `Mostrar endereços arquivados (${totalEnderecosArquivados})`}
+                                        className={`relative flex h-11 w-11 sm:h-12 sm:w-12 items-center justify-center rounded-2xl border shadow-md shadow-slate-900/10 backdrop-blur-md transition-all duration-150 active:scale-95 ${
+                                            mostrarEnderecosArquivados
+                                                ? 'border-slate-800 bg-slate-700 text-white ring-2 ring-slate-500/30 shadow-slate-700/20'
+                                                : 'border-slate-200/90 bg-white/95 text-slate-600 hover:bg-white hover:text-slate-900'
+                                        }`}
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+                                        </svg>
+                                        <span
+                                            className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-black shadow-sm ring-1 ring-white ${
+                                                mostrarEnderecosArquivados
+                                                    ? 'bg-white text-slate-800 ring-slate-700'
+                                                    : 'bg-slate-700 text-white ring-white'
+                                            }`}
+                                        >
+                                            {totalEnderecosArquivados}
+                                        </span>
+                                    </button>
+                                    {mostrarDicasControles && (
+                                        <span className="control-hint right-side">End. arquivados</span>
+                                    )}
+                                </div>
                             )}
                             {totalGruposArquivados > 0 && (
-                                <button
-                                    type="button"
-                                    onClick={() => setMostrarGruposArquivados((current) => !current)}
-                                    className={`rounded-lg border px-3 py-2 text-xs font-extrabold shadow-xl transition active:scale-95 ${mostrarGruposArquivados ? 'border-slate-500 bg-slate-700 text-white' : 'border-slate-200 bg-white text-slate-600'}`}
-                                    title={mostrarGruposArquivados ? 'Ocultar territórios arquivados' : 'Mostrar territórios arquivados'}
-                                >
-                                    Terr. arq.
-                                </button>
+                                <div className="relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setMostrarGruposArquivados((current) => !current)}
+                                        aria-pressed={mostrarGruposArquivados}
+                                        aria-label={mostrarGruposArquivados ? 'Ocultar territórios arquivados' : `Mostrar territórios arquivados (${totalGruposArquivados})`}
+                                        title={mostrarGruposArquivados ? 'Ocultar territórios arquivados' : `Mostrar territórios arquivados (${totalGruposArquivados})`}
+                                        className={`relative flex h-11 w-11 sm:h-12 sm:w-12 items-center justify-center rounded-2xl border shadow-md shadow-slate-900/10 backdrop-blur-md transition-all duration-150 active:scale-95 ${
+                                            mostrarGruposArquivados
+                                                ? 'border-indigo-800 bg-indigo-700 text-white ring-2 ring-indigo-500/30 shadow-indigo-700/20'
+                                                : 'border-slate-200/90 bg-white/95 text-slate-600 hover:bg-white hover:text-indigo-700'
+                                        }`}
+                                    >
+                                        <div className="relative flex items-center justify-center">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+                                            </svg>
+                                            <span className="absolute -bottom-0.5 right-0 text-[8px] font-black leading-none">T</span>
+                                        </div>
+                                        <span
+                                            className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-black shadow-sm ring-1 ring-white ${
+                                                mostrarGruposArquivados
+                                                    ? 'bg-white text-indigo-900 ring-indigo-700'
+                                                    : 'bg-indigo-600 text-white ring-white'
+                                            }`}
+                                        >
+                                            {totalGruposArquivados}
+                                        </span>
+                                    </button>
+                                    {mostrarDicasControles && (
+                                        <span className="control-hint right-side">Terr. arquivados</span>
+                                    )}
+                                </div>
                             )}
                             {highlightedEnderecoIds.size > 0 && (
                                 <button
@@ -3973,6 +4054,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                         focusMode={Boolean(grupoEnderecoFocadoId)}
                         visitadosGrupoFocado={visitadosGrupoFocado}
                         canMarkVisited={Boolean(grupoEnderecoFocadoId) && podeExecutarGrupoFocado}
+                        grupoCodigoMap={grupoCodigoMap}
                         onShare={compartilharEndereco}
                         onNavigate={navegarEndereco}
                         onEdit={abrirEdicaoEndereco}

@@ -118,7 +118,12 @@ export const SeletorCamadas = ({
                 </div>
             )}
             <div className="relative">
-                <button onClick={alternarCamada} className={`map-layer-btn ${classeBotao} shadow-md shadow-slate-900/15 rounded-2xl`} title={tituloBotao} />
+                <button
+                    type="button"
+                    onClick={alternarCamada}
+                    className={`map-layer-btn ${classeBotao} w-11 h-11 sm:w-12 sm:h-12 shadow-md shadow-slate-900/15 rounded-2xl`}
+                    title={tituloBotao}
+                />
                 {mostrarDicas && <span className="control-hint left-side">Mudar mapa</span>}
             </div>
         </div>
