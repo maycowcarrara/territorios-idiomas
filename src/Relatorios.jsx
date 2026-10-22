@@ -1,3 +1,4 @@
+import { temDesignacaoAtiva } from '../shared/designacoes';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getDocs } from 'firebase/firestore';
@@ -160,7 +161,11 @@ const Relatorios = () => {
                     const progresso = getGrupoEnderecoProgresso(grupoCompleto);
                     const statusOperacional = getGrupoEnderecoStatusRelatorio(grupoCompleto);
                     const totalEnderecos = progresso.totalEnderecos;
-                    const visitadosExibicao = progresso.isFinalizado ? totalEnderecos : progresso.visitadosExibicao;
+                    const ultimaCobertura = grupo.historico?.at(-1);
+                    const coberturaDeclarada = progresso.isFinalizado && ultimaCobertura?.modoConclusao === 'declaracao';
+                    const visitadosExibicao = coberturaDeclarada
+                        ? (ultimaCobertura.feitos || []).length
+                        : progresso.isFinalizado ? totalEnderecos : progresso.visitadosExibicao;
                     const porcentagem = progresso.isFinalizado && totalEnderecos > 0
                         ? 100
                         : progresso.percentualExibicao;
@@ -173,11 +178,11 @@ const Relatorios = () => {
                     const diasParado = dataUltimaObj
                         ? getDiasDesde(dataUltimaObj)
                         : (dataCriacaoObj ? getDiasDesde(dataCriacaoObj) : Number.POSITIVE_INFINITY);
-                    const dataDesigObj = grupo.designadoPara ? toDateValue(grupo.dataDesignacao) : null;
+                    const dataDesigObj = temDesignacaoAtiva(grupo) ? toDateValue(grupo.dataDesignacao) : null;
                     const dataRefEdicao = toDateValue(grupo.ultimaAlteracao) || dataDesigObj;
                     const { diasSemEdicao, ultimaEdicaoTexto } = getUltimaEdicaoTexto({
                         dataRef: dataRefEdicao,
-                        hasDesignacao: Boolean(grupo.designadoPara)
+                        hasDesignacao: temDesignacaoAtiva(grupo)
                     });
                     const centro = getGrupoEnderecoCentro(grupoCompleto);
                     const totalEstrangeiros = Math.max(0, Math.trunc(Number(grupoCompleto.totalEstrangeiros) || 0));
@@ -235,7 +240,7 @@ const Relatorios = () => {
                         statusBadgeClass: statusVisual.badgeClass,
                         statusDetailClass: statusVisual.detailClass,
                         statusStyle: statusVisual.style,
-                        progressoTexto: `${visitadosExibicao}/${totalEnderecos} endereços`,
+                        progressoTexto: coberturaDeclarada ? `${visitadosExibicao}/${totalEnderecos} marcações · cobertura declarada` : `${visitadosExibicao}/${totalEnderecos} endereços`,
                         resumoOperacional: `${totalEnderecos} endereço${totalEnderecos === 1 ? '' : 's'} ativo${totalEnderecos === 1 ? '' : 's'} | ${totalEstrangeiros} pessoa${totalEstrangeiros === 1 ? '' : 's'}`,
                         totalEnderecosCadastrados: enderecosRelacionados.length,
                         totalEnderecosArquivados,

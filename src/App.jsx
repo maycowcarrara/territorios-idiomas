@@ -1,3 +1,6 @@
+import CartaoPublico from "./designacoes/CartaoPublico";
+import TerritorioPublico from './designacoes/TerritorioPublico';
+import LoginDemonstracao from './designacoes/LoginDemonstracao';
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -564,7 +567,7 @@ function Dashboard() {
 }
 
 // --- APP PRINCIPAL ---
-function App() {
+function AppPrivado() {
   const { user, loading } = useAuthSessionState();
 
   return (
@@ -583,6 +586,7 @@ function App() {
             }
           />
           <Route path="/app" element={<Dashboard />} />
+          {import.meta.env.VITE_LOCAL_EMULATORS === 'true' && <Route path="/demo-admin" element={<LoginDemonstracao />} />}
           <Route path="/admin" element={<RouteGuard adminOnly><LazyPage><AdminPanel /></LazyPage></RouteGuard>} />
           <Route path="/relatorios" element={<RouteGuard adminOnly><LazyPage><Relatorios /></LazyPage></RouteGuard>} />
           <Route
@@ -599,4 +603,13 @@ function App() {
   );
 }
 
+function App() {
+  const [publico, setPublico] = useState(() => /^#\/(?:t|c)\//.test(window.location.hash));
+  useEffect(() => {
+    const atualizar = () => setPublico(/^#\/(?:t|c)\//.test(window.location.hash));
+    window.addEventListener('hashchange', atualizar);
+    return () => window.removeEventListener('hashchange', atualizar);
+  }, []);
+  return publico ? <HashRouter><Routes><Route path="/c/:cartaoId" element={<CartaoPublico key={window.location.hash.split("/")[2]} />} /><Route path="/c/:cartaoId/:codigo" element={<CartaoPublico key={window.location.hash.split("/")[2]} />} /><Route path="/c/:cartaoId/:codigo/:revisao" element={<CartaoPublico key={window.location.hash.split("/")[2]} />} /><Route path="/t/:token" element={<TerritorioPublico />} /><Route path="/t/:token/:revisao" element={<TerritorioPublico />} /><Route path="/t/:token/*" element={<TerritorioPublico />} /><Route path="*" element={<TerritorioPublico />} /></Routes></HashRouter> : <AppPrivado />;
+}
 export default App;

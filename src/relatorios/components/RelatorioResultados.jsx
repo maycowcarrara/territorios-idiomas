@@ -155,7 +155,7 @@ export function RelatorioResultados({
                                                     <span className="text-slate-500">{hist.inicio}</span>
                                                     <span className="text-green-600 font-bold">→ {hist.termino}</span>
                                                 </div>
-                                                <div className="text-slate-700 font-medium">{hist.nomes}</div>
+                                                <div className="text-slate-700 font-medium">{hist.nomes}{hist.resultado && <p className="text-xs text-slate-500">{hist.resultado}</p>}</div>
                                             </div>
                                         ))}
                                     </div>
@@ -315,7 +315,7 @@ export function RelatorioResultados({
                                                                     {t.historicoLista.map((hist, index) => (
                                                                         <tr key={index} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
                                                                             <td className="py-2 pl-2 text-slate-500">{hist.inicio}</td>
-                                                                            <td className="py-2 font-medium text-slate-700">{hist.nomes}</td>
+                                                                            <td className="py-2 font-medium text-slate-700">{hist.nomes}{hist.resultado && <p className="text-xs text-slate-500">{hist.resultado}</p>}</td>
                                                                             <td className="py-2 text-green-600 font-medium">{hist.termino}</td>
                                                                         </tr>
                                                                     ))}

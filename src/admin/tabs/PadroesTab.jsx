@@ -1,3 +1,4 @@
+import { ConfiguracaoDesignacoes } from '../../designacoes/DesignacaoWhatsApp';
 import React from 'react';
 import {
     DEFAULT_ENDERECO_CONFIG,
@@ -50,6 +51,7 @@ export function PadroesTab({
 }) {
     return (
         <section role="tabpanel" aria-labelledby="tab-padroes" className="space-y-6">
+            <ConfiguracaoDesignacoes />
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>

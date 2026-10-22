@@ -1028,6 +1028,7 @@ export default {
 };
 
 export {
+    getGoogleAccessToken,
     verifyFirebaseIdToken,
     podeUsuarioNotificarAdmins,
     getDestinatariosBroadcast,

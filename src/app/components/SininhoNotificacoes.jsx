@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   query,
   where,
-  getDocs,
   collection,
   onSnapshot,
   doc,
@@ -25,17 +24,6 @@ export const SininhoNotificacoes = ({
   const { notify } = useUiFeedback();
   const idsNotificadosRef = useRef(new Set());
   const snapshotsIniciaisRef = useRef({ pessoais: false });
-
-  const carregarNotificacoesAdminLegado = useCallback(async () => {
-    if (!user?.email || !isAdmin) return [];
-
-    const emailNormalizado = user.email.toLowerCase();
-    const q2 = query(collection(db, "notificacoes"), where("para", "==", "ADMINS"));
-    const snap = await getDocs(q2);
-    return snap.docs
-      .map(d => ({ id: d.id, ...d.data(), escopoNotificacao: 'admins' }))
-      .filter((notif) => !(Array.isArray(notif.lidaPor) && notif.lidaPor.includes(emailNormalizado)));
-  }, [isAdmin, user]);
 
   const notificacoes = useMemo(
     () => {
@@ -114,43 +102,6 @@ export const SininhoNotificacoes = ({
   useEffect(() => {
     if (!user || !isAdmin) return;
 
-    let ativo = true;
-
-    const sincronizarLegado = async () => {
-      try {
-        const deAdmin = await carregarNotificacoesAdminLegado();
-        if (!ativo) return;
-        setNotificacoesAdminLegado(deAdmin);
-      } catch (error) {
-        if (!ativo) return;
-        console.error("Erro ao verificar notificações legadas de admins:", error);
-      }
-    };
-
-    const handleFocus = () => {
-      void sincronizarLegado();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void sincronizarLegado();
-      }
-    };
-
-    void sincronizarLegado();
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      ativo = false;
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [carregarNotificacoesAdminLegado, isAdmin, user]);
-
-  useEffect(() => {
-    if (!user || !isAdmin || !isOpen) return;
-
     const emailNormalizado = user.email.toLowerCase();
     const q2 = query(collection(db, "notificacoes"), where("para", "==", "ADMINS"));
 
@@ -164,7 +115,7 @@ export const SininhoNotificacoes = ({
     return () => {
       unsub2();
     };
-  }, [isAdmin, isOpen, user]);
+  }, [isAdmin, user]);
 
   const limparNotificacao = async (notif) => {
     try {

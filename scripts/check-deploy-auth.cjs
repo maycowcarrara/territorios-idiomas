@@ -188,7 +188,7 @@ function checkFirebase(selectedInstance) {
 }
 
 function parseTomlString(contents, key) {
-  const pattern = new RegExp(`^\\s*${key}\\s*=\\s*"([^"]+)"\\s*$`, 'm');
+  const pattern = new RegExp(`^\\s*"?${key}"?\\s*[:=]\\s*"([^"]+)"\\s*,?\\s*$`, 'm');
   return contents.match(pattern)?.[1] || '';
 }
 

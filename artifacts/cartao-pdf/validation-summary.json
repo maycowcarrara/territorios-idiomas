@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-22",
+  "localOnly": true,
+  "unitTests": 279,
+  "relayTests": 20,
+  "rulesMatrix": "passed",
+  "legacySmoke": "passed",
+  "designationChecks": 102,
+  "cardPinChecks": 22,
+  "lint": "passed",
+  "build": "passed",
+  "workerBundle": "dry-run only",
+  "source": "OSM human-visible viewport",
+  "providerHead": {
+    "status": 200,
+    "cors": "*"
+  },
+  "pdfs": [
+    {
+      "file": "curto.pdf",
+      "pages": 1,
+      "widthMm": 93,
+      "heightMm": 145,
+      "qrMm": 23,
+      "mapHeightMm": 50.75,
+      "sha256": "a6e45c207af4d3b1897cf4ad20dfdfe3b6faf3f05ed684f36131d27e3d3f342d"
+    },
+    {
+      "file": "paginado.pdf",
+      "pages": 3,
+      "widthMm": 93,
+      "heightMm": 145,
+      "qrMm": 23,
+      "mapHeightMm": 50.75,
+      "sha256": "dc1ea6ac06d9cfef7fb67db8096bd01ccae8f50f58399bacaac8f10aa7988827"
+    }
+  ],
+  "qrDecode": "all four final pages; permanent card URL only",
+  "pending": [
+    "real browser map capture and web download",
+    "full automatic-link/review UI validation",
+    "physical QR camera and print scale",
+    "real WhatsApp",
+    "Android/WebView",
+    "production pilot"
+  ]
+}

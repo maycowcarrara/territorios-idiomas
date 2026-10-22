@@ -43,19 +43,19 @@ const salvarArquivoNativo = async (path, data) => {
     }
 };
 
-export const exportarPdfParaDispositivo = async (doc, nomeArquivo) => {
+export const exportarPdfParaDispositivo = async (doc, nomeArquivo, { pasta = 'relatorios', texto = 'Relatório em PDF' } = {}) => {
     if (!Capacitor.isNativePlatform()) {
         doc.save(nomeArquivo);
         return { modo: 'download' };
     }
 
     const pdfBase64 = arrayBufferToBase64(doc.output('arraybuffer'));
-    const path = `relatorios/${nomeArquivo}`;
+    const path = `${pasta}/${nomeArquivo}`;
     const { uri } = await salvarArquivoNativo(path, pdfBase64);
 
     await Share.share({
         title: nomeArquivo,
-        text: 'Relatório em PDF',
+        text: texto,
         url: uri,
         dialogTitle: 'Salvar ou compartilhar PDF'
     });

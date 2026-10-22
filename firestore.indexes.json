@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "designacoes_links",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "operacionalAtiva", "order": "ASCENDING" },
+        { "fieldPath": "expiraEm", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "enderecos",
       "queryScope": "COLLECTION",
       "fields": [

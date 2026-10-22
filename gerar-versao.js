@@ -1,3 +1,4 @@
+import process from 'node:process';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -10,10 +11,16 @@ const packagePath = path.join(__dirname, 'package.json');
 const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
 const versaoAtual = packageJson.version; // Ex: "1.8.116"
 
-// 2. Incrementa o último número (Patch)
-const partes = versaoAtual.split('.');
-partes[2] = parseInt(partes[2]) + 1;
-const novaVersao = partes.join('.'); // Ex: "1.8.117"
+// 2. Incrementa o último número (Patch) ou usa versão passada por argumento
+const versaoArgumento = process.argv[2];
+let novaVersao;
+if (versaoArgumento && /^\d+\.\d+\.\d+$/.test(versaoArgumento)) {
+    novaVersao = versaoArgumento;
+} else {
+    const partes = versaoAtual.split('.');
+    partes[2] = parseInt(partes[2]) + 1;
+    novaVersao = partes.join('.');
+}
 
 console.log(`🆙 Atualizando versão: ${versaoAtual} -> ${novaVersao}`);
 

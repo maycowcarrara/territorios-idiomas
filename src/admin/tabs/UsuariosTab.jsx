@@ -11,8 +11,13 @@ export function UsuariosTab({
     setUserSearch,
     usuariosFiltrados,
     totalUsers,
+    totalContatosWhatsApp = 0,
+    designacoesHabilitadas = false,
+    carregandoContatosWhatsApp = false,
     cadastroAberto,
     setCadastroAberto,
+    novoTipoCadastro = 'login',
+    setNovoTipoCadastro,
     novoNome,
     setNovoNome,
     novoEmail,
@@ -23,6 +28,7 @@ export function UsuariosTab({
     handleAdicionar,
     mudarRole,
     remover,
+    alternarAtivoContatoWhatsApp,
     iniciarEdicao,
     cancelarEdicao,
     editandoId,
@@ -31,9 +37,11 @@ export function UsuariosTab({
     salvarEdicao,
     adminActionsDisabled
 }) {
+    const isCadastroWhatsApp = designacoesHabilitadas && novoTipoCadastro === 'whatsapp';
+
     return (
-        <section role="tabpanel" aria-labelledby="tab-usuarios" className="space-y-6">
-            <div className={`grid grid-cols-1 gap-6 ${totalPendentes > 0 ? 'xl:grid-cols-[0.95fr_1.05fr]' : ''}`}>
+        <section role="tabpanel" aria-labelledby="tab-usuarios" className="space-y-5">
+            <div className={`grid grid-cols-1 gap-5 ${totalPendentes > 0 ? 'xl:grid-cols-[0.95fr_1.05fr]' : ''}`}>
                 {totalPendentes > 0 && (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
                         <div className="flex items-center justify-between gap-3">
@@ -76,19 +84,54 @@ export function UsuariosTab({
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex items-center justify-between gap-3">
-                        <h2 className="text-xl font-black text-slate-900">Cadastrar novo usuário</h2>
+                        <div>
+                            <h2 className="text-xl font-black text-slate-900">Cadastrar novo usuário</h2>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                                Cadastre dirigentes com login por e-mail ou publicadores que recebem territórios só pelo WhatsApp.
+                            </p>
+                        </div>
                         <button
                             type="button"
                             onClick={() => setCadastroAberto((prev) => !prev)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-lg font-bold text-slate-600 transition-all hover:bg-slate-100"
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-lg font-bold text-slate-600 transition-all hover:bg-slate-100"
                             aria-label={cadastroAberto ? 'Recolher cadastro' : 'Abrir cadastro'}
                         >
                             <span aria-hidden="true">{cadastroAberto ? '−' : '+'}</span>
                         </button>
                     </div>
                     {cadastroAberto ? (
-                        <form onSubmit={handleAdicionar} className="mt-5">
+                        <form onSubmit={handleAdicionar} className="mt-4">
                             <fieldset disabled={adminActionsDisabled || loadingAdd} className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${adminActionsDisabled ? 'opacity-60' : ''}`}>
+                                {designacoesHabilitadas && setNovoTipoCadastro && (
+                                    <div className="md:col-span-2">
+                                        <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">Tipo de cadastro</label>
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setNovoTipoCadastro('login')}
+                                                className={`flex items-start gap-2.5 rounded-xl border p-3 text-left transition-all ${!isCadastroWhatsApp ? 'border-blue-600 bg-blue-50/70 text-blue-950 ring-1 ring-blue-600' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                                            >
+                                                <span className="mt-0.5 text-base">👤</span>
+                                                <div>
+                                                    <p className="text-xs font-black uppercase tracking-wide">Com login (E-mail)</p>
+                                                    <p className="mt-0.5 text-[11px] text-slate-600">Entra no app com conta Google/E-mail (Dirigente ou Admin).</p>
+                                                </div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setNovoTipoCadastro('whatsapp')}
+                                                className={`flex items-start gap-2.5 rounded-xl border p-3 text-left transition-all ${isCadastroWhatsApp ? 'border-emerald-600 bg-emerald-50/80 text-emerald-950 ring-1 ring-emerald-600' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                                            >
+                                                <span className="mt-0.5 text-base">📱</span>
+                                                <div>
+                                                    <p className="text-xs font-black uppercase tracking-wide">Só WhatsApp (Sem login)</p>
+                                                    <p className="mt-0.5 text-[11px] text-slate-600">Não precisa de e-mail nem conta; recebe link direto no WhatsApp.</p>
+                                                </div>
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="md:col-span-2">
                                     <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome completo</label>
                                     <input
@@ -97,37 +140,55 @@ export function UsuariosTab({
                                         className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                                         value={novoNome}
                                         onChange={(e) => setNovoNome(e.target.value)}
+                                        required={isCadastroWhatsApp}
                                     />
                                 </div>
-                                <div>
-                                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">E-mail</label>
-                                    <input
-                                        type="email"
-                                        placeholder="Ex: joao@exemplo.com"
-                                        className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                                        value={novoEmail}
-                                        onChange={(e) => setNovoEmail(e.target.value)}
-                                        required
-                                    />
-                                </div>
+
+                                {!isCadastroWhatsApp ? (
+                                    <div>
+                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">E-mail</label>
+                                        <input
+                                            type="email"
+                                            placeholder="Ex: joao@exemplo.com"
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                                            value={novoEmail}
+                                            onChange={(e) => setNovoEmail(e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                ) : null
+                                }
+
                                 <div>
                                     <label className="mb-1 block text-xs font-bold uppercase text-slate-500">WhatsApp</label>
                                     <input
                                         type="text"
-                                        placeholder="(46) 99999-9999"
+                                        placeholder={isCadastroWhatsApp ? '+55 (47) 99999-1234' : '(46) 99999-9999'}
                                         className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                                         value={novoWhats}
-                                        maxLength={15}
-                                        onChange={(e) => setNovoWhats(formatarTelefone(e.target.value))}
+                                        maxLength={isCadastroWhatsApp ? undefined : 15}
+                                        onChange={(e) =>
+                                            setNovoWhats(
+                                                isCadastroWhatsApp
+                                                    ? e.target.value
+                                                    : formatarTelefone(e.target.value)
+                                            )
+                                        }
+                                        required
                                     />
                                 </div>
+
                                 <div className="md:col-span-2">
                                     <button
                                         type="submit"
                                         disabled={loadingAdd || adminActionsDisabled}
-                                        className={`inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white shadow-md transition-all hover:bg-blue-700 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                        className={`inline-flex items-center justify-center rounded-xl px-6 py-3 text-sm font-bold text-white shadow-md transition-all ${isCadastroWhatsApp ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'} ${ADMIN_OFFLINE_ACTION_CLASS}`}
                                     >
-                                        {loadingAdd ? 'Salvando...' : '+ Adicionar usuário'}
+                                        {loadingAdd
+                                            ? 'Salvando...'
+                                            : isCadastroWhatsApp
+                                                ? '+ Cadastrar contato só WhatsApp'
+                                                : '+ Adicionar usuário com login'}
                                     </button>
                                 </div>
                             </fieldset>
@@ -139,7 +200,10 @@ export function UsuariosTab({
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
-                        <h2 className="text-xl font-black text-slate-900">Lista de usuários</h2>
+                        <h2 className="text-xl font-black text-slate-900">Lista de usuários e contatos WhatsApp</h2>
+                        {carregandoContatosWhatsApp && (
+                            <p className="mt-0.5 text-xs text-slate-400">Atualizando contatos de WhatsApp...</p>
+                        )}
                     </div>
                     <div className="w-full max-w-md">
                         <div>
@@ -159,7 +223,10 @@ export function UsuariosTab({
                     {[
                         { value: 'todos', label: 'Todos' },
                         { value: 'aguardando', label: 'Pendentes' },
-                        { value: 'comum', label: 'Dirigentes' },
+                        { value: 'comum', label: 'Dirigentes (com login)' },
+                        ...(designacoesHabilitadas
+                            ? [{ value: 'whatsapp', label: `📱 Só WhatsApp (${totalContatosWhatsApp})` }]
+                            : []),
                         { value: 'admin', label: 'Admins' }
                     ].map((option) => {
                         const ativa = userRoleFilter === option.value;
@@ -216,11 +283,19 @@ export function UsuariosTab({
                                         ) : (
                                             <h4 className="text-sm font-bold text-slate-800">{user.nome || 'Sem Nome'}</h4>
                                         )}
-                                        <p className="max-w-[170px] truncate text-xs font-mono text-slate-400">{user.id}</p>
+                                        {user.isContatoWhatsApp ? (
+                                            <p className="max-w-[190px] truncate text-xs font-medium text-emerald-700">📱 Link direto (Sem login)</p>
+                                        ) : (
+                                            <p className="max-w-[170px] truncate text-xs font-mono text-slate-400">{user.id}</p>
+                                        )}
                                     </div>
                                 </div>
                                 <div>
-                                    {user.role === 'admin' ? (
+                                    {user.isContatoWhatsApp ? (
+                                        <span className={`rounded-full border px-2 py-1 text-[10px] font-bold ${user.ativo !== false ? 'border-emerald-200 bg-emerald-100 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
+                                            📱 WHATSAPP{user.carga > 0 ? ` · ${user.carga}t` : ''}{user.ativo === false ? ' · OFF' : ''}
+                                        </span>
+                                    ) : user.role === 'admin' ? (
                                         <span className="rounded-full border border-purple-200 bg-purple-100 px-2 py-1 text-[10px] font-bold text-purple-700">ADMIN</span>
                                     ) : user.role === 'aguardando' ? (
                                         <span className="rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700">PENDENTE</span>
@@ -261,6 +336,26 @@ export function UsuariosTab({
                                             Salvar
                                         </button>
                                         <button type="button" onClick={cancelarEdicao} className="flex-1 rounded-xl bg-slate-200 py-2 text-sm font-bold text-slate-700">Cancelar</button>
+                                    </>
+                                ) : user.isContatoWhatsApp ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => iniciarEdicao(user)}
+                                            disabled={adminActionsDisabled}
+                                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-2 text-xs font-bold text-blue-600 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                            <span>Editar</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => alternarAtivoContatoWhatsApp?.(user)}
+                                            disabled={adminActionsDisabled}
+                                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border p-2 text-xs font-bold transition-colors ${user.ativo !== false ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                        >
+                                            {user.ativo !== false ? 'Inativar' : 'Reativar'}
+                                        </button>
                                     </>
                                 ) : (
                                     <>
@@ -357,7 +452,11 @@ export function UsuariosTab({
                                                     </div>
                                                     <div>
                                                         <div className="font-bold text-slate-800">{user.nome || 'Sem Nome'}</div>
-                                                        <div className="text-xs font-mono text-slate-400">{user.id}</div>
+                                                        {user.isContatoWhatsApp ? (
+                                                            <div className="text-xs font-medium text-emerald-700">📱 Link direto (Sem login)</div>
+                                                        ) : (
+                                                            <div className="text-xs font-mono text-slate-400">{user.id}</div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )}
@@ -381,7 +480,11 @@ export function UsuariosTab({
                                             )}
                                         </td>
                                         <td className="px-6 py-4 text-center">
-                                            {user.role === 'admin' ? (
+                                            {user.isContatoWhatsApp ? (
+                                                <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold ${user.ativo !== false ? 'border-emerald-200 bg-emerald-100 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
+                                                    📱 Só WhatsApp{user.carga > 0 ? ` · ${user.carga} terr.` : ''}{user.ativo === false ? ' · Inativo' : ''}
+                                                </span>
+                                            ) : user.role === 'admin' ? (
                                                 <span className="inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-100 px-3 py-1 text-xs font-bold text-purple-700">
                                                     🛡️ Admin
                                                 </span>
@@ -410,6 +513,26 @@ export function UsuariosTab({
                                                         </button>
                                                         <button type="button" onClick={cancelarEdicao} className="rounded-lg bg-red-100 p-2 text-red-700 transition-colors hover:bg-red-200" title="Cancelar">
                                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                                        </button>
+                                                    </>
+                                                ) : user.isContatoWhatsApp ? (
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => iniciarEdicao(user)}
+                                                            disabled={adminActionsDisabled}
+                                                            className={`rounded-lg p-2 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600 ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                                            title="Editar dados"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => alternarAtivoContatoWhatsApp?.(user)}
+                                                            disabled={adminActionsDisabled}
+                                                            className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ${user.ativo !== false ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} ${ADMIN_OFFLINE_ACTION_CLASS}`}
+                                                        >
+                                                            {user.ativo !== false ? 'Inativar' : 'Reativar'}
                                                         </button>
                                                     </>
                                                 ) : (

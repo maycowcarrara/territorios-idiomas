@@ -107,7 +107,7 @@ export async function gerarExportacaoPdfRelatorio({
             if (t.historicoLista && t.historicoLista.length > 0) {
                 textoHistorico += "-- HISTÓRICO --\n";
                 t.historicoLista.forEach(h => {
-                    textoHistorico += `• Início: ${h.inicio} - Dirigentes: ${h.nomes} - Término: ${h.termino}\n`;
+                    textoHistorico += `• Início: ${h.inicio} - Dirigentes: ${h.nomes}${h.resultado ? ` - ${h.resultado}` : ''} - Término: ${h.termino}\n`;
                 });
             } else {
                 textoHistorico += "\n(Sem histórico)";

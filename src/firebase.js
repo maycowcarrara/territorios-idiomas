@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getAuth, GoogleAuthProvider, connectAuthEmulator } from "firebase/auth";
+import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
 
 const requiredFirebaseEnv = [
     "VITE_FIREBASE_API_KEY",
@@ -32,3 +32,9 @@ export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
 export const db = getFirestore(app);
+
+if (import.meta.env.VITE_LOCAL_EMULATORS === 'true') {
+    if (!firebaseConfig.projectId.startsWith('demo-') || !['localhost', '127.0.0.1'].includes(window.location.hostname)) throw new Error('Emulação local exige projeto demo e navegador no loopback.');
+    connectAuthEmulator(auth, 'http://127.0.0.1:9195', { disableWarnings: true });
+    connectFirestoreEmulator(db, '127.0.0.1', 8185);
+}

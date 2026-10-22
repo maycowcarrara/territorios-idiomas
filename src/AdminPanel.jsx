@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { normalizarTelefone, contatoCorrespondeBusca } from "../shared/designacoes";
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { auth, db } from './firebase';
@@ -54,6 +55,8 @@ import { UsuariosTab } from './admin/tabs/UsuariosTab';
 import { PadroesTab } from './admin/tabs/PadroesTab';
 import { CampanhasTab } from './admin/tabs/CampanhasTab';
 import { ComunicadosTab } from './admin/tabs/ComunicadosTab';
+import { designacoesHabilitadas } from './designacoesApi';
+import { adminDesignacoesRequest } from './designacoesAdminApi';
 
 const AdminPanel = () => {
     const isOnline = useOnlineStatus();
@@ -84,10 +87,13 @@ const AdminPanel = () => {
     };
 
     // Estados para NOVO usuário
+    const [novoTipoCadastro, setNovoTipoCadastro] = useState('login');
     const [novoEmail, setNovoEmail] = useState('');
     const [novoNome, setNovoNome] = useState('');
     const [novoWhats, setNovoWhats] = useState('');
     const [loadingAdd, setLoadingAdd] = useState(false);
+    const [contatosWhatsApp, setContatosWhatsApp] = useState([]);
+    const [carregandoContatosWhatsApp, setCarregandoContatosWhatsApp] = useState(false);
     const [comunicadoGeral, setComunicadoGeral] = useState('');
     const [enviandoComunicado, setEnviandoComunicado] = useState(false);
     const [destinoComunicado, setDestinoComunicado] = useState('todos');
@@ -269,10 +275,77 @@ const AdminPanel = () => {
         };
     }, [campanhaParaExcluir]);
 
+    const carregarContatosWhatsApp = useCallback(async () => {
+        if (!designacoesHabilitadas || !isOnline) return;
+        setCarregandoContatosWhatsApp(true);
+        try {
+            const lista = await adminDesignacoesRequest('/admin/contatos/listar');
+            setContatosWhatsApp(Array.isArray(lista) ? lista : []);
+        } catch (error) {
+            console.error('Erro ao carregar contatos WhatsApp:', error);
+        } finally {
+            setCarregandoContatosWhatsApp(false);
+        }
+    }, [isOnline]);
+
+    useEffect(() => {
+        if (activeTab !== 'usuarios' || !designacoesHabilitadas || !isOnline) return;
+        void carregarContatosWhatsApp();
+    }, [activeTab, isOnline, carregarContatosWhatsApp]);
+
     // --- ADICIONAR NOVO ---
     const handleAdicionar = async (e) => {
         e.preventDefault();
         if (!ensureOnlineAdminAction()) return;
+
+        if (novoTipoCadastro === 'whatsapp') {
+            const nomeLimpo = novoNome.trim();
+            if (!nomeLimpo) {
+                notify({
+                    title: 'Nome obrigatório',
+                    message: 'Informe o nome do publicador para cadastro por WhatsApp.',
+                    variant: 'warning'
+                });
+                return;
+            }
+            if (!novoWhats.trim()) {
+                notify({
+                    title: 'WhatsApp obrigatório',
+                    message: 'Informe o número de WhatsApp com DDD.',
+                    variant: 'warning'
+                });
+                return;
+            }
+
+            setLoadingAdd(true);
+            try {
+                await adminDesignacoesRequest('/admin/contatos', {
+                    nome: nomeLimpo,
+                    telefone: normalizarTelefone(novoWhats),
+                    ativo: true
+                });
+                setNovoNome('');
+                setNovoWhats('');
+                setCadastroAberto(false);
+                await carregarContatosWhatsApp();
+                notify({
+                    title: 'Contato WhatsApp cadastrado',
+                    message: `${nomeLimpo} já pode receber territórios por link no WhatsApp (sem login).`,
+                    variant: 'success'
+                });
+            } catch (error) {
+                console.error("Erro ao adicionar contato WhatsApp:", error);
+                notify({
+                    title: 'Não foi possível cadastrar',
+                    message: error?.message || 'Verifique o número de WhatsApp e tente novamente.',
+                    variant: 'error'
+                });
+            } finally {
+                setLoadingAdd(false);
+            }
+            return;
+        }
+
         if (!novoEmail) return;
 
         if (!isValidUsuarioEmail(novoEmail)) {
@@ -394,6 +467,32 @@ const AdminPanel = () => {
         if (!editandoId) return;
         if (!ensureOnlineAdminAction()) return;
 
+        if (dadosEditados.isContatoWhatsApp) {
+            try {
+                await adminDesignacoesRequest('/admin/contatos', {
+                    id: dadosEditados.contatoId,
+                    nome: (dadosEditados.nome || '').trim(),
+                    telefoneE164: (dadosEditados.whatsapp || '').trim(),
+                    ativo: dadosEditados.ativo !== false
+                });
+                setEditandoId(null);
+                await carregarContatosWhatsApp();
+                notify({
+                    title: 'Contato atualizado',
+                    message: 'Os dados do contato WhatsApp foram salvos.',
+                    variant: 'success'
+                });
+            } catch (error) {
+                console.error(error);
+                notify({
+                    title: 'Edição não salva',
+                    message: error?.message || 'Não foi possível salvar as alterações do contato.',
+                    variant: 'error'
+                });
+            }
+            return;
+        }
+
         try {
             await updateDoc(doc(db, "usuarios", editandoId), {
                 nome: dadosEditados.nome,
@@ -405,6 +504,48 @@ const AdminPanel = () => {
             notify({
                 title: 'Edição não salva',
                 message: 'Não foi possível salvar as alterações.',
+                variant: 'error'
+            });
+        }
+    };
+
+    const alternarAtivoContatoWhatsApp = async (user) => {
+        if (!user?.isContatoWhatsApp) return;
+        if (!ensureOnlineAdminAction()) return;
+
+        const novoAtivo = !user.ativo;
+        let revogarAcessos = false;
+        if (!novoAtivo && user.carga > 0) {
+            revogarAcessos = await confirm({
+                title: 'Inativar contato com territórios ativos',
+                message: `${user.nome} possui ${user.carga} território(s) ativo(s) por link.\n\nDeseja também encerrar e devolver imediatamente os links ativos deste contato?`,
+                tone: 'warning',
+                confirmLabel: 'Inativar e revogar links',
+                cancelLabel: 'Apenas inativar'
+            });
+        }
+
+        try {
+            await adminDesignacoesRequest('/admin/contatos', {
+                id: user.contatoId,
+                nome: user.nome,
+                telefoneE164: user.telefoneE164 || user.whatsapp,
+                ativo: novoAtivo,
+                revogarAcessos
+            });
+            await carregarContatosWhatsApp();
+            notify({
+                title: novoAtivo ? 'Contato reativado' : 'Contato inativado',
+                message: novoAtivo
+                    ? `${user.nome} voltou a ficar disponível para designações por WhatsApp.`
+                    : `${user.nome} foi marcado como inativo.`,
+                variant: 'info'
+            });
+        } catch (error) {
+            console.error(error);
+            notify({
+                title: 'Não foi possível alterar',
+                message: error?.message || 'Tente novamente em instantes.',
                 variant: 'error'
             });
         }
@@ -1284,17 +1425,32 @@ const AdminPanel = () => {
     };
 
     // --- CONTADORES ---
+    const contatosWhatsAppMapeados = contatosWhatsApp.map((c) => ({
+        id: `whatsapp:${c.id}`,
+        contatoId: c.id,
+        isContatoWhatsApp: true,
+        nome: c.nome || 'Sem Nome',
+        whatsapp: c.telefoneE164 || '',
+        telefoneE164: c.telefoneE164 || '',
+        role: 'whatsapp',
+        ativo: c.ativo !== false,
+        carga: Number(c.carga) || 0,
+        maisAntiga: c.maisAntiga || null
+    }));
+    const usuariosUnificados = [...usuarios, ...contatosWhatsAppMapeados];
     const totalUsers = usuarios.length;
+    const totalContatosWhatsApp = contatosWhatsAppMapeados.length;
+    const totalListados = usuariosUnificados.length;
     const totalAdmins = usuarios.filter((u) => u.role === 'admin').length;
     const usuariosPendentes = usuarios.filter((u) => u.role === 'aguardando');
     const totalPendentes = usuariosPendentes.length;
     const totalAprovados = usuarios.filter((u) => u.role === 'admin' || u.role === 'comum').length;
     const totalDestinoComunicado = destinoComunicado === 'admins' ? totalAdmins : totalAprovados;
     const buscaUsuario = userSearch.trim().toLowerCase();
-    const usuariosFiltrados = usuarios.filter((user) => {
+    const usuariosFiltrados = usuariosUnificados.filter((user) => {
         const correspondePerfil = userRoleFilter === 'todos' || user.role === userRoleFilter;
         const conteudoBusca = `${user.nome || ''} ${user.id || ''} ${user.whatsapp || ''}`.toLowerCase();
-        const correspondeBusca = !buscaUsuario || conteudoBusca.includes(buscaUsuario);
+        const correspondeBusca = !buscaUsuario || conteudoBusca.includes(buscaUsuario) || (user.isContatoWhatsApp && contatoCorrespondeBusca(user, buscaUsuario));
 
         return correspondePerfil && correspondeBusca;
     });
@@ -1317,7 +1473,7 @@ const AdminPanel = () => {
         if (tab.id === 'usuarios') {
             return {
                 ...tab,
-                badge: totalPendentes > 0 ? `${totalPendentes} pend.` : `${totalUsers}`
+                badge: totalPendentes > 0 ? `${totalPendentes} pend.` : `${totalListados}`
             };
         }
 
@@ -1353,7 +1509,28 @@ const AdminPanel = () => {
                 <PageHeader
                     eyebrow="Administração"
                     title="Painel de Controle"
-                    subtitle="Usuários, campanhas e comunicados com uma visão limpa para decisões rápidas."
+                    className="mb-3 py-3 sm:py-3.5"
+                    chips={(
+                        <>
+                            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                                Dirigentes: <strong className="font-black text-slate-900">{totalUsers}</strong>
+                            </span>
+                            {designacoesHabilitadas && (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50/70 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                    Só WhatsApp: <strong className="font-black text-emerald-900">{totalContatosWhatsApp}</strong>
+                                </span>
+                            )}
+                            <span className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50/70 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700">
+                                Admins: <strong className="font-black text-blue-900">{totalAdmins}</strong>
+                            </span>
+                            <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${totalPendentes > 0 ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                                Pendentes: <strong className="font-black">{totalPendentes}</strong>
+                            </span>
+                            <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50/70 px-2.5 py-0.5 text-[11px] font-semibold text-violet-700">
+                                Modo: <strong className="max-w-[160px] truncate font-black text-violet-900">{contextoSistema.campanhaAtiva ? contextoSistema.contextoAtivoTitulo : 'Pregação normal'}</strong>
+                            </span>
+                        </>
+                    )}
                     actions={(
                         <>
                             <div className={`inline-flex items-center justify-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${isOnline ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
@@ -1367,36 +1544,7 @@ const AdminPanel = () => {
                     )}
                 />
 
-                {!isOnline && (
-                    <div className="mb-6 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-900 shadow-sm">
-                        {ADMIN_OFFLINE_MESSAGE}
-                    </div>
-                )}
-
-                <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Dirigentes</p>
-                            <p className="mt-1 text-lg font-black text-slate-800">{totalUsers}</p>
-                        </div>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Admins</p>
-                            <p className="mt-1 text-lg font-black text-blue-700">{totalAdmins}</p>
-                        </div>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Pendentes</p>
-                            <p className={`mt-1 text-lg font-black ${totalPendentes > 0 ? 'text-amber-700' : 'text-emerald-600'}`}>{totalPendentes}</p>
-                        </div>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Modo</p>
-                            <p className="mt-1 truncate text-[13px] font-black text-violet-700">
-                                {contextoSistema.campanhaAtiva ? contextoSistema.contextoAtivoTitulo : 'Pregação normal'}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+                <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
                     <div className="overflow-x-auto">
                         <div className="flex min-w-max gap-2">
                             {adminTabs.map((tab) => {
@@ -1410,17 +1558,17 @@ const AdminPanel = () => {
                                         role="tab"
                                         aria-selected={ativa}
                                         onClick={() => setActiveTab(tab.id)}
-                                        className={`min-w-[160px] rounded-xl border px-3 py-2 text-left transition-all ${ativa ? 'border-slate-900 bg-slate-900 text-white' : 'border-transparent bg-white text-slate-700 hover:bg-slate-50'}`}
+                                        className={`min-w-[150px] rounded-xl border px-3 py-2 text-left transition-all ${ativa ? 'border-slate-900 bg-slate-900 text-white' : 'border-transparent bg-white text-slate-700 hover:bg-slate-50'}`}
                                     >
                                         <div className="flex items-center justify-between gap-3">
-                                            <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2.5">
                                                 <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${ativa ? 'bg-white/15' : 'bg-slate-100'}`}>
                                                     {tab.icon}
                                                 </span>
                                                 <p className="text-xs font-bold">{tab.label}</p>
                                             </div>
                                             {tab.badge ? (
-                                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${ativa ? 'bg-white text-slate-900' : 'bg-slate-100 text-slate-600'}`}>
+                                                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${ativa ? 'bg-white text-slate-900' : 'bg-slate-100 text-slate-600'}`}>
                                                     {tab.badge}
                                                 </span>
                                             ) : null}
@@ -1432,6 +1580,12 @@ const AdminPanel = () => {
                     </div>
                 </div>
 
+                {!isOnline && (
+                    <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-medium text-amber-900 shadow-sm">
+                        {ADMIN_OFFLINE_MESSAGE}
+                    </div>
+                )}
+
                 {activeTab === 'usuarios' && (
                 <UsuariosTab
                     totalPendentes={totalPendentes}
@@ -1441,9 +1595,14 @@ const AdminPanel = () => {
                     userSearch={userSearch}
                     setUserSearch={setUserSearch}
                     usuariosFiltrados={usuariosFiltrados}
-                    totalUsers={totalUsers}
+                    totalUsers={totalListados}
+                    totalContatosWhatsApp={totalContatosWhatsApp}
+                    designacoesHabilitadas={designacoesHabilitadas}
+                    carregandoContatosWhatsApp={carregandoContatosWhatsApp}
                     cadastroAberto={cadastroAberto}
                     setCadastroAberto={setCadastroAberto}
+                    novoTipoCadastro={novoTipoCadastro}
+                    setNovoTipoCadastro={setNovoTipoCadastro}
                     novoNome={novoNome}
                     setNovoNome={setNovoNome}
                     novoEmail={novoEmail}
@@ -1454,6 +1613,7 @@ const AdminPanel = () => {
                     handleAdicionar={handleAdicionar}
                     mudarRole={mudarRole}
                     remover={remover}
+                    alternarAtivoContatoWhatsApp={alternarAtivoContatoWhatsApp}
                     iniciarEdicao={iniciarEdicao}
                     cancelarEdicao={cancelarEdicao}
                     editandoId={editandoId}

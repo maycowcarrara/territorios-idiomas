@@ -103,6 +103,11 @@ export default defineConfig(({ mode }) => {
         navigateFallbackDenylist: [/^\/push\/onesignal\//, /^\/OneSignalSDK/],
         runtimeCaching: [
           {
+            urlPattern: ({ url }) => /^\/(public|admin)\//.test(url.pathname),
+            handler: 'NetworkOnly',
+            method: 'POST',
+          },
+          {
             urlPattern: ({ url }) => url.pathname.includes('version.json'),
             handler: 'NetworkOnly',
           },

@@ -1,3 +1,4 @@
+import { temDesignacaoAtiva } from '../shared/designacoes.js';
 import {
     arrayUnion,
     collection,
@@ -644,6 +645,12 @@ function normalizeEmail(value) {
     return String(value || '').trim().toLowerCase();
 }
 
+function assertOperacaoSemLink(grupo) {
+    if (grupo?.designacaoTipo === 'link') {
+        throw new Error('Use Gerenciar designação WhatsApp para devolver este território antes de alterar sua composição ou execução.');
+    }
+}
+
 function isAdminActor(user) {
     if (!user) return false;
     if (user.isAdmin === true || user.admin === true) return true;
@@ -953,6 +960,7 @@ export async function importarEnderecosCsvNovos(db, { preview, user }) {
         });
 
         grupos.forEach((grupo, codigo) => {
+            if (grupo.data) assertOperacaoSemLink(grupo.data);
             if (grupo.data && (grupo.data.status || GRUPO_ENDERECO_STATUS.ATIVO) !== GRUPO_ENDERECO_STATUS.ATIVO) {
                 throw new Error(`O território ${codigo} não está ativo.`);
             }
@@ -960,6 +968,7 @@ export async function importarEnderecosCsvNovos(db, { preview, user }) {
 
         const enderecoIdsPorGrupo = new Map();
         grupos.forEach((grupo, codigo) => {
+            if (grupo.data) assertOperacaoSemLink(grupo.data);
             enderecoIdsPorGrupo.set(codigo, ensureArray(grupo.data?.enderecoIds).filter(Boolean));
         });
         rows.forEach((row, index) => {
@@ -1161,6 +1170,7 @@ export async function updateEnderecoBasico(db, enderecoId, input, user) {
 
             if (grupoSnapshot.exists()) {
                 const grupo = grupoSnapshot.data();
+                assertOperacaoSemLink(grupo);
                 const enderecoIds = grupo.enderecoIds || [];
                 const grupoEnderecoSnapshots = await Promise.all(enderecoIds.map((id) => (
                     id === enderecoId ? Promise.resolve(null) : transaction.get(getEnderecoRef(db, id))
@@ -1236,6 +1246,7 @@ export async function setEnderecoArquivado(db, enderecoId, arquivar, user) {
 
             if (grupoSnapshot.exists()) {
                 const grupo = grupoSnapshot.data();
+                assertOperacaoSemLink(grupo);
                 const enderecoIds = grupo.enderecoIds || [];
                 const grupoEnderecoSnapshots = await Promise.all(enderecoIds.map((id) => (
                     id === enderecoId ? Promise.resolve(null) : transaction.get(getEnderecoRef(db, id))
@@ -1392,6 +1403,7 @@ export async function updateGrupoEnderecoBasico(db, grupoId, input = {}, user) {
         }
 
         const grupoAtual = grupoSnapshot.data();
+        assertOperacaoSemLink(grupoAtual);
         const codigoFinal = novoCodigo || grupoAtual.codigo || formatGrupoEnderecoCodigoExibicao(grupoId);
         const codigoMudou = novoCodigo && novoCodigo !== grupoAtual.codigo;
 
@@ -1471,6 +1483,7 @@ export async function adicionarEnderecosAoGrupo(db, { enderecoIds, grupoId, user
         }
 
         const grupo = grupoSnapshot.data();
+        assertOperacaoSemLink(grupo);
         if ((grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) !== GRUPO_ENDERECO_STATUS.ATIVO) {
             throw new Error('Só é possível vincular endereços a territórios ativos.');
         }
@@ -1562,6 +1575,7 @@ export async function setGrupoEnderecoArquivado(db, grupoId, arquivar, user) {
         }
 
         const grupo = grupoSnapshot.data();
+        assertOperacaoSemLink(grupo);
         ensureArray(grupo.enderecoIds).forEach((enderecoId) => {
             transaction.set(getEnderecoRef(db, enderecoId), {
                 grupoDesignadoPara: arquivar ? null : (grupo.designadoPara || null),
@@ -1598,6 +1612,7 @@ export async function designarGrupoEndereco(db, { grupoId, usuario, user }) {
         }
 
         const grupo = grupoSnapshot.data();
+        assertOperacaoSemLink(grupo);
         const statusAtual = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
         if (statusAtual === GRUPO_ENDERECO_STATUS.ARQUIVADO) {
             throw new Error('Território arquivado não pode ser designado.');
@@ -1662,6 +1677,7 @@ export async function designarGrupoEnderecoComUsuarioAprovado(db, { grupoId, con
         }
 
         const grupo = grupoSnapshot.data();
+        assertOperacaoSemLink(grupo);
         const statusAtual = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
         if (statusAtual === GRUPO_ENDERECO_STATUS.ARQUIVADO) {
             throw new Error('Território arquivado não pode ser designado.');
@@ -1735,9 +1751,10 @@ export async function devolverGrupoEndereco(db, { grupoId, user }) {
         }
 
         const grupo = grupoSnapshot.data();
+        assertOperacaoSemLink(grupo);
         const statusAtual = grupo.status || GRUPO_ENDERECO_STATUS.ATIVO;
         const isFinalizado = statusAtual === GRUPO_ENDERECO_STATUS.FINALIZADO;
-        if (!grupo.designadoPara && !isFinalizado) {
+        if (!temDesignacaoAtiva(grupo) && !isFinalizado) {
             return;
         }
 
@@ -1789,6 +1806,7 @@ export async function toggleEnderecoVisitadoGrupo(db, { grupoId, enderecoId, use
         }
 
         const grupo = grupoSnapshot.data();
+        assertOperacaoSemLink(grupo);
         if ((grupo.status || GRUPO_ENDERECO_STATUS.ATIVO) !== GRUPO_ENDERECO_STATUS.ATIVO) {
             throw new Error('Este território não está ativo para execução.');
         }
@@ -1831,6 +1849,7 @@ export async function finalizarGrupoEnderecoDesignado(db, { grupoId, user }) {
         }
 
         const grupo = grupoSnapshot.data();
+        assertOperacaoSemLink(grupo);
         if (!isAdminActor(user) && normalizeEmail(grupo.designadoPara) !== actorEmail) {
             throw new Error('Este território não está designado para você.');
         }
@@ -1888,6 +1907,7 @@ export async function removerEnderecoDoGrupo(db, { enderecoId, grupoId, user }) 
         }
 
         const grupo = grupoSnapshot.data();
+        assertOperacaoSemLink(grupo);
         const endereco = enderecoSnapshot.data();
         if (endereco.grupoId !== grupoId) {
             throw new Error('O endereço não pertence mais a este território.');
@@ -1964,6 +1984,7 @@ export async function excluirEndereco(db, enderecoId, user) {
 
             if (grupoSnapshot.exists()) {
                 const grupo = grupoSnapshot.data();
+                assertOperacaoSemLink(grupo);
                 proximosEnderecoIds = ensureArray(grupo.enderecoIds).filter((id) => id !== enderecoId);
                 proximosVisitados = ensureArray(grupo.enderecos_visitados).filter((id) => id !== enderecoId);
 
@@ -1975,6 +1996,7 @@ export async function excluirEndereco(db, enderecoId, user) {
 
         if (grupoSnapshot && grupoSnapshot.exists()) {
             const grupo = grupoSnapshot.data();
+            assertOperacaoSemLink(grupo);
             const enderecosRestantes = enderecosRestantesSnapshots
                 .filter((snapshot) => snapshot.exists())
                 .map((snapshot) => ({

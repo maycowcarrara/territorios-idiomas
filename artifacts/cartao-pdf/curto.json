@@ -1,0 +1,46 @@
+{
+  "dados": {
+    "codigo": "T-12",
+    "nome": "Centro - demonstração",
+    "idioma": "Espanhol",
+    "bairro": "Jardim",
+    "url": "https://territ-es-sbs.web.app/#/c/cartao-ficticio",
+    "enderecos": [
+      {
+        "id": "e0",
+        "codigo": "E-1",
+        "endereco": "Rua São João, 1, Centro, São Bento do Sul - SC",
+        "lat": -26.25,
+        "lng": -49.38
+      },
+      {
+        "id": "e1",
+        "codigo": "E-2",
+        "endereco": "Rua São João, 2, Centro, São Bento do Sul - SC",
+        "lat": -26.249,
+        "lng": -49.379000000000005
+      },
+      {
+        "id": "e2",
+        "codigo": "E-3",
+        "endereco": "Rua São João, 3, Centro, São Bento do Sul - SC",
+        "lat": -26.248,
+        "lng": -49.378
+      },
+      {
+        "id": "e3",
+        "codigo": "E-4",
+        "endereco": "Rua São João, 4, Centro, São Bento do Sul - SC",
+        "lat": -26.247,
+        "lng": -49.377
+      }
+    ]
+  },
+  "enderecosImpressos": [
+    "Rua São João, 1, Centro",
+    "Rua São João, 2, Centro",
+    "Rua São João, 3, Centro",
+    "Rua São João, 4, Centro"
+  ],
+  "pages": 1
+}

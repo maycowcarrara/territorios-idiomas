@@ -1,0 +1,28 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "territorios-designacoes-idiomas",
+  "main": "src/index.js",
+  "account_id": "36da09115c87cfafc31e545ca5633d53",
+  "compatibility_date": "2026-04-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "secrets": { "required": ["TOKEN_KEYS_JSON", "PIN_HMAC_KEY"] },
+  "workers_dev": true,
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "observability": { "enabled": true },
+  "ratelimits": [
+    { "name": "REQUEST_LIMITER", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
+    { "name": "PIN_CARD_LIMITER", "namespace_id": "1005", "simple": { "limit": 30, "period": 60 } },
+    { "name": "PIN_IP_LIMITER", "namespace_id": "1003", "simple": { "limit": 20, "period": 60 } },
+    { "name": "PIN_CARD_IP_LIMITER", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
+    { "name": "WRITE_LIMITER", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }
+  ],
+  "vars": {
+    "ENABLED": "true",
+    "CODIGOS_ENABLED": "false",
+    "LOCAL_EMULATORS": "false",
+    "FIREBASE_PROJECT_ID": "territ-es-sul-sbs",
+    "PUBLIC_APP_URL": "https://territ-es-sbs.web.app",
+    "ALLOWED_ORIGINS": "https://territ-es-sbs.web.app,https://territ-es-sbs.firebaseapp.com,https://territ-es-sul-sbs.web.app,https://territ-es-sul-sbs.firebaseapp.com",
+    "TOKEN_KEY_VERSION": "v1"
+  }
+}

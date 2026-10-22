@@ -1,0 +1,1 @@
+This folder contains the built output assets for the worker "territorios-designacoes-idiomas" generated at 2026-10-22T12:35:15.516Z.

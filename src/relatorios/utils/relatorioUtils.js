@@ -1,3 +1,4 @@
+import { temDesignacaoAtiva } from '../../../shared/designacoes';
 import { TERRITORIO_STATUS } from '../../territorioContext';
 import {
     ENDERECO_CLASSES,
@@ -75,13 +76,15 @@ export const processarHistorico = (historico) => {
     return historico
         .map((item) => {
             const inicio = toDateValue(item.dataInicio) || toDateValue(item.dataRetirada) || new Date();
-            const fim = toDateValue(item.dataTermino) || toDateValue(item.dataDevolucao) || new Date();
+            const coberturaData = typeof item.dataCobertura === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.dataCobertura) ? toDateValue(`${item.dataCobertura}T12:00:00-03:00`) : null;
+            const fim = coberturaData || toDateValue(item.dataTermino) || toDateValue(item.dataDevolucao) || new Date();
             const listaNomes = Array.isArray(item.responsaveis)
                 ? item.responsaveis.join(', ')
                 : (item.responsavel || 'Desconhecido');
 
             return {
                 nomes: listaNomes,
+                resultado: item.modoConclusao === 'declaracao' ? 'Cobertura declarada pelo link' : item.modoConclusao === 'marcacoes' ? 'Concluído com marcações' : item.motivo === 'prazo_expirado' ? 'Devolvido automaticamente por prazo' : item.motivo === 'manual_parcial' ? 'Devolvido parcialmente' : item.motivo === 'manual_sem_cobertura' ? 'Devolvido sem cobertura' : '',
                 inicio: inicio && !Number.isNaN(inicio.getTime()) ? inicio.toLocaleDateString('pt-BR') : '?',
                 termino: fim && !Number.isNaN(fim.getTime()) ? fim.toLocaleDateString('pt-BR') : '?',
                 timestampFim: fim || new Date(0)
@@ -131,10 +134,10 @@ export const getGrupoEnderecoStatusRelatorio = (grupo) => {
     const status = grupo?.status || GRUPO_ENDERECO_STATUS.ATIVO;
     if (status === GRUPO_ENDERECO_STATUS.ARQUIVADO) return STATUS_ARQUIVADO;
     if (status === GRUPO_ENDERECO_STATUS.FINALIZADO) return TERRITORIO_STATUS.FINALIZADO;
-    if (grupo?.designadoPara && getGrupoEnderecoProgresso(grupo).completo) {
+    if (temDesignacaoAtiva(grupo) && getGrupoEnderecoProgresso(grupo).completo) {
         return TERRITORIO_STATUS.AGUARDANDO_FINALIZACAO;
     }
-    return grupo?.designadoPara ? 'ocupado' : 'livre';
+    return temDesignacaoAtiva(grupo) ? 'ocupado' : 'livre';
 };
 
 export const getGrupoEnderecoCanonicalKeys = (grupo) => [

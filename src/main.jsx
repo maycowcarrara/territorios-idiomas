@@ -74,6 +74,7 @@ const limparCachesOfflineLegados = async () => {
 
 const prepararPwa = async () => {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return
+  if (/^#\/t\//.test(window.location.hash)) return
 
   await limparCachesOfflineLegados()
 
@@ -81,7 +82,12 @@ const prepararPwa = async () => {
 
   try {
     const { registerSW } = await import('virtual:pwa-register')
-    registerSW({ immediate: true })
+    registerSW({
+      immediate: true,
+      onNeedReload: () => {
+        if (!/^#\/t\//.test(window.location.hash)) window.location.reload()
+      }
+    })
   } catch (error) {
     console.warn('Não foi possível registrar o service worker da PWA:', error)
   }

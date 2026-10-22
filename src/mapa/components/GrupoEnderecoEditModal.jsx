@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { temDesignacaoAtiva } from '../../../shared/designacoes';
 import {
     normalizeEnderecoConfig
 } from '../../enderecoConfig';
@@ -100,7 +101,7 @@ export const GrupoEnderecoEditModal = ({
         ? 'Arquivado'
         : grupo.status === GRUPO_ENDERECO_STATUS.FINALIZADO
             ? 'Finalizado'
-            : grupo.designadoPara
+            : temDesignacaoAtiva(grupo)
                 ? 'Designado'
                 : 'Ativo';
 

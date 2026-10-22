@@ -61,6 +61,7 @@ __pycache__/
 workers/**/.dev.vars
 workers/**/.dev.vars.*
 workers/**/.wrangler/
+.designacoes-local.json
 
 # Firebase migration secrets and local exports
 service-account*.json
@@ -70,3 +71,8 @@ firebase-service-account*.json
 *-firebase-adminsdk-*.json
 firestore-backups/
 *.firestore-export.json
+
+.designacoes-test.config.json
+
+/tmp/cartao-baseline/
+/tmp/cartao-local/

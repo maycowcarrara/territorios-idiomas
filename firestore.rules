@@ -757,19 +757,41 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Link assignments can only be changed by the transactional backend.
+    function grupoSemLink(grupoId) {
+      return grupoId == null || !exists(/databases/$(database)/documents/grupos_enderecos/$(grupoId)) || !(get(/databases/$(database)/documents/grupos_enderecos/$(grupoId)).data.get('designacaoTipo', '') == 'link');
+    }
+    function enderecoSemLink() {
+      return grupoSemLink(resource.data.get('grupoId', null));
+    }
+    match /contatos_publicadores/{id} { allow read, write: if false; }
+    match /indice_contatos_telefone/{id} { allow read, write: if false; }
+    match /designacoes_links/{id} { allow read, write: if false; }
+    match /cartoes_territorios/{id} { allow read, write: if false; }
+    match /cartoes_por_grupo/{id} { allow read, write: if false; }
+    match /codigos_ativos/{id} { allow read, write: if false; }
+    match /historico_codigos/{id} { allow read, write: if false; }
+    match /controle_codigos/{id} { allow read, write: if false; }
+    match /acessos_designacao/{id} { allow read, write: if false; }
+    match /requisicoes_designacoes/{id} { allow read, write: if false; }
+    match /eventos_designacoes/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /auditoria_designacoes/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /operacao_designacoes/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /aplicacoes_prazo/{id} { allow read: if isAdmin(); allow write: if false; }
+
     match /enderecos/{enderecoId} {
       allow read: if podeLerEndereco(enderecoId);
-      allow create: if podeCriarEndereco();
-      allow update: if podeLimparDesignacaoEndereco(enderecoId) ||
-                       atualizacaoAdminOperacionalEnderecoValida();
-      allow delete: if isAdmin();
+      allow create: if podeCriarEndereco() && grupoSemLink(request.resource.data.get('grupoId', null));
+      allow update: if enderecoSemLink() && grupoSemLink(request.resource.data.get('grupoId', null)) && (podeLimparDesignacaoEndereco(enderecoId) ||
+                       atualizacaoAdminOperacionalEnderecoValida());
+      allow delete: if isAdmin() && enderecoSemLink();
     }
 
     match /grupos_enderecos/{grupoId} {
       allow read: if podeLerGrupoEndereco();
-      allow create: if podeCriarGrupoEndereco();
-      allow update: if atualizacaoAdminOperacionalGrupoEnderecoValida() ||
-                       podeAtualizarGrupoEnderecoDesignado();
+      allow create: if podeCriarGrupoEndereco() && request.resource.data.get('designacaoTipo', '') != 'link' && request.resource.data.get('designadoContatoId', null) == null;
+      allow update: if resource.data.get('designacaoTipo', '') != 'link' && request.resource.data.get('designacaoTipo', '') != 'link' && request.resource.data.get('designadoContatoId', null) == null && (atualizacaoAdminOperacionalGrupoEnderecoValida() ||
+                       podeAtualizarGrupoEnderecoDesignado());
       allow delete: if false;
     }
 
@@ -793,8 +815,8 @@ service cloud.firestore {
     }
 
     match /configuracoes/{docId} {
-      allow read: if isAprovado();
-      allow create, update, delete: if isAdmin();
+      allow read: if (docId == 'designacoes' && isAdmin()) || (docId != 'designacoes' && isAprovado());
+      allow create, update, delete: if docId != 'designacoes' && isAdmin();
     }
 
     match /campanhas/{campanhaId} {

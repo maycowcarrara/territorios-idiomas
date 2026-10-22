@@ -1,0 +1,11 @@
+{
+  "version": "3.8.381",
+  "htmlMatches": true,
+  "initialAssetsChecked": 7,
+  "bundleSha256": "64f9193b4c9a92dd1dbdd1f3745ff4e2dfbb5d436e604f89587680410f7f6f5e",
+  "bundleMatches": true,
+  "apiInvalidTokenStatus": 403,
+  "corsMatches": true,
+  "noStore": true,
+  "checkedAt": "2026-10-22T11:03:29.059Z"
+}
