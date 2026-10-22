@@ -4,13 +4,17 @@ export const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 export function tilesCobremArea(rects,width,height) {
   if(!rects.length || width<=0 || height<=0) return false;
+  // Leaflet transforms may round neighboring tile edges independently. Allow
+  // less than one CSS pixel in either axis; a missing tile still fails closed.
+  const epsilon=0.9;
+  rects=rects.map(r=>({x:r.x-epsilon/2,y:r.y-epsilon/2,w:r.w+epsilon,h:r.h+epsilon}));
   const xs=[...new Set([0,width,...rects.flatMap(r=>[Math.max(0,r.x),Math.min(width,r.x+r.w)])])].filter(x=>x>=0&&x<=width).sort((a,b)=>a-b);
   for(let i=1;i<xs.length;i++) {
     const x=(xs[i-1]+xs[i])/2;
     const spans=rects.filter(r=>r.x<=x && r.x+r.w>=x).map(r=>[Math.max(0,r.y),Math.min(height,r.y+r.h)]).sort((a,b)=>a[0]-b[0]);
     let end=0;
-    for(const [start,stop] of spans) { if(start>end+0.5) return false;end=Math.max(end,stop); }
-    if(end<height-0.5) return false;
+    for(const [start,stop] of spans) { if(start>end) return false;end=Math.max(end,stop); }
+    if(end<height) return false;
   }
   return true;
 }

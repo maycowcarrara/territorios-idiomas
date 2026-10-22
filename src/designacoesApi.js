@@ -21,7 +21,14 @@ export async function designacoesRequest(path, body = {}, token) {
     },
     body: JSON.stringify(body),
   });
-  const result = await response.json();
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    const error = new Error("O serviço está temporariamente indisponível. Tente novamente em instantes.");
+    error.code = response.ok ? 502 : response.status;
+    throw error;
+  }
   if (!response.ok) {
     const error = new Error(
       result.error || "Não foi possível salvar. Tente novamente.",

@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { designacoesHabilitadas } from "../designacoesApi";
 import { adminDesignacoesRequest } from "../designacoesAdminApi";
 import { buildWhatsAppShareUrl } from "../shareLinks";
-import { normalizarTelefone, contatoCorrespondeBusca } from "../../shared/designacoes";
+import { normalizarTelefone } from "../../shared/designacoes";
+import { designacaoSelectClass, designacaoInputClass, designacaoActionClass } from "./designacaoUi";
 
 const button =
   "min-h-11 rounded-lg border px-3 py-2 font-bold disabled:opacity-50";
@@ -10,7 +11,8 @@ const button =
 export function DesignacaoWhatsApp({ grupo, compact = false }) {
   const [aberto, setAberto] = useState(compact);
   const [contatos, setContatos] = useState([]);
-  const [busca, setBusca] = useState("");
+  const [carregandoContatos, setCarregandoContatos] = useState(compact);
+  const [erroContatos, setErroContatos] = useState("");
   const [contatoId, setContatoId] = useState("");
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
@@ -37,11 +39,16 @@ export function DesignacaoWhatsApp({ grupo, compact = false }) {
   }
 
   const carregarContatos = useCallback(async () => {
+    setCarregandoContatos(true);
+    setErroContatos("");
     try {
       const lista = await adminDesignacoesRequest("/admin/contatos/listar");
-      setContatos(Array.isArray(lista) ? lista : []);
-    } catch {
-      // Ignora erro de listagem inicial
+      if (!Array.isArray(lista)) throw new Error("Resposta inválida ao carregar publicadores.");
+      setContatos(lista);
+    } catch (e) {
+      setErroContatos(e.message || "Não foi possível carregar os publicadores.");
+    } finally {
+      setCarregandoContatos(false);
     }
   }, []);
 
@@ -192,9 +199,7 @@ export function DesignacaoWhatsApp({ grupo, compact = false }) {
 
   const renderFormNovaDesignacao = () => {
     const contatosAtivos = contatos.filter((c) => c.ativo !== false);
-    const encontrados = contatosAtivos.filter(c => contatoCorrespondeBusca(c,busca));
-    const hasContatos = contatosAtivos.length > 0;
-    const isNovoContato = !hasContatos || contatoId === "__novo__";
+    const isNovoContato = contatoId === "__novo__";
     const contatoSelecionado =
       !isNovoContato && contatoId
         ? contatosAtivos.find((c) => c.id === contatoId)
@@ -203,49 +208,31 @@ export function DesignacaoWhatsApp({ grupo, compact = false }) {
     let novoValido = false;
     try { novoValido = nome.trim().length >= 2 && Boolean(normalizarTelefone(telefone)); } catch { /* incomplete input */ }
 
-    const podeEnviar = isNovoContato ? novoValido : Boolean(contatoSelecionado);
-
-    let labelBotao = "Confirmar e Enviar no WhatsApp";
-    if (busy) {
-      labelBotao = "Salvando...";
-    } else if (contatoSelecionado) {
-      labelBotao = `💬 Enviar para ${contatoSelecionado.nome}`;
-    } else if (isNovoContato) {
-      if (!nome.trim() && !telefone.trim()) {
-        labelBotao = "Preencha nome e celular";
-      } else if (!nome.trim()) {
-        labelBotao = "Informe o nome";
-      } else if (!novoValido) {
-        labelBotao = "Celular incompleto";
-      } else {
-        labelBotao = "Confirmar e Enviar no WhatsApp";
-      }
-    } else {
-      labelBotao = "Selecione um publicador";
-    }
+    const podeEnviar = !carregandoContatos && !erroContatos && (isNovoContato ? novoValido : Boolean(contatoSelecionado));
 
     return (
       <div className="space-y-2">
-        {hasContatos && <label className="block text-xs">Buscar contato por nome ou WhatsApp
-          <input type="search" className="w-full rounded border p-2" value={busca} onChange={e => setBusca(e.target.value)} />
-        </label>}
-        {hasContatos ? (
+        <label className="block text-xs font-semibold text-slate-600">
+          Publicador
           <select
-            className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-semibold outline-none focus:border-emerald-500 disabled:bg-slate-100"
+            className={designacaoSelectClass}
             value={contatoId}
             onChange={(e) => setContatoId(e.target.value)}
+            disabled={busy || carregandoContatos || Boolean(erroContatos)}
           >
-            <option value="">Escolher contato WhatsApp...</option>
-            {contatosAtivos.filter(c => encontrados.includes(c) || c.id === contatoId).map((c) => (
+            <option value="">{carregandoContatos ? "Carregando publicadores..." : "Escolher publicador"}</option>
+            {contatosAtivos.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nome} ({c.telefoneE164}) {c.carga ? `· ${c.carga} terr.` : ""}
               </option>
             ))}
-            <option value="__novo__">+ Novo contato sem conta...</option>
+            <option value="__novo__">+ Cadastrar novo publicador</option>
           </select>
-        ) : (
-          <div className="text-[11px] font-bold text-slate-500">
-            Cadastrar publicador para WhatsApp:
+        </label>
+        {erroContatos && (
+          <div className="space-y-1 text-xs">
+            <p role="alert" className="text-red-700">{erroContatos}</p>
+            <button type="button" onClick={() => void carregarContatos()} disabled={carregandoContatos || busy} className="font-bold text-emerald-700 underline">Tentar carregar novamente</button>
           </div>
         )}
 
@@ -253,60 +240,62 @@ export function DesignacaoWhatsApp({ grupo, compact = false }) {
           <div className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50/70 p-2">
             <input
               type="text"
-              className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold outline-none focus:border-emerald-500"
+              className={designacaoInputClass}
               placeholder="Nome do publicador"
+              aria-label="Nome do publicador"
+              disabled={busy}
               value={nome}
               onChange={(e) => setNome(e.target.value)}
             />
-            <label className="block text-xs">WhatsApp completo (DDI, DDD e número)
-              <input type="tel" autoComplete="tel" className="w-full rounded-lg border p-2" placeholder="+55 (47) 99999-1234" value={telefone} onChange={e => setTelefone(e.target.value)} />
+            <label className="block text-xs">{compact ? 'WhatsApp com DDI e DDD' : 'WhatsApp completo (DDI, DDD e número)'}
+              <input type="tel" autoComplete="tel" disabled={busy} className={designacaoInputClass} placeholder="+55 (47) 99999-1234" value={telefone} onChange={e => setTelefone(e.target.value)} />
             </label>
-            <p className="text-xs">Cole o número completo com DDI e DDD. Aceitamos celular brasileiro com ou sem o 9.</p>
+            <p className="text-xs leading-snug text-slate-500">{compact ? 'Cole com DDI e DDD. No Brasil, com ou sem o 9.' : 'Cole o número completo com DDI e DDD. Aceitamos celular brasileiro com ou sem o 9.'}</p>
           </div>
         )}
 
-        {grupo.enderecos_visitados?.length > 0 && (
+        {(isNovoContato || contatoSelecionado) && grupo.enderecos_visitados?.length > 0 && (
           <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
             <input
               type="checkbox"
               checked={reiniciar}
+              disabled={busy}
               onChange={(e) => setReiniciar(e.target.checked)}
             />
             Reiniciar cobertura do zero (limpar feitos)
           </label>
         )}
 
-        <button
-          type="button"
-          className={`w-full rounded-lg px-3 py-2 text-xs font-extrabold transition shadow-sm ${
-            !podeEnviar || busy
-              ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-              : "bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[0.99]"
-          }`}
-          disabled={!podeEnviar || busy}
-          onClick={() =>
-            void acao(async () => {
-              const res = await adminDesignacoesRequest("/admin/designacoes", {
-                requestId: requestId.current,
-                grupoId: grupo.id,
-                contatoId: isNovoContato ? undefined : contatoId,
-                contato: isNovoContato
-                  ? { nome: nome.trim(), telefone: normalizarTelefone(telefone) }
-                  : undefined,
-                reiniciar,
-                converterEmail: Boolean(grupo.designadoPara),
-              });
-              setShare(res);
-              requestId.current = crypto.randomUUID();
-              if (res?.telefoneE164 && res?.partes?.[0]) {
-                const url = buildWhatsAppShareUrl(res.partes[0], res.telefoneE164);
-                window.open(url, "_blank");
-              }
-            })
-          }
-        >
-          {labelBotao}
-        </button>
+        {(isNovoContato || contatoSelecionado) && <>
+          <button
+            type="button"
+            className={designacaoActionClass}
+            disabled={!podeEnviar || busy}
+            onClick={() =>
+              void acao(async () => {
+                const res = await adminDesignacoesRequest("/admin/designacoes", {
+                  requestId: requestId.current,
+                  grupoId: grupo.id,
+                  contatoId: isNovoContato ? undefined : contatoId,
+                  contato: isNovoContato
+                    ? { nome: nome.trim(), telefone: normalizarTelefone(telefone) }
+                    : undefined,
+                  reiniciar,
+                  converterEmail: Boolean(grupo.designadoPara),
+                });
+                setShare(res);
+                requestId.current = crypto.randomUUID();
+                if (res?.telefoneE164 && res?.partes?.[0]) {
+                  const url = buildWhatsAppShareUrl(res.partes[0], res.telefoneE164);
+                  window.open(url, "_blank");
+                }
+              })
+            }
+          >
+            {busy ? "Salvando designação..." : "Designar e abrir WhatsApp"}
+          </button>
+          <p className="text-[11px] leading-snug text-slate-500">{isNovoContato ? "Salva o cadastro e a designação. Você confirma o envio no WhatsApp." : "Salva a designação. Você confirma o envio no WhatsApp."}</p>
+        </>}
       </div>
     );
   };

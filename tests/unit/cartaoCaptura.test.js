@@ -37,6 +37,10 @@ describe("captura do viewport OSM",()=>{
    expect(tilesCobremArea([{x:0,y:0,w:149,h:100},{x:151,y:0,w:149,h:100}],300,100)).toBe(false);
    expect(tilesCobremArea([{x:0,y:0,w:300,h:50}],300,100)).toBe(false);
    expect(tilesCobremArea([],300,100)).toBe(false);
+   // Fractional transforms in both axes, while real gaps remain forbidden.
+   const tiles=[0,150.7].flatMap(x=>[0,50.7].map(y=>({x,y,w:150,h:50})));
+   expect(tilesCobremArea(tiles,300,100)).toBe(true);
+   expect(tilesCobremArea([{x:0,y:0,w:150,h:100},{x:151,y:0,w:149,h:100}],300,100)).toBe(false);
  });
  it("separa códigos de pontos coincidentes sem omitir pontos",()=>{
    const p=posicionarRotulos(Array.from({length:30},(_,i)=>({codigo:`E-${i+1}`,x:550,y:300})),1100,642,()=>55);

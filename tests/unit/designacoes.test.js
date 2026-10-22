@@ -201,14 +201,17 @@ describe("contratos de designação", () => {
       territorioNome: "Centro",
       enderecos,
       expiraEm: inicio,
-      link: "consulta",
+      link: "https://consulta.example/#/c/cartao/0482",
+      codigoAcesso: "0482",
       revisaoLink: "revisao",
     });
     for (const e of enderecos) expect(m.partes.join("\n")).toContain(e.mapsUrl);
     expect(m.partes.length).toBeGreaterThan(1);
+    expect(m.partes[0]).toContain("consulta");
+    expect(m.partes[0]).toContain("Código de acesso: 0482");
     expect(m.mensagem).not.toContain("revisao");
-    expect(m.mensagem.match(/consulta/g)).toHaveLength(1);
-    expect(m.partes.join("\n").match(/consulta/g)).toHaveLength(1);
+    expect(m.mensagem.match(/https:\/\/consulta\.example/g)).toHaveLength(1);
+    expect(m.partes.join("\n").match(/https:\/\/consulta\.example/g)).toHaveLength(1);
     expect(m.mensagem).toContain(
       "marcar o que foi feito e devolver o território",
     );
@@ -371,8 +374,8 @@ describe("serviço de designações", () => {
       expect(result.comprovante.feitos).toBe(feitos.length);
       expect(t.docs.get(`eventos_designacoes/${s.id}`).feitos).toEqual(feitos);
       expect(t.docs.get("grupos_enderecos/g1").status).toBe("finalizado");
-      await expect(t.publico("territorio", s)).rejects.toMatchObject({code:403});
-      await expect(t.publico("concluir", s, {})).rejects.toMatchObject({code:403});
+      expect(await t.publico("territorio", s)).toEqual(result);
+      expect(await t.publico("concluir", s, {})).toEqual(result);
       expect(t.docs.get("grupos_enderecos/g1").historico).toHaveLength(1);
     },
   );
@@ -752,15 +755,28 @@ describe("cartão e PIN", () => {
     await expect(t.service.publicAction("territorio",token)).rejects.toMatchObject({code:403});
     expect((await t.admin("compartilhar",{},share.id)).codigoAcesso).toMatch(/^\d{4}$/);
   });
-  it("nega PIN incorreto, numérico, de outro cartão, expirado e sessão após devolução", async () => {
+  it("após devolução permite só comprovante na sessão existente, sem novo acesso pelo PIN", async () => {
     const t=setup();const s=await t.criar();
     for(const codigo of [1234,"123","abcd","12345"])
       await expect(t.service.cardAction("acessar-cartao",{cartaoId:s.cartaoId,codigo})).rejects.toMatchObject({code:403});
     await expect(t.service.cardAction("acessar-cartao",{cartaoId:"outro",codigo:s.codigoAcesso})).rejects.toMatchObject({code:404});
     const session=await t.service.cardAction("acessar-cartao",{cartaoId:s.cartaoId,codigo:s.codigoAcesso});
-    await t.service.publicAction("devolver",session.token,{composicaoVersao:1,progressoVersao:0});
-    await expect(t.service.publicAction("territorio",session.token)).rejects.toMatchObject({code:403});
+    const receipt=await t.service.publicAction("devolver",session.token,{composicaoVersao:1,progressoVersao:0});
+    expect(await t.service.publicAction("territorio",session.token)).toEqual(receipt);
+    expect(Object.keys(receipt)).toEqual(["comprovante"]);
+    await expect(t.service.publicAction("endereco",session.token,{})).rejects.toMatchObject({code:409});
     await expect(t.service.cardAction("acessar-cartao",{cartaoId:s.cartaoId,codigo:s.codigoAcesso})).rejects.toMatchObject({code:403});
+    t.setNow(new Date(+inicio+13*60*60*1000));
+    await expect(t.service.publicAction("territorio",session.token)).rejects.toMatchObject({code:403});
+  });
+  it("gera cartão vencido sem liberar acesso público nem alterar o prazo",async()=>{
+    const t=setup();const share=await t.criar();
+    t.setNow(new Date(+inicio+3*24*60*60*1000));
+    const before=structuredClone(t.docs.get(`designacoes_links/${share.id}`));
+    const card=await t.admin("cartao",{grupoId:"g1"});
+    expect(card.enderecos).toHaveLength(2);
+    expect(t.docs.get(`designacoes_links/${share.id}`)).toEqual(before);
+    await expect(t.service.cardAction("acessar-cartao",{cartaoId:card.cartaoId,codigo:share.codigoAcesso})).rejects.toMatchObject({code:403});
   });
   it("despacha bootstrap antes de Bearer e limita tentativas sem chavear pelo PIN", async () => {
     const t=setup();const s=await t.criar();
@@ -799,5 +815,115 @@ describe("limites da reserva e legado terminal",()=>{
     expect(await legacy.publicAction("devolver",token,{})).toEqual(recibo);
     expect((await legacy.publicAction("territorio",token)).enderecos).toBeUndefined();
     expect(t.docs.get("grupos_enderecos/g1").historico).toHaveLength(1);
+  });
+});
+
+
+describe("consulta QR independente e sem efeitos", () => {
+  async function fixture() {
+    const t = setup();
+    const card = await t.admin("cartao", { grupoId: "g1" });
+    return { ...t, cartaoId: card.cartaoId, consulta: () => t.service.cardAction("consulta-cartao", { cartaoId: card.cartaoId }) };
+  }
+  it("projeta allowlist atual sem sessão, progresso, PIN ou efeitos", async () => {
+    const t = await fixture();
+    Object.assign(t.docs.get("enderecos/e1"), { bairro: "Centro", informacao: "<script>literal</script>", telefone: "SEGREDO", token: "SEGREDO", responsavel: "SEGREDO", mapsUrl: "javascript:alert(1)" });
+    Object.assign(t.docs.get("grupos_enderecos/g1"), { enderecos_visitados: ["e1"], responsavel: "SEGREDO" });
+    const before = structuredClone([...t.docs]);
+    const result = await t.consulta();
+    expect(Object.keys(result).sort()).toEqual(["modo", "podeMarcar", "codigo", "nome", "habilitacaoDisponivel", "enderecos"].sort());
+    expect(Object.keys(result.enderecos[0]).sort()).toEqual(["id", "codigo", "endereco", "lat", "lng", "mapsUrl", "observacao"].sort());
+    expect(result).toMatchObject({ modo: "consulta", podeMarcar: false, habilitacaoDisponivel: false });
+    expect(result.enderecos[0]).toMatchObject({ endereco: "Rua Árvore, 1 — Centro", observacao: "<script>literal</script>", codigo: "E-21" });
+    expect(JSON.stringify(result)).not.toContain("SEGREDO");
+    expect(JSON.stringify(result)).not.toContain("javascript:");
+    expect([...t.docs]).toEqual(before);
+    expect((await t.service.cardAction("cartao", { cartaoId: t.cartaoId }))).toEqual({ codigo: "T-13", disponivel: false });
+  });
+  it.each(["ativa", "vencida", "devolvida", "concluida", "email", "legado", "revogada", "divergente", "snapshot-invalido"])("consulta %s sem alterar ciclo", async estado => {
+    const t = await fixture();
+    const s = await t.criar();
+    const g = t.docs.get("grupos_enderecos/g1");
+    const d = t.docs.get(`designacoes_links/${s.id}`);
+    if (estado === "vencida") t.setNow(new Date(+inicio + 3 * 86400000));
+    if (estado === "devolvida") await t.admin("devolver", {}, s.id);
+    if (estado === "concluida") await t.publico("concluir", s, { composicaoVersao: 1, progressoVersao: 0, confirmarCobertura: true, modoConclusao: "declaracao" });
+    if (estado === "email") Object.assign(g, { designacaoTipo: "email", designadoPara: "private@example.test" });
+    if (estado === "legado") d.acessoModo = "token16";
+    if (estado === "revogada") await t.admin("revogar", {}, s.id);
+    if (estado === "divergente") g.designadoContatoId = "outro";
+    if (estado === "snapshot-invalido") d.enderecos = {};
+    const before = structuredClone([...t.docs]);
+    const result = await t.consulta();
+    expect(result.enderecos).toHaveLength(2);
+    expect(result.habilitacaoDisponivel).toBe(estado === "ativa");
+    expect([...t.docs]).toEqual(before);
+    if (estado !== "ativa" && estado !== "snapshot-invalido") await expect(t.service.cardAction("acessar-cartao", { cartaoId: t.cartaoId, codigo: s.codigoAcesso })).rejects.toHaveProperty("code");
+  });
+  it.each(["ausente", "duplicado", "invalido", "reatribuido", "excesso", "inverso"])("recusa composição %s sem vazamento parcial", async estado => {
+    const t = await fixture();
+    const g = t.docs.get("grupos_enderecos/g1");
+    if (estado === "ausente") t.docs.delete("enderecos/e2");
+    if (estado === "duplicado") g.enderecoIds = ["e1", "e1"];
+    if (estado === "invalido") g.enderecoIds = ["e1", "../e2"];
+    if (estado === "reatribuido") t.docs.get("enderecos/e2").grupoId = "outro";
+    if (estado === "excesso") g.enderecoIds = Array(501).fill("e1");
+    if (estado === "inverso") t.docs.set("cartoes_por_grupo/g1", { cartaoId: "outro" });
+    const before = structuredClone([...t.docs]);
+    await expect(t.consulta()).rejects.toMatchObject({ code: 409 });
+    expect([...t.docs]).toEqual(before);
+  });
+  it("arquivados, reativação, observação legada limitada e navegação sem coordenadas", async () => {
+    const t = await fixture();
+    t.docs.get("enderecos/e1").status = "arquivado";
+    Object.assign(t.docs.get("enderecos/e2"), { informacao: "  ", observacao: "x".repeat(20001), lat: Infinity, lng: null });
+    let r = await t.consulta();
+    expect(r.enderecos).toHaveLength(1);
+    expect(r.enderecos[0]).toMatchObject({ lat: null, lng: null, observacao: "x".repeat(20000) });
+    expect(r.enderecos[0].mapsUrl).toContain(encodeURIComponent("Rua São João, 2"));
+    t.docs.get("grupos_enderecos/g1").status = "arquivado";
+    await expect(t.consulta()).rejects.toMatchObject({ code: 404 });
+    t.docs.get("grupos_enderecos/g1").status = "ativo";
+    expect((await t.consulta()).enderecos).toHaveLength(1);
+    t.docs.get("enderecos/e2").status = "arquivado";
+    await expect(t.consulta()).rejects.toMatchObject({ code: 404 });
+    await expect(t.service.cardAction("consulta-cartao", { cartaoId: "inexistente" })).rejects.toMatchObject({ code: 404 });
+  });
+  it("composição atual diverge do snapshot sem habilitar nem reconciliar", async () => {
+    const t = await fixture(); const s = await t.criar();
+    t.docs.get("grupos_enderecos/g1").enderecoIds = ["e2"];
+    const result = await t.consulta();
+    expect(result.enderecos.map(e => e.id)).toEqual(["e2"]);
+    expect(result.habilitacaoDisponivel).toBe(false);
+    await expect(t.service.cardAction("acessar-cartao", { cartaoId: t.cartaoId, codigo: s.codigoAcesso })).rejects.toMatchObject({ code: 409 });
+  });
+  it("consulta HTTP só consome REQUEST; mutações e território exigem credencial forte", async () => {
+    const t = await fixture(); const s = await t.criar();
+    const handler = createHandler({ storeFactory: () => t.store, clock: () => inicio });
+    const request = { limit: vi.fn(async () => ({ success: true })) };
+    const deny = { limit: vi.fn(async () => ({ success: false })) };
+    const config = { ...env, ENABLED: "true", ALLOWED_ORIGINS: "https://allowed.test", REQUEST_LIMITER: request, WRITE_LIMITER: deny, PIN_IP_LIMITER: deny, PIN_CARD_LIMITER: deny, PIN_CARD_IP_LIMITER: deny };
+    const http = (path, body = {}, token, extra = {}) => handler.fetch(new Request(`https://local/public/${path}`, { method: "POST", headers: { Origin: "https://allowed.test", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) }), { ...config, ...extra });
+    const response = await http("consulta-cartao", { cartaoId: t.cartaoId });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(response.headers.get("X-Robots-Tag")).toContain("noindex");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("https://allowed.test");
+    expect(request.limit).toHaveBeenCalledTimes(1); expect(deny.limit).not.toHaveBeenCalled();
+    for (const route of ["territorio", "endereco", "marcacoes", "concluir", "devolver"]) {
+      expect((await http(route, { cartaoId: t.cartaoId, codigo: s.codigoAcesso, podeMarcar: true })).status).toBe(401);
+      for (const token of [t.cartaoId, s.codigoAcesso, "x".repeat(32)]) {
+        const r = await http(route, {}, token, { WRITE_LIMITER: { limit: async () => ({ success: true }) } });
+        expect(r.status).toBe(403);
+      }
+    }
+    expect((await http("consulta-cartao", { cartaoId: t.cartaoId }, null, { REQUEST_LIMITER: deny })).status).toBe(429);
+    expect((await http("consulta-cartao", {}, null, { ENABLED: "false" })).status).toBe(503);
+    expect((await http("consulta-cartao", { cartaoId: "x".repeat(33000) })).status).toBe(413);
+    expect((await http("acessar-cartao", { cartaoId: t.cartaoId, codigo: s.codigoAcesso })).status).toBe(429);
+    const session = await t.service.cardAction("acessar-cartao", { cartaoId: t.cartaoId, codigo: s.codigoAcesso });
+    await expect(t.service.publicAction("territorio", session.token, { cartaoId: "outro" })).rejects.toMatchObject({ code: 403 });
+    expect((await t.service.publicAction("territorio", session.token, { cartaoId: t.cartaoId })).enderecos).toHaveLength(2);
   });
 });

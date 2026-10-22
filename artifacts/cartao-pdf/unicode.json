@@ -1,0 +1,70 @@
+{
+  "dados": {
+    "codigo": "T-12",
+    "nome": "Idiomas — № 1",
+    "idioma": "Espanhol",
+    "bairro": "Jardim",
+    "url": "https://territ-es-sbs.web.app/#/c/cartao-ficticio",
+    "enderecos": [
+      {
+        "id": "e0",
+        "codigo": "E-1",
+        "endereco": "Rua № 1, Centro",
+        "lat": -26.25,
+        "lng": -49.38
+      },
+      {
+        "id": "e1",
+        "codigo": "E-2",
+        "endereco": "Русский — улица Пушкина, 2",
+        "lat": -26.249,
+        "lng": -49.379000000000005
+      },
+      {
+        "id": "e2",
+        "codigo": "E-3",
+        "endereco": "Українська — вулиця Київська, 3",
+        "lat": -26.248,
+        "lng": -49.378
+      },
+      {
+        "id": "e3",
+        "codigo": "E-4",
+        "endereco": "中文 — 中山路 4",
+        "lat": -26.247,
+        "lng": -49.377
+      },
+      {
+        "id": "e4",
+        "codigo": "E-5",
+        "endereco": "日本語 — 桜通り 5",
+        "lat": -26.246,
+        "lng": -49.376000000000005
+      },
+      {
+        "id": "e5",
+        "codigo": "E-6",
+        "endereco": "한국어 — 서울로 6",
+        "lat": -26.245,
+        "lng": -49.375
+      },
+      {
+        "id": "e6",
+        "codigo": "E-7",
+        "endereco": "العربية — شارع النور 7",
+        "lat": -26.244,
+        "lng": -49.374
+      }
+    ]
+  },
+  "enderecosImpressos": [
+    "Rua № 1, Centro",
+    "Русский — улица Пушкина, 2",
+    "Українська — вулиця Київська, 3",
+    "中文 — 中山路 4",
+    "日本語 — 桜通り 5",
+    "한국어 — 서울로 6",
+    "العربية — شارع النور 7"
+  ],
+  "pages": 2
+}

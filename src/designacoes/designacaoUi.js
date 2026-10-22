@@ -1,0 +1,3 @@
+export const designacaoSelectClass = "mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-semibold outline-none focus:border-emerald-500 disabled:bg-slate-100";
+export const designacaoInputClass = "w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold outline-none focus:border-emerald-500 disabled:bg-slate-100";
+export const designacaoActionClass = "w-full rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400";

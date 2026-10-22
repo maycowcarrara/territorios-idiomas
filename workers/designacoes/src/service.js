@@ -49,7 +49,7 @@ function projetar(d) {
   };
 }
 
-async function validarVinculo(tx, id, d, agora, permitirRevogado = false) {
+async function validarVinculo(tx, id, d, agora, permitirRevogado = false, ignorarPrazo = false) {
   const g = await tx.get(pathGrupo(d.grupoId));
   exigir(
     g &&
@@ -67,7 +67,7 @@ async function validarVinculo(tx, id, d, agora, permitirRevogado = false) {
   );
   exigir(g.status === "ativo", "Território indisponível.", 409);
   exigir(
-    new Date(d.expiraEm) > agora,
+    ignorarPrazo || new Date(d.expiraEm) > agora,
     "O prazo terminou. Peça uma nova designação ao responsável.",
     410,
   );
@@ -508,12 +508,18 @@ export function createService(store, env, clock = () => new Date()) {
       const d = await tx.get(pathDesignacao(id));
       if (
         !d ||
-        (indice.sessao ? (d.acessoModo !== "codigo4" || !d.operacionalAtiva || new Date(indice.expiraEm) <= agora) : (d.acessoModo === "codigo4" || d.tokenHash !== hash)) ||
+        (body.cartaoId !== undefined && (!indice.sessao || d.cartaoId !== body.cartaoId)) ||
+        (indice.sessao ? (d.acessoModo !== "codigo4" || new Date(indice.expiraEm) <= agora) : (d.acessoModo === "codigo4" || d.tokenHash !== hash)) ||
         d.tokenVersao !== indice.tokenVersao ||
         d.status === "revogada"
       )
         throw invalidLink();
       if (!d.operacionalAtiva) {
+        if (indice.sessao) {
+          // A closed session can read only its receipt, until expiry/reassignment.
+          const grupo = await tx.get(pathGrupo(d.grupoId));
+          if (!d.comprovante || grupo?.ultimaDesignacaoLinkId !== id || temDesignacaoAtiva(grupo)) throw invalidLink();
+        }
         exigir(
           ["territorio", "concluir", "devolver"].includes(action),
           "Este território já foi devolvido.",
@@ -641,7 +647,8 @@ export function createService(store, env, clock = () => new Date()) {
         if (g.designacaoTipo === "link") {
           snapshot = await tx.get(pathDesignacao(g.designacaoId));
           exigir(snapshot, "Designação indisponível.", 409);
-          await validarVinculo(tx, g.designacaoId, snapshot, agora, true);
+          // Printing a permanent card does not authorize digital operations.
+          await validarVinculo(tx, g.designacaoId, snapshot, agora, true, true);
         }
         const enderecos = [];
         let arquivados = snapshot ? (g.enderecoIds || []).filter(id => !snapshot.enderecos.some(e => e.id === id)).length : 0;
@@ -834,8 +841,44 @@ export function createService(store, env, clock = () => new Date()) {
     return store.transaction(async tx => {
       const agora = clock();
       const card = await tx.get(`cartoes_territorios/${body.cartaoId}`);
+      exigir(!card || idValido(card.grupoId), "Cartão indisponível.", 404);
       const g = card && await tx.get(pathGrupo(card.grupoId));
       exigir(g && g.status !== "arquivado", "Cartão indisponível.", 404);
+      if (action === "consulta-cartao") {
+        // Independent current-data projection. No PIN reads, reconciliation or writes.
+        const inverse = await tx.get(`cartoes_por_grupo/${card.grupoId}`);
+        exigir(inverse?.cartaoId === body.cartaoId, "Composição indisponível.", 409);
+        const ids = g.enderecoIds;
+        exigir(Array.isArray(ids), "Composição indisponível.", 409);
+        exigir(ids.length <= MAX_ENDERECOS_DESIGNACAO && ids.every(idValido) && new Set(ids).size === ids.length, "Composição indisponível.", 409);
+        const enderecos = [];
+        for (const id of ids) {
+          const e = await tx.get(`enderecos/${id}`);
+          exigir(e && e.grupoId === card.grupoId, "Composição indisponível.", 409);
+          if (e.status === "arquivado") continue;
+          exigir(typeof e.endereco === "string" && e.endereco.trim() && typeof e.codigo === "string" && e.codigo.trim(), "Composição indisponível.", 409);
+          const coords = Number.isFinite(e.lat) && Number.isFinite(e.lng) && Math.abs(e.lat) <= 90 && Math.abs(e.lng) <= 180 && (e.lat !== 0 || e.lng !== 0);
+          const endereco = [e.endereco, typeof e.bairro === "string" ? e.bairro : ""].filter(Boolean).join(" — ");
+          const texto = typeof e.informacao === "string" && e.informacao.trim() ? e.informacao : e.observacao;
+          enderecos.push({ id, codigo: curto(e.codigo), endereco,
+            lat: coords ? e.lat : null, lng: coords ? e.lng : null,
+            mapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(coords ? `${e.lat.toFixed(6)},${e.lng.toFixed(6)}` : endereco)}`,
+            observacao: typeof texto === "string" ? texto.slice(0, 20000) : "" });
+        }
+        exigir(enderecos.length, "Cartão indisponível.", 404);
+        const d = g.designacaoTipo === "link" && idValido(g.designacaoId) ? await tx.get(pathDesignacao(g.designacaoId)) : null;
+        const habilitacaoDisponivel = Boolean(
+          d && g.status === "ativo" && d.operacionalAtiva &&
+          d.status === "ativa" && new Date(d.expiraEm) > agora &&
+          d.acessoModo === "codigo4" && d.cartaoId === body.cartaoId &&
+          d.grupoId === card.grupoId && d.contatoId === g.designadoContatoId &&
+          Array.isArray(d.enderecos) && d.enderecos.every(e => e && idValido(e.id)) &&
+          (g.composicaoVersao || 1) === d.composicaoVersao &&
+          JSON.stringify(d.enderecoIdsGrupo || d.enderecos.map(e => e.id)) === JSON.stringify(ids) &&
+          JSON.stringify(d.enderecos.map(e => e.id)) === JSON.stringify(enderecos.map(e => e.id))
+        );
+        return { modo: "consulta", podeMarcar: false, codigo: curto(g.codigo), nome: typeof g.nome === "string" && g.nome.trim() ? g.nome : curto(g.codigo), habilitacaoDisponivel, enderecos };
+      }
       const d = g.designacaoTipo === "link" && await tx.get(pathDesignacao(g.designacaoId));
       const ativo = d?.operacionalAtiva && d.status === "ativa" && new Date(d.expiraEm) > agora && d.acessoModo === "codigo4" && d.cartaoId === body.cartaoId;
       if (action === "cartao") return { codigo: curto(g.codigo), disponivel: Boolean(ativo) };

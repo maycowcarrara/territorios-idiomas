@@ -21,7 +21,8 @@ export const coberturaConfirmadaGrupo = (grupo, completoLegado = false) =>
     completoLegado);
 
 export function normalizarTelefone(entrada, pais = "BR") {
-  const raw = String(entrada || "").trim();
+  // WhatsApp/contact apps may surround pasted numbers with bidi formatting.
+  const raw = String(entrada || "").replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim();
   const erro = () => new ValidacaoDesignacaoError("Informe um telefone válido com DDI, DDD e número.");
   if (!/^\+?[0-9\s().-]+$/.test(raw)) throw erro();
   const digits = raw.replace(/\D/g, "");
@@ -126,12 +127,13 @@ export function comporMensagem({
     (e) =>
       `${e.codigo} — ${e.endereco}${herdados.length ? ` — ${herdados.includes(e.id) ? "Feito anteriormente" : "Pendente"}` : ""}\n${e.mapsUrl}`,
   );
-  const rodape = `${codigoAcesso ? `Código de acesso: ${codigoAcesso}\nNo cartão físico, leia o QR e informe este código.\n` : ""}Abra para ver os endereços, marcar o que foi feito e devolver o território:\n${link}`;
-  const mensagem = [cabecalho, ...locais, rodape].join("\n\n");
+  const rodape = `${codigoAcesso ? `Código de acesso: ${codigoAcesso}\nO QR do cartão permite consultar os endereços. Este código libera marcações e devolução.\n` : ""}Abra para ver os endereços, marcar o que foi feito e devolver o território:\n${link}`;
+  const abertura = [cabecalho, rodape].join("\n\n");
+  const mensagem = [abertura, ...locais].join("\n\n");
   // Partes por endereço inteiro; nunca cortar a lista enviada.
   const partes = [];
-  let atual = cabecalho;
-  for (const local of [...locais, rodape]) {
+  let atual = abertura;
+  for (const local of locais) {
     if (atual.length + local.length > 1800) {
       partes.push(atual);
       atual = "";

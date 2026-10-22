@@ -1,5 +1,6 @@
 import CartaoTerritorio from "./designacoes/CartaoTerritorio";
 import { DesignacaoWhatsApp } from './designacoes/DesignacaoWhatsApp';
+import { designacaoSelectClass, designacaoInputClass, designacaoActionClass } from './designacoes/designacaoUi';
 import { designacoesHabilitadas } from './designacoesApi';
 import { temDesignacaoAtiva, coberturaConfirmadaGrupo } from '../shared/designacoes';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -423,6 +424,13 @@ const cssTooltip = `
   .leaflet-popup.bairro-sbs-popup .leaflet-popup-tip { box-shadow: 0 8px 18px rgba(15,23,42,0.16); }
   .leaflet-popup.territorio-popup .leaflet-popup-content-wrapper { padding: 6px 8px; border-radius: 14px; box-shadow: 0 12px 30px rgba(15,23,42,0.28); }
   .leaflet-popup.territorio-popup .leaflet-popup-content { margin: 0; width: auto !important; }
+  .leaflet-popup.address-popup .leaflet-popup-content-wrapper { padding: 6px 8px; border-radius: 14px; }
+  .leaflet-popup.address-popup .leaflet-popup-content { margin: 0; width: auto !important; }
+  .map-compact-popup { position: relative; width: min(280px, calc(100vw - 56px)); }
+  .map-compact-popup p { margin: 0; }
+  .map-popup-options { position: absolute; top: 44px; right: 4px; left: 4px; z-index: 10; }
+  .map-popup-options:not(.open) { display: none; }
+  .map-popup-options .address-admin-actions-inner { overflow: visible; }
   .leaflet-popup-pane { z-index: 1002 !important; }
   @media (max-width: 639px) {
     .leaflet-container.has-popup .map-popup-aware-control {
@@ -489,6 +497,24 @@ const cssTooltip = `
   .popup-btn-action { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 8px; border-radius: 6px; font-weight: bold; font-size: 12px; transition: background-color 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.1); cursor: pointer; }
   .popup-btn-action:disabled { opacity: 0.7; cursor: not-allowed; }
 `;
+
+const PopupOptionsButton = ({ aberto, onClick, disabled, label }) => (
+    <button type="button" onClick={onClick} disabled={disabled}
+        className={`-mt-1 -mr-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 disabled:opacity-50 ${aberto ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
+        title="Mais opções" aria-label={label} aria-expanded={aberto}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+        </svg>
+    </button>
+);
+
+const FecharPopup = ({ onClose }) => {
+    const map = useMap();
+    return <button type="button" onClick={() => { onClose(); map.closePopup(); }}
+        className="w-full rounded-md px-3 py-2 text-left text-xs font-bold text-slate-500 transition hover:bg-slate-50">
+        Fechar balão
+    </button>;
+};
 
 // Função Centroide
 const calcularCentroide = (coords) => {
@@ -582,8 +608,8 @@ const EnderecoMarker = ({
             <Tooltip direction="top" offset={[0, -16]} className="font-bold text-xs">
                 {codigoExibicao}
             </Tooltip>
-            <Popup>
-                <div className="flex min-w-[250px] max-w-[270px] flex-col gap-2 p-1">
+            <Popup className="address-popup" closeButton={false} maxWidth={320} autoPanPadding={[12, 12]}>
+                <div className="map-compact-popup flex flex-col gap-2 p-1">
                     <div className="border-b border-slate-200 pb-2">
                         <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -601,73 +627,65 @@ const EnderecoMarker = ({
                                     </div>
                                 )}
                             </div>
-                            {isAdmin && (
-                                <button
-                                    type="button"
-                                    onClick={() => setMenuAberto((aberto) => !aberto)}
-                                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-black leading-none transition ${menuAberto ? 'border-slate-400 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800'}`}
-                                    title="Mais opções"
-                                    aria-label="Mais opções do endereço"
-                                    aria-expanded={menuAberto}
-                                >
-                                    ...
-                                </button>
-                            )}
+                            <PopupOptionsButton aberto={menuAberto} onClick={() => setMenuAberto((aberto) => !aberto)} label="Mais opções do endereço" />
                         </div>
                     </div>
 
-                    {isAdmin && (
-                        <div className={`address-admin-actions ${menuAberto ? 'open' : ''}`} aria-hidden={!menuAberto}>
+                    {(
+                        <div className={`address-admin-actions map-popup-options ${menuAberto ? 'open' : ''}`} aria-hidden={!menuAberto}>
                             <div className="address-admin-actions-inner">
-                                <div className="rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setMenuAberto(false);
-                                            onEdit(endereco);
-                                        }}
-                                        disabled={!isOnline || !menuAberto}
-                                        className="w-full rounded-md px-3 py-2 text-left text-xs font-extrabold text-teal-700 transition hover:bg-teal-50 disabled:opacity-50"
-                                    >
-                                        Editar dados
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setMenuAberto(false);
-                                            onToggleArchive(endereco);
-                                        }}
-                                        disabled={!isOnline || !menuAberto}
-                                        className={`w-full rounded-md px-3 py-2 text-left text-xs font-extrabold transition disabled:opacity-50 ${arquivado ? 'text-emerald-700 hover:bg-emerald-50' : 'text-amber-700 hover:bg-amber-50'}`}
-                                    >
-                                        {arquivado ? 'Reativar endereço' : 'Arquivar endereço'}
-                                    </button>
-                                    {!arquivado && canSelect && (
+                                <div className="rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                    {isAdmin && <>
                                         <button
                                             type="button"
                                             onClick={() => {
                                                 setMenuAberto(false);
-                                                onToggleSelect(endereco);
+                                                onEdit(endereco);
                                             }}
                                             disabled={!isOnline || !menuAberto}
-                                            className={`w-full rounded-md px-3 py-2 text-left text-xs font-extrabold transition disabled:opacity-50 ${isSelected ? 'text-amber-700 hover:bg-amber-50' : 'text-indigo-700 hover:bg-indigo-50'}`}
+                                            className="w-full rounded-md px-3 py-2 text-left text-xs font-extrabold text-teal-700 transition hover:bg-teal-50 disabled:opacity-50"
                                         >
-                                            {isSelected ? 'Remover da seleção' : 'Selecionar para território'}
+                                            Editar dados
                                         </button>
-                                    )}
-                                    {!arquivado && endereco.grupoId && (
                                         <button
                                             type="button"
                                             onClick={() => {
                                                 setMenuAberto(false);
-                                                onRemoveFromGroup(endereco);
+                                                onToggleArchive(endereco);
                                             }}
                                             disabled={!isOnline || !menuAberto}
-                                            className="w-full rounded-md px-3 py-2 text-left text-xs font-extrabold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                                            className={`w-full rounded-md px-3 py-2 text-left text-xs font-extrabold transition disabled:opacity-50 ${arquivado ? 'text-emerald-700 hover:bg-emerald-50' : 'text-amber-700 hover:bg-amber-50'}`}
                                         >
-                                            Remover do território
+                                            {arquivado ? 'Reativar endereço' : 'Arquivar endereço'}
                                         </button>
-                                    )}
+                                        {!arquivado && canSelect && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setMenuAberto(false);
+                                                    onToggleSelect(endereco);
+                                                }}
+                                                disabled={!isOnline || !menuAberto}
+                                                className={`w-full rounded-md px-3 py-2 text-left text-xs font-extrabold transition disabled:opacity-50 ${isSelected ? 'text-amber-700 hover:bg-amber-50' : 'text-indigo-700 hover:bg-indigo-50'}`}
+                                            >
+                                                {isSelected ? 'Remover da seleção' : 'Selecionar para território'}
+                                            </button>
+                                        )}
+                                        {!arquivado && endereco.grupoId && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setMenuAberto(false);
+                                                    onRemoveFromGroup(endereco);
+                                                }}
+                                                disabled={!isOnline || !menuAberto}
+                                                className="w-full rounded-md px-3 py-2 text-left text-xs font-extrabold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                                            >
+                                                Remover do território
+                                            </button>
+                                        )}
+                                    </>}
+                                    <FecharPopup onClose={() => setMenuAberto(false)} />
                                 </div>
                             </div>
                         </div>
@@ -943,6 +961,7 @@ const FocoGrupoEnderecoMapController = ({ grupoId, enderecos }) => {
 
 const GrupoEnderecoLayer = ({
     grupo,
+    cidadePadrao,
     user,
     isAdmin,
     isOnline,
@@ -1139,15 +1158,16 @@ const GrupoEnderecoLayer = ({
                     </Tooltip>
                     <Popup
                         className="territorio-popup"
-                        maxHeight={typeof window !== 'undefined' ? Math.min(520, window.innerHeight - 80) : 480}
+                        closeButton={false}
+                        maxWidth={320}
                         autoPanPadding={[12, 12]}
                         keepInView={true}
                     >
-                        <div className="flex min-w-[260px] max-w-[290px] max-h-[72vh] flex-col gap-2 overflow-y-auto p-1 pr-1.5 scrollbar-thin">
+                        <div className="map-compact-popup flex flex-col gap-2 p-1">
                             <div className="border-b border-slate-200 pb-2">
                                 <div className="flex items-start justify-between gap-2">
                                     <div className="min-w-0 flex-1">
-                                        <div className="flex items-center gap-1.5">
+                                        <div className="flex flex-wrap items-center gap-1.5">
                                             <span className="text-lg font-black leading-none text-slate-800">{codigoExibicao}</span>
                                             <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase leading-none ${arquivado ? 'bg-slate-100 text-slate-500' : finalizado ? 'bg-emerald-50 text-emerald-700' : designado ? 'bg-blue-50 text-blue-700' : 'bg-indigo-50 text-indigo-700'}`}>
                                                 {statusLabel}
@@ -1163,57 +1183,50 @@ const GrupoEnderecoLayer = ({
                                         </div>
                                         <div className="mt-1.5 text-xs font-semibold leading-tight text-slate-600">{nomeExibicao}</div>
                                     </div>
-                                    {isAdmin && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setMenuAberto((aberto) => !aberto)}
-                                            disabled={loadingAction}
-                                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-black leading-none transition disabled:opacity-50 ${menuAberto ? 'border-slate-400 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800'}`}
-                                            title="Mais opções"
-                                            aria-label="Mais opções do território"
-                                            aria-expanded={menuAberto}
-                                        >
-                                            ...
-                                        </button>
-                                    )}
+                                    <PopupOptionsButton aberto={menuAberto} onClick={() => setMenuAberto((aberto) => !aberto)} disabled={loadingAction} label="Mais opções do território" />
                                 </div>
                             </div>
 
-                            {isAdmin && (
-                                <div className={`address-admin-actions ${menuAberto ? 'open' : ''}`} aria-hidden={!menuAberto}>
+                            {(
+                                <div className={`address-admin-actions map-popup-options ${menuAberto ? 'open' : ''}`} aria-hidden={!menuAberto}>
                                     <div className="address-admin-actions-inner">
-                                        <div className="rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setMenuAberto(false);
-                                                    map.closePopup();
-                                                    onEdit?.(grupo);
-                                                }}
-                                                disabled={!isOnline || loadingAction || !menuAberto}
-                                                className="w-full rounded-md px-3 py-2 text-left text-xs font-extrabold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                                            >
-                                                Editar dados do território
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={alternarArquivoPeloMenu}
-                                                disabled={!isOnline || loadingAction || !menuAberto}
-                                                className={`w-full rounded-md px-3 py-2 text-left text-xs font-extrabold transition disabled:opacity-50 ${arquivado ? 'text-emerald-700 hover:bg-emerald-50' : 'text-amber-700 hover:bg-amber-50'}`}
-                                            >
-                                                {arquivado ? 'Reativar território' : 'Arquivar território'}
-                                            </button>
+                                        <div className="rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                            {isAdmin && <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setMenuAberto(false);
+                                                        map.closePopup();
+                                                        onEdit?.(grupo);
+                                                    }}
+                                                    disabled={!isOnline || loadingAction || !menuAberto || grupo.designacaoTipo === 'link'}
+                                                    title={grupo.designacaoTipo === 'link' ? 'Devolva o território antes de editar seus dados.' : undefined}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-xs font-extrabold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                                                >
+                                                    Editar dados do território
+                                                </button>
+                                                {grupo.designacaoTipo === 'link' && <p className="px-3 py-2 text-xs text-slate-600">Devolva o território antes de editar seus dados.</p>}
+                                                <button
+                                                    type="button"
+                                                    onClick={alternarArquivoPeloMenu}
+                                                    disabled={!isOnline || loadingAction || !menuAberto}
+                                                    className={`w-full rounded-md px-3 py-2 text-left text-xs font-extrabold transition disabled:opacity-50 ${arquivado ? 'text-emerald-700 hover:bg-emerald-50' : 'text-amber-700 hover:bg-amber-50'}`}
+                                                >
+                                                    {arquivado ? 'Reativar território' : 'Arquivar território'}
+                                                </button>
+                                                {!arquivado && designacoesHabilitadas && <CartaoTerritorio key={grupo.id} grupo={grupo} cidadePadrao={cidadePadrao} menu disabled={!menuAberto || loadingAction} />}
+                                            </>}
+                                            <FecharPopup onClose={() => setMenuAberto(false)} />
                                         </div>
                                     </div>
                                 </div>
                             )}
 
-                            {isAdmin && !arquivado && designacoesHabilitadas && <CartaoTerritorio grupo={grupo} />}
                             {isAdmin && !arquivado && (
                                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
                                     <div className="mb-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Designação</div>
                                     {grupo.designacaoTipo === 'link' ? (
-                                        <DesignacaoWhatsApp grupo={grupo} compact={true} />
+                                        <DesignacaoWhatsApp key={grupo.id} grupo={grupo} compact={true} />
                                     ) : mensagemDesignacaoPronta ? (
                                         <div className="flex flex-col gap-2">
                                             <div className="rounded-md bg-green-100 px-2 py-1.5 text-center text-xs font-bold text-green-700">
@@ -1278,60 +1291,63 @@ const GrupoEnderecoLayer = ({
                                                                 </button>
                                                             </div>
                                                             {modoDesignacao === 'whatsapp' ? (
-                                                                <DesignacaoWhatsApp grupo={grupo} compact={true} />
+                                                                <DesignacaoWhatsApp key={grupo.id} grupo={grupo} compact={true} />
                                                             ) : (
-                                                                <div>
-                                                                    <select
-                                                                        className="mb-2 w-full rounded-lg border border-slate-300 bg-white p-2 text-xs font-semibold outline-none disabled:bg-slate-100"
-                                                                        value={usuarioSelecionado}
-                                                                        onChange={(event) => {
-                                                                            setUsuarioSelecionado(event.target.value);
-                                                                            setMensagemDesignacaoPronta(null);
-                                                                        }}
-                                                                        disabled={loadingAction || !isOnline}
-                                                                    >
-                                                                        <option value="">Escolher publicador com login</option>
-                                                                        {listaUsuarios.map((usuario) => (
-                                                                            <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
-                                                                        ))}
-                                                                    </select>
-                                                                    <button
-                                                                        onClick={() => executarAcaoGrupo(designarTerritorio)}
-                                                                        disabled={!usuarioSelecionado || loadingAction || !isOnline}
-                                                                        className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
-                                                                    >
-                                                                        {loadingAction ? 'Salvando...' : 'Designar território'}
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => setConviteAberto((aberto) => !aberto)}
-                                                                        disabled={loadingAction || !isOnline}
-                                                                        className="mt-2 w-full rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-extrabold text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
-                                                                    >
-                                                                        {conviteAberto ? 'Fechar convite' : 'Enviar para nova pessoa'}
-                                                                    </button>
+                                                                <div className="space-y-2">
+                                                                    <label className="block text-xs font-semibold text-slate-600">
+                                                                        Publicador
+                                                                        <select
+                                                                            className={designacaoSelectClass}
+                                                                            value={conviteAberto ? '__novo__' : usuarioSelecionado}
+                                                                            onChange={(event) => {
+                                                                                setConviteAberto(event.target.value === '__novo__');
+                                                                                setUsuarioSelecionado(event.target.value === '__novo__' ? '' : event.target.value);
+                                                                                setMensagemDesignacaoPronta(null);
+                                                                            }}
+                                                                            disabled={loadingAction || !isOnline}
+                                                                        >
+                                                                            <option value="">Escolher publicador</option>
+                                                                            {listaUsuarios.map((usuario) => (
+                                                                                <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
+                                                                            ))}
+                                                                            <option value="__novo__">+ Convidar novo publicador</option>
+                                                                        </select>
+                                                                    </label>
+                                                                    {usuarioSelecionado && !conviteAberto && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => executarAcaoGrupo(designarTerritorio)}
+                                                                            disabled={loadingAction || !isOnline}
+                                                                            className={designacaoActionClass}
+                                                                        >
+                                                                            {loadingAction ? 'Salvando...' : 'Designar território'}
+                                                                        </button>
+                                                                    )}
                                                                     {conviteAberto && (
-                                                                        <div className="mt-2 rounded-lg border border-indigo-100 bg-white p-2">
+                                                                        <div className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50/70 p-2">
                                                                             <input
                                                                                 type="text"
-                                                                                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
-                                                                                placeholder="Nome"
+                                                                                className={designacaoInputClass}
+                                                                                placeholder="Nome do publicador"
+                                                                                aria-label="Nome do novo publicador com login"
                                                                                 value={conviteNome}
                                                                                 onChange={(event) => setConviteNome(event.target.value)}
                                                                                 disabled={loadingAction || !isOnline}
                                                                             />
                                                                             <input
                                                                                 type="email"
-                                                                                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                                                className={designacaoInputClass}
                                                                                 placeholder="E-mail"
+                                                                                aria-label="E-mail do novo publicador"
                                                                                 value={conviteEmail}
                                                                                 onChange={(event) => setConviteEmail(event.target.value)}
                                                                                 disabled={loadingAction || !isOnline}
                                                                             />
                                                                             <input
                                                                                 type="tel"
-                                                                                className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                                                className={designacaoInputClass}
                                                                                 placeholder="WhatsApp"
+                                                                                aria-label="WhatsApp do novo publicador"
                                                                                 value={conviteWhatsapp}
                                                                                 onChange={(event) => setConviteWhatsapp(event.target.value)}
                                                                                 disabled={loadingAction || !isOnline}
@@ -1340,9 +1356,9 @@ const GrupoEnderecoLayer = ({
                                                                                 type="button"
                                                                                 onClick={() => executarAcaoGrupo(convidarEDesignarTerritorio)}
                                                                                 disabled={!isValidUsuarioEmail(conviteEmail) || !conviteWhatsapp.replace(/\D/g, '') || !isValidWhatsappDigits(conviteWhatsapp) || loadingAction || !isOnline}
-                                                                                className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
+                                                                                className={designacaoActionClass}
                                                                             >
-                                                                                {loadingAction ? 'Salvando...' : 'Liberar acesso e preparar WhatsApp'}
+                                                                                {loadingAction ? 'Salvando...' : 'Convidar e designar'}
                                                                             </button>
                                                                         </div>
                                                                     )}
@@ -1350,58 +1366,61 @@ const GrupoEnderecoLayer = ({
                                                             )}
                                                         </>
                                                     ) : (
-                                                        <div>
-                                                            <select
-                                                                className="mb-2 w-full rounded-lg border border-slate-300 bg-white p-2 text-xs font-semibold outline-none disabled:bg-slate-100"
-                                                                value={usuarioSelecionado}
-                                                                onChange={(event) => {
-                                                                    setUsuarioSelecionado(event.target.value);
-                                                                    setMensagemDesignacaoPronta(null);
-                                                                }}
-                                                                disabled={loadingAction || !isOnline}
-                                                            >
-                                                                <option value="">Escolher publicador</option>
-                                                                {listaUsuarios.map((usuario) => (
-                                                                    <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
-                                                                ))}
-                                                            </select>
-                                                            <button
-                                                                onClick={() => executarAcaoGrupo(designarTerritorio)}
-                                                                disabled={!usuarioSelecionado || loadingAction || !isOnline}
-                                                                className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
-                                                            >
-                                                                {loadingAction ? 'Salvando...' : 'Designar território'}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setConviteAberto((aberto) => !aberto)}
-                                                                disabled={loadingAction || !isOnline}
-                                                                className="mt-2 w-full rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-extrabold text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
-                                                            >
-                                                                {conviteAberto ? 'Fechar envio para nova pessoa' : 'Enviar para nova pessoa'}
-                                                            </button>
+                                                        <div className="space-y-2">
+                                                            <label className="block text-xs font-semibold text-slate-600">
+                                                                Publicador
+                                                                <select
+                                                                    className={designacaoSelectClass}
+                                                                    value={conviteAberto ? '__novo__' : usuarioSelecionado}
+                                                                    onChange={(event) => {
+                                                                        setConviteAberto(event.target.value === '__novo__');
+                                                                        setUsuarioSelecionado(event.target.value === '__novo__' ? '' : event.target.value);
+                                                                        setMensagemDesignacaoPronta(null);
+                                                                    }}
+                                                                    disabled={loadingAction || !isOnline}
+                                                                >
+                                                                    <option value="">Escolher publicador</option>
+                                                                    {listaUsuarios.map((usuario) => (
+                                                                        <option key={usuario.email} value={usuario.email}>{usuario.nome}</option>
+                                                                    ))}
+                                                                    <option value="__novo__">+ Convidar novo publicador</option>
+                                                                </select>
+                                                            </label>
+                                                            {usuarioSelecionado && !conviteAberto && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => executarAcaoGrupo(designarTerritorio)}
+                                                                    disabled={loadingAction || !isOnline}
+                                                                    className={designacaoActionClass}
+                                                                >
+                                                                    {loadingAction ? 'Salvando...' : 'Designar território'}
+                                                                </button>
+                                                            )}
                                                             {conviteAberto && (
-                                                                <div className="mt-2 rounded-lg border border-indigo-100 bg-white p-2">
+                                                                <div className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50/70 p-2">
                                                                     <input
                                                                         type="text"
-                                                                        className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
-                                                                        placeholder="Nome"
+                                                                        className={designacaoInputClass}
+                                                                        placeholder="Nome do publicador"
+                                                                        aria-label="Nome do novo publicador com login"
                                                                         value={conviteNome}
                                                                         onChange={(event) => setConviteNome(event.target.value)}
                                                                         disabled={loadingAction || !isOnline}
                                                                     />
                                                                     <input
                                                                         type="email"
-                                                                        className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                                        className={designacaoInputClass}
                                                                         placeholder="E-mail"
+                                                                        aria-label="E-mail do novo publicador"
                                                                         value={conviteEmail}
                                                                         onChange={(event) => setConviteEmail(event.target.value)}
                                                                         disabled={loadingAction || !isOnline}
                                                                     />
                                                                     <input
                                                                         type="tel"
-                                                                        className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                                                                        className={designacaoInputClass}
                                                                         placeholder="WhatsApp"
+                                                                        aria-label="WhatsApp do novo publicador"
                                                                         value={conviteWhatsapp}
                                                                         onChange={(event) => setConviteWhatsapp(event.target.value)}
                                                                         disabled={loadingAction || !isOnline}
@@ -1410,9 +1429,9 @@ const GrupoEnderecoLayer = ({
                                                                         type="button"
                                                                         onClick={() => executarAcaoGrupo(convidarEDesignarTerritorio)}
                                                                         disabled={!isValidUsuarioEmail(conviteEmail) || !conviteWhatsapp.replace(/\D/g, '') || !isValidWhatsappDigits(conviteWhatsapp) || loadingAction || !isOnline}
-                                                                        className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-800 disabled:opacity-50"
+                                                                        className={designacaoActionClass}
                                                                     >
-                                                                        {loadingAction ? 'Salvando...' : 'Liberar acesso e preparar WhatsApp'}
+                                                                        {loadingAction ? 'Salvando...' : 'Convidar e designar'}
                                                                     </button>
                                                                 </div>
                                                             )}
@@ -1420,7 +1439,8 @@ const GrupoEnderecoLayer = ({
                                                     )}
                                                 </>
                                             ) : null}
-                                            {(temDesignacaoAtiva(grupo) || finalizado) && (
+
+{(temDesignacaoAtiva(grupo) || finalizado) && (
                                                 <button
                                                     onClick={() => executarAcaoGrupo(() => onDevolver(grupo))}
                                                     disabled={loadingAction || !isOnline}
@@ -3651,6 +3671,10 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
     };
 
     const abrirEdicaoGrupoEndereco = (grupo) => {
+        if (grupo.designacaoTipo === 'link') {
+            notify({ title: 'Território designado por WhatsApp', message: 'Devolva o território antes de editar seus dados.', variant: 'warning', durationMs: 7000 });
+            return;
+        }
         if (!isOnline) {
             notify({
                 title: 'Edição bloqueada offline',
@@ -3684,6 +3708,10 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
         }
 
         if (!grupoEdicaoModal.grupo?.id) return;
+        if (grupoEdicaoModal.grupo.designacaoTipo === 'link') {
+            notify({ title: 'Edição bloqueada', message: 'Devolva o território antes de editar seus dados.', variant: 'warning', durationMs: 7000 });
+            return;
+        }
 
         setSalvandoGrupoEdicao(true);
         try {
@@ -4192,6 +4220,7 @@ const Mapa = ({ user, isAdmin, contextoSistema, isOnline }) => {
                             <GrupoEnderecoLayer
                                 key={grupo.id}
                                 grupo={grupo}
+                                cidadePadrao={enderecoConfigNormalizada.cidadePadrao}
                                 user={user}
                                 isAdmin={isAdmin}
                                 isOnline={isOnline}

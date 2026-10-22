@@ -1,0 +1,842 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estaLogado() {
+      return request.auth != null;
+    }
+
+    function meuEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function getDadosUsuario() {
+      return get(/databases/$(database)/documents/usuarios/$(meuEmail())).data;
+    }
+
+    function isAdmin() {
+      return estaLogado() &&
+             exists(/databases/$(database)/documents/usuarios/$(meuEmail())) &&
+             getDadosUsuario().role == 'admin';
+    }
+
+    function isAprovado() {
+      return estaLogado() &&
+             exists(/databases/$(database)/documents/usuarios/$(meuEmail())) &&
+             (getDadosUsuario().role == 'admin' || getDadosUsuario().role == 'comum');
+    }
+
+    function isAguardando() {
+      return estaLogado() &&
+             exists(/databases/$(database)/documents/usuarios/$(meuEmail())) &&
+             getDadosUsuario().role == 'aguardando';
+    }
+
+    function camposAlteradosApenas(camposPermitidos) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(camposPermitidos);
+    }
+
+    function camposOperacionaisTerritorio() {
+      return [
+        'quadras_feitas',
+        'status',
+        'historico',
+        'ultimaConclusao',
+        'ultimaAlteracao',
+        'designadoPara',
+        'designadoNome',
+        'dataDesignacao',
+        'designacaoId',
+        'cicloAtual',
+        'nome'
+      ];
+    }
+
+    function camposOperacionaisContexto() {
+      return [
+        'quadras_feitas',
+        'status',
+        'historico',
+        'ultimaConclusao',
+        'ultimaAlteracao',
+        'designadoPara',
+        'designadoNome',
+        'dataDesignacao',
+        'designacaoId',
+        'cicloAtual',
+        'nome',
+        'territorioBaseId',
+        'territorioNumero',
+        'contextoId',
+        'contextoTipo',
+        'contextoTitulo'
+      ];
+    }
+
+    function camposNotasTerritorio() {
+      return ['nome', 'notas_quadras', 'ultimaAlteracao'];
+    }
+
+    function camposNotaDocumento() {
+      return [
+        'quadraId',
+        'texto',
+        'autorEmail',
+        'autorNome',
+        'data',
+        'editadoEm',
+        'designacaoId',
+        'territorioId',
+        'contextoId'
+      ];
+    }
+
+    function camposEndereco() {
+      return [
+        'codigo',
+        'status',
+        'grupoId',
+        'grupoCodigo',
+        'grupoDesignadoPara',
+        'lat',
+        'lng',
+        'geohash',
+        'idiomaId',
+        'idiomaNome',
+        'bairro',
+        'endereco',
+        'informacao',
+        'quantidadeEstrangeiros',
+        'observacao',
+        'classe',
+        'origem',
+        'importacaoId',
+        'criadoEm',
+        'criadoPor',
+        'atualizadoEm',
+        'atualizadoPor',
+        'arquivadoEm',
+        'arquivadoPor'
+      ];
+    }
+
+    function camposGrupoEndereco() {
+      return [
+        'codigo',
+        'idiomaId',
+        'idiomaNome',
+        'bairro',
+        'nome',
+        'observacao',
+        'status',
+        'enderecoIds',
+        'totalEnderecos',
+        'totalEstrangeiros',
+        'centro',
+        'bounds',
+        'designadoPara',
+        'designadoNome',
+        'dataDesignacao',
+        'designacaoId',
+        'cicloAtual',
+        'enderecos_visitados',
+        'historico',
+        'ultimaConclusao',
+        'ultimaAlteracao',
+        'criadoEm',
+        'criadoPor',
+        'atualizadoEm',
+        'atualizadoPor',
+        'arquivadoEm',
+        'arquivadoPor'
+      ];
+    }
+
+    function textoOpcionalValido(valor, limite) {
+      return valor == null || (valor is string && valor.size() <= limite);
+    }
+
+    function codigoManualValido(valor) {
+      return valor is string &&
+             valor.matches('^[A-Z0-9]+(-[A-Z0-9]+)+$') &&
+             valor.size() <= 40;
+    }
+
+    function classeEnderecoValida() {
+      return !('classe' in request.resource.data) ||
+             (request.resource.data.classe in ['confirmado', 'verificar', 'estudo', 'excluido'] &&
+             (
+               request.resource.data.classe != 'excluido' ||
+               request.resource.data.status == 'arquivado'
+             ));
+    }
+
+    function importacaoEnderecoValida() {
+      return request.resource.data.origem != 'importacao' ||
+             (
+               request.resource.data.importacaoId is string &&
+               request.resource.data.importacaoId.size() > 0 &&
+               request.resource.data.importacaoId.size() <= 120
+             );
+    }
+
+    function pontoMapaValido(valor) {
+      return valor == null ||
+             (
+               valor is map &&
+               valor.keys().hasOnly(['lat', 'lng']) &&
+               valor.lat is number &&
+               valor.lat >= -90 &&
+               valor.lat <= 90 &&
+               valor.lng is number &&
+               valor.lng >= -180 &&
+               valor.lng <= 180
+             );
+    }
+
+    function boundsMapaValido(valor) {
+      return valor == null ||
+             (
+               valor is map &&
+               valor.keys().hasOnly(['minLat', 'minLng', 'maxLat', 'maxLng']) &&
+               valor.minLat is number &&
+               valor.minLat >= -90 &&
+               valor.minLat <= 90 &&
+               valor.maxLat is number &&
+               valor.maxLat >= -90 &&
+               valor.maxLat <= 90 &&
+               valor.minLng is number &&
+               valor.minLng >= -180 &&
+               valor.minLng <= 180 &&
+               valor.maxLng is number &&
+               valor.maxLng >= -180 &&
+               valor.maxLng <= 180
+             );
+    }
+
+    function enderecoDocumentoValido() {
+      return request.resource.data.keys().hasOnly(camposEndereco()) &&
+             codigoManualValido(request.resource.data.codigo) &&
+             request.resource.data.status in ['ativo', 'arquivado'] &&
+             classeEnderecoValida() &&
+             (request.resource.data.grupoId == null || request.resource.data.grupoId is string) &&
+             (request.resource.data.grupoCodigo == null || request.resource.data.grupoCodigo is string) &&
+             textoOpcionalValido(request.resource.data.grupoDesignadoPara, 180) &&
+             request.resource.data.lat is number &&
+             request.resource.data.lat >= -90 &&
+             request.resource.data.lat <= 90 &&
+             request.resource.data.lng is number &&
+             request.resource.data.lng >= -180 &&
+             request.resource.data.lng <= 180 &&
+             textoOpcionalValido(request.resource.data.geohash, 24) &&
+             textoOpcionalValido(request.resource.data.idiomaId, 32) &&
+             textoOpcionalValido(request.resource.data.idiomaNome, 80) &&
+             textoOpcionalValido(request.resource.data.bairro, 120) &&
+             request.resource.data.endereco is string &&
+             request.resource.data.endereco.size() > 0 &&
+             request.resource.data.endereco.size() <= 220 &&
+             textoOpcionalValido(request.resource.data.informacao, 2000) &&
+             request.resource.data.quantidadeEstrangeiros is int &&
+             request.resource.data.quantidadeEstrangeiros >= 0 &&
+             request.resource.data.quantidadeEstrangeiros <= 99 &&
+             textoOpcionalValido(request.resource.data.observacao, 2000) &&
+             request.resource.data.origem in ['manual', 'json', 'importacao'] &&
+             importacaoEnderecoValida() &&
+             textoOpcionalValido(request.resource.data.importacaoId, 120) &&
+             request.resource.data.criadoEm is timestamp &&
+             request.resource.data.criadoPor is string &&
+             request.resource.data.atualizadoEm is timestamp &&
+             request.resource.data.atualizadoPor is string &&
+             (request.resource.data.arquivadoEm == null || request.resource.data.arquivadoEm is timestamp) &&
+             (request.resource.data.arquivadoPor == null || request.resource.data.arquivadoPor is string);
+    }
+
+    function podeCriarEndereco() {
+      return isAdmin() &&
+             ('classe' in request.resource.data) &&
+             enderecoDocumentoValido() &&
+             (
+               request.resource.data.status == 'ativo' ||
+               (
+                 request.resource.data.classe == 'excluido' &&
+                 request.resource.data.status == 'arquivado'
+               )
+             ) &&
+             request.resource.data.origem in ['manual', 'importacao'] &&
+             request.resource.data.criadoPor == meuEmail() &&
+             request.resource.data.atualizadoPor == meuEmail() &&
+             (
+               (
+                 request.resource.data.status == 'ativo' &&
+                 request.resource.data.arquivadoEm == null &&
+                 request.resource.data.arquivadoPor == null
+               ) ||
+               (
+                 request.resource.data.classe == 'excluido' &&
+                 request.resource.data.status == 'arquivado' &&
+                 request.resource.data.arquivadoEm is timestamp &&
+                 request.resource.data.arquivadoPor == meuEmail()
+               )
+             );
+    }
+
+    function camposAdminOperacionaisEndereco() {
+      return [
+        'codigo',
+        'status',
+        'grupoId',
+        'grupoCodigo',
+        'grupoDesignadoPara',
+        'lat',
+        'lng',
+        'idiomaId',
+        'idiomaNome',
+        'bairro',
+        'endereco',
+        'informacao',
+        'quantidadeEstrangeiros',
+        'observacao',
+        'classe',
+        'importacaoId',
+        'atualizadoEm',
+        'atualizadoPor',
+        'arquivadoEm',
+        'arquivadoPor'
+      ];
+    }
+
+    function atualizacaoAdminOperacionalEnderecoValida() {
+      return isAdmin() &&
+             camposAlteradosApenas(camposAdminOperacionaisEndereco()) &&
+             request.resource.data.atualizadoEm is timestamp &&
+             request.resource.data.atualizadoPor == meuEmail() &&
+             (!('codigo' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               codigoManualValido(request.resource.data.codigo));
+    }
+
+    function podeLimparDesignacaoEndereco(enderecoId) {
+      return isAprovado() &&
+             camposAlteradosApenas(['grupoDesignadoPara', 'atualizadoEm', 'atualizadoPor']) &&
+             (
+               isAdmin() ||
+               resource.data.grupoDesignadoPara == meuEmail() ||
+               enderecoPertenceAGrupoDesignadoParaMim(enderecoId)
+             ) &&
+             request.resource.data.grupoDesignadoPara == null &&
+             request.resource.data.atualizadoEm is timestamp &&
+             request.resource.data.atualizadoPor == meuEmail();
+    }
+
+    function grupoEnderecoDocumentoValido() {
+      return request.resource.data.keys().hasOnly(camposGrupoEndereco()) &&
+             codigoManualValido(request.resource.data.codigo) &&
+             textoOpcionalValido(request.resource.data.idiomaId, 32) &&
+             textoOpcionalValido(request.resource.data.idiomaNome, 80) &&
+             textoOpcionalValido(request.resource.data.bairro, 120) &&
+             (!('observacao' in request.resource.data) || textoOpcionalValido(request.resource.data.observacao, 2000)) &&
+             request.resource.data.nome is string &&
+             request.resource.data.nome.size() > 0 &&
+             request.resource.data.nome.size() <= 120 &&
+             request.resource.data.status in ['ativo', 'arquivado', 'finalizado'] &&
+             request.resource.data.enderecoIds is list &&
+             request.resource.data.enderecoIds.size() <= 200 &&
+             request.resource.data.totalEnderecos is int &&
+             request.resource.data.totalEnderecos >= 0 &&
+             request.resource.data.totalEnderecos <= 200 &&
+             request.resource.data.totalEstrangeiros is int &&
+             request.resource.data.totalEstrangeiros >= 0 &&
+             request.resource.data.totalEstrangeiros <= 2000 &&
+             pontoMapaValido(request.resource.data.centro) &&
+             boundsMapaValido(request.resource.data.bounds) &&
+             textoOpcionalValido(request.resource.data.designadoPara, 180) &&
+             textoOpcionalValido(request.resource.data.designadoNome, 180) &&
+             (request.resource.data.dataDesignacao == null || request.resource.data.dataDesignacao is timestamp) &&
+             textoOpcionalValido(request.resource.data.designacaoId, 120) &&
+             (request.resource.data.cicloAtual == null || request.resource.data.cicloAtual is map) &&
+             request.resource.data.enderecos_visitados is list &&
+             request.resource.data.enderecos_visitados.size() <= request.resource.data.enderecoIds.size() &&
+             request.resource.data.historico is list &&
+             (request.resource.data.ultimaConclusao == null || request.resource.data.ultimaConclusao is timestamp) &&
+             (request.resource.data.ultimaAlteracao == null || request.resource.data.ultimaAlteracao is timestamp) &&
+             request.resource.data.criadoEm is timestamp &&
+             request.resource.data.criadoPor is string &&
+             request.resource.data.atualizadoEm is timestamp &&
+             request.resource.data.atualizadoPor is string &&
+             (request.resource.data.arquivadoEm == null || request.resource.data.arquivadoEm is timestamp) &&
+             (request.resource.data.arquivadoPor == null || request.resource.data.arquivadoPor is string);
+    }
+
+    function podeCriarGrupoEndereco() {
+      return isAdmin() &&
+             grupoEnderecoDocumentoValido() &&
+             request.resource.data.status == 'ativo' &&
+             request.resource.data.designadoPara == null &&
+             request.resource.data.designadoNome == null &&
+             request.resource.data.dataDesignacao == null &&
+             request.resource.data.designacaoId == null &&
+             request.resource.data.cicloAtual == null &&
+             request.resource.data.enderecos_visitados.size() == 0 &&
+             request.resource.data.historico.size() == 0 &&
+             request.resource.data.criadoPor == meuEmail() &&
+             request.resource.data.atualizadoPor == meuEmail() &&
+             request.resource.data.arquivadoEm == null &&
+             request.resource.data.arquivadoPor == null;
+    }
+
+    function camposAdminOperacionaisGrupoEndereco() {
+      return [
+        'codigo',
+        'observacao',
+        'idiomaId',
+        'idiomaNome',
+        'bairro',
+        'nome',
+        'status',
+        'enderecoIds',
+        'totalEnderecos',
+        'totalEstrangeiros',
+        'centro',
+        'bounds',
+        'designadoPara',
+        'designadoNome',
+        'dataDesignacao',
+        'designacaoId',
+        'cicloAtual',
+        'enderecos_visitados',
+        'historico',
+        'ultimaConclusao',
+        'ultimaAlteracao',
+        'atualizadoEm',
+        'atualizadoPor',
+        'arquivadoEm',
+        'arquivadoPor'
+      ];
+    }
+
+    function atualizacaoAdminOperacionalGrupoEnderecoValida() {
+      return isAdmin() &&
+             camposAlteradosApenas(camposAdminOperacionaisGrupoEndereco()) &&
+             request.resource.data.atualizadoEm is timestamp &&
+             request.resource.data.atualizadoPor == meuEmail() &&
+             (!('codigo' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               codigoManualValido(request.resource.data.codigo)) &&
+             (!('observacao' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               textoOpcionalValido(request.resource.data.observacao, 2000)) &&
+             (!('nome' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               (request.resource.data.nome is string && request.resource.data.nome.size() > 0 && request.resource.data.nome.size() <= 120)) &&
+             (!('bairro' in request.resource.data.diff(resource.data).affectedKeys()) ||
+               textoOpcionalValido(request.resource.data.bairro, 120));
+    }
+
+    function enderecosVisitadosGrupoEnderecoValidos() {
+      return request.resource.data.enderecos_visitados is list &&
+             request.resource.data.enderecos_visitados.size() <= resource.data.enderecoIds.size() &&
+             request.resource.data.enderecos_visitados.hasOnly(resource.data.enderecoIds) &&
+             (
+               request.resource.data.enderecos_visitados.size() == resource.data.enderecos_visitados.size() + 1 ||
+               request.resource.data.enderecos_visitados.size() == resource.data.enderecos_visitados.size() - 1
+             );
+    }
+
+    function metadadosExecucaoGrupoEnderecoValidos() {
+      return request.resource.data.ultimaAlteracao is timestamp &&
+             request.resource.data.atualizadoEm is timestamp &&
+             request.resource.data.atualizadoPor == meuEmail();
+    }
+
+    function camposProgressoGrupoEndereco() {
+      return [
+        'enderecos_visitados',
+        'status',
+        'ultimaAlteracao',
+        'atualizadoEm',
+        'atualizadoPor'
+      ];
+    }
+
+    function camposFinalizacaoGrupoEndereco() {
+      return [
+        'enderecos_visitados',
+        'status',
+        'historico',
+        'ultimaConclusao',
+        'ultimaAlteracao',
+        'designadoPara',
+        'designadoNome',
+        'dataDesignacao',
+        'designacaoId',
+        'cicloAtual',
+        'atualizadoEm',
+        'atualizadoPor'
+      ];
+    }
+
+    function limpaDesignacaoGrupoEndereco() {
+      return request.resource.data.designadoPara == null &&
+             request.resource.data.designadoNome == null &&
+             request.resource.data.dataDesignacao == null &&
+             request.resource.data.designacaoId == null &&
+             request.resource.data.cicloAtual == null;
+    }
+
+    function grupoEnderecoCompletoAntesDaFinalizacao() {
+      return resource.data.enderecoIds is list &&
+             resource.data.enderecoIds.size() > 0 &&
+             resource.data.totalEnderecos is int &&
+             resource.data.totalEnderecos > 0 &&
+             resource.data.enderecos_visitados is list &&
+             resource.data.enderecos_visitados.size() == resource.data.totalEnderecos &&
+             resource.data.enderecos_visitados.hasOnly(resource.data.enderecoIds);
+    }
+
+    function statusGrupoEnderecoExecutavel() {
+      return (
+               !('status' in resource.data) ||
+               resource.data.status == null ||
+               resource.data.status == 'ativo'
+             ) &&
+             request.resource.data.status == 'ativo';
+    }
+
+    function podeAtualizarProgressoGrupoEnderecoDesignado() {
+      return camposAlteradosApenas(camposProgressoGrupoEndereco()) &&
+             enderecosVisitadosGrupoEnderecoValidos() &&
+             metadadosExecucaoGrupoEnderecoValidos() &&
+             statusGrupoEnderecoExecutavel();
+    }
+
+    function podeFinalizarGrupoEnderecoDesignado() {
+      return camposAlteradosApenas(camposFinalizacaoGrupoEndereco()) &&
+             grupoEnderecoCompletoAntesDaFinalizacao() &&
+             metadadosExecucaoGrupoEnderecoValidos() &&
+             request.resource.data.status == 'finalizado' &&
+             request.resource.data.enderecos_visitados.size() == 0 &&
+             request.resource.data.historico.size() == resource.data.historico.size() + 1 &&
+             request.resource.data.ultimaConclusao is timestamp &&
+             limpaDesignacaoGrupoEndereco();
+    }
+
+    function podeAtualizarGrupoEnderecoDesignado() {
+      return !isAdmin() &&
+             isAprovado() &&
+             (
+               resource.data.designadoPara == meuEmail()
+             ) &&
+             (
+               !('status' in resource.data) ||
+               resource.data.status == null ||
+               resource.data.status == 'ativo'
+             ) &&
+             (
+               podeAtualizarProgressoGrupoEnderecoDesignado() ||
+               podeFinalizarGrupoEnderecoDesignado()
+             );
+    }
+
+    function podeLerGrupoEndereco() {
+      return isAdmin() ||
+             (
+               isAprovado() &&
+               resource.data.designadoPara == meuEmail()
+             );
+    }
+
+    function enderecoPertenceAGrupoDesignadoParaMim(enderecoId) {
+      return resource.data.grupoId is string &&
+             exists(/databases/$(database)/documents/grupos_enderecos/$(resource.data.grupoId)) &&
+             get(/databases/$(database)/documents/grupos_enderecos/$(resource.data.grupoId)).data.designadoPara == meuEmail() &&
+             enderecoId in get(/databases/$(database)/documents/grupos_enderecos/$(resource.data.grupoId)).data.enderecoIds;
+    }
+
+    function podeLerEndereco(enderecoId) {
+      return isAdmin() ||
+             (
+               isAprovado() &&
+               (
+                 resource.data.grupoDesignadoPara == meuEmail() ||
+                 enderecoPertenceAGrupoDesignadoParaMim(enderecoId)
+               )
+             );
+    }
+
+    function docIdTerritorioContexto(contextoId, territorioBaseId) {
+      return contextoId + '__' + territorioBaseId;
+    }
+
+    function existeEstadoTerritorioNoContexto(territorioBaseId, contextoId) {
+      return contextoId == 'normal'
+        ? exists(/databases/$(database)/documents/territorios/$(territorioBaseId))
+        : exists(/databases/$(database)/documents/territorios_contexto/$(docIdTerritorioContexto(contextoId, territorioBaseId)));
+    }
+
+    function getEstadoTerritorioNoContexto(territorioBaseId, contextoId) {
+      return contextoId == 'normal'
+        ? get(/databases/$(database)/documents/territorios/$(territorioBaseId)).data
+        : get(/databases/$(database)/documents/territorios_contexto/$(docIdTerritorioContexto(contextoId, territorioBaseId))).data;
+    }
+
+    function notaDocumentoValida() {
+      return request.resource.data.keys().hasOnly(camposNotaDocumento()) &&
+             request.resource.data.quadraId is string &&
+             request.resource.data.texto is string &&
+             request.resource.data.texto.size() <= 4000 &&
+             request.resource.data.autorEmail is string &&
+             request.resource.data.autorNome is string &&
+             (request.resource.data.designacaoId == null || request.resource.data.designacaoId is string) &&
+             request.resource.data.contextoId is string;
+    }
+
+    function mantemOuLimpaDesignacaoPropria() {
+      return (
+               request.resource.data.designadoPara == resource.data.designadoPara &&
+               request.resource.data.designacaoId == resource.data.designacaoId
+             ) ||
+             (
+               resource.data.designadoPara == meuEmail() &&
+               request.resource.data.designadoPara == null &&
+               request.resource.data.designadoNome == null &&
+               request.resource.data.dataDesignacao == null &&
+               request.resource.data.designacaoId == null &&
+               request.resource.data.cicloAtual == null
+             );
+    }
+
+    function mantemNomeSalvo() {
+      return request.resource.data.nome == resource.data.nome ||
+             resource.data.nome == null;
+    }
+
+    function podeAtualizarTerritorioDesignado() {
+      return isAprovado() &&
+             resource.data.designadoPara == meuEmail() &&
+             camposAlteradosApenas(camposOperacionaisTerritorio()) &&
+             mantemOuLimpaDesignacaoPropria() &&
+             mantemNomeSalvo();
+    }
+
+    function podeAtualizarNotasTerritorio() {
+      return isAdmin() &&
+             camposAlteradosApenas(camposNotasTerritorio()) &&
+             mantemNomeSalvo();
+    }
+
+    function podeAtualizarContextoDesignado() {
+      return isAprovado() &&
+             resource.data.designadoPara == meuEmail() &&
+             camposAlteradosApenas(camposOperacionaisContexto()) &&
+             mantemOuLimpaDesignacaoPropria() &&
+             mantemNomeSalvo();
+    }
+
+    function podeCriarNotaTerritorio(territorioBaseId) {
+      return isAprovado() &&
+             notaDocumentoValida() &&
+             request.resource.data.autorEmail == meuEmail() &&
+             existeEstadoTerritorioNoContexto(territorioBaseId, request.resource.data.contextoId) &&
+             getEstadoTerritorioNoContexto(territorioBaseId, request.resource.data.contextoId).designadoPara == meuEmail() &&
+             getEstadoTerritorioNoContexto(territorioBaseId, request.resource.data.contextoId).designacaoId == request.resource.data.designacaoId;
+    }
+
+    function podeAtualizarNotaTerritorio(territorioBaseId) {
+      return isAprovado() &&
+             notaDocumentoValida() &&
+             resource.data.autorEmail == meuEmail() &&
+             request.resource.data.autorEmail == resource.data.autorEmail &&
+             request.resource.data.contextoId == resource.data.contextoId &&
+             request.resource.data.designacaoId == resource.data.designacaoId &&
+             existeEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId) &&
+             getEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId).designadoPara == meuEmail() &&
+             getEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId).designacaoId == resource.data.designacaoId;
+    }
+
+    function podeExcluirNotaTerritorio(territorioBaseId) {
+      return isAprovado() &&
+             resource.data.autorEmail == meuEmail() &&
+             existeEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId) &&
+             getEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId).designadoPara == meuEmail() &&
+             getEstadoTerritorioNoContexto(territorioBaseId, resource.data.contextoId).designacaoId == resource.data.designacaoId;
+    }
+
+    function notificacaoValida() {
+      return request.resource.data.keys().hasOnly([
+               'para',
+               'texto',
+               'data',
+               'lida',
+               'lidaPor',
+               'tipo',
+               'origem',
+               'tituloPush'
+             ]) &&
+             request.resource.data.para is string &&
+             request.resource.data.texto is string &&
+             request.resource.data.data is timestamp &&
+             request.resource.data.lida is bool &&
+             request.resource.data.texto.size() <= 2000;
+    }
+
+    function destinatarioAdminValido() {
+      return request.resource.data.para is string &&
+             exists(/databases/$(database)/documents/usuarios/$(request.resource.data.para.lower())) &&
+             get(/databases/$(database)/documents/usuarios/$(request.resource.data.para.lower())).data.role == 'admin';
+    }
+
+    function podeCriarNotificacaoAdminSistemaDireta() {
+      return estaLogado() &&
+             notificacaoValida() &&
+             (
+               request.resource.data.para == 'ADMINS' ||
+               destinatarioAdminValido()
+             ) &&
+             request.resource.data.origem == 'sistema' &&
+             request.resource.data.lida == false &&
+             !request.resource.data.keys().hasAny(['lidaPor']) &&
+             (
+               (isAguardando() && request.resource.data.tipo == 'cadastro') ||
+               (isAprovado() &&
+                 (
+                   request.resource.data.tipo == 'conclusao' ||
+                   request.resource.data.tipo == 'devolucao'
+                 )
+               )
+             );
+    }
+
+    function atualizaLeituraNotificacao() {
+      return estaLogado() &&
+             camposAlteradosApenas(['lida']) &&
+             resource.data.para == meuEmail() &&
+             request.resource.data.lida is bool;
+    }
+
+    function atualizaLeituraNotificacaoAdmin() {
+      return isAdmin() &&
+             camposAlteradosApenas(['lidaPor']) &&
+             resource.data.para == 'ADMINS' &&
+             request.resource.data.lidaPor is list;
+    }
+
+    match /usuarios/{email} {
+      allow read: if estaLogado() && (isAdmin() || meuEmail() == email);
+
+      allow create: if isAdmin() || (
+        estaLogado() &&
+        meuEmail() == email &&
+        request.resource.data.role == 'aguardando'
+      );
+
+      allow update: if isAdmin() || (
+        estaLogado() &&
+        meuEmail() == email &&
+        request.resource.data.role == resource.data.role
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /territorios/{territorio} {
+      allow read: if isAprovado();
+      allow update: if isAdmin() ||
+                    podeAtualizarTerritorioDesignado() ||
+                    podeAtualizarNotasTerritorio();
+      allow create, delete: if isAdmin();
+
+      match /notas/{notaId} {
+        allow read: if isAprovado();
+        allow create: if isAdmin() || podeCriarNotaTerritorio(territorio);
+        allow update: if isAdmin() || podeAtualizarNotaTerritorio(territorio);
+        allow delete: if isAdmin() || podeExcluirNotaTerritorio(territorio);
+      }
+    }
+
+    match /territorios_contexto/{territorioContexto} {
+      allow read: if isAprovado();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || podeAtualizarContextoDesignado();
+      allow delete: if isAdmin();
+    }
+
+    // Link assignments can only be changed by the transactional backend.
+    function grupoSemLink(grupoId) {
+      return grupoId == null || !exists(/databases/$(database)/documents/grupos_enderecos/$(grupoId)) || !(get(/databases/$(database)/documents/grupos_enderecos/$(grupoId)).data.get('designacaoTipo', '') == 'link');
+    }
+    function enderecoSemLink() {
+      return grupoSemLink(resource.data.get('grupoId', null));
+    }
+    match /contatos_publicadores/{id} { allow read, write: if false; }
+    match /indice_contatos_telefone/{id} { allow read, write: if false; }
+    match /designacoes_links/{id} { allow read, write: if false; }
+    match /acessos_designacao/{id} { allow read, write: if false; }
+    match /requisicoes_designacoes/{id} { allow read, write: if false; }
+    match /eventos_designacoes/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /auditoria_designacoes/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /operacao_designacoes/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /aplicacoes_prazo/{id} { allow read: if isAdmin(); allow write: if false; }
+
+    match /enderecos/{enderecoId} {
+      allow read: if podeLerEndereco(enderecoId);
+      allow create: if podeCriarEndereco() && grupoSemLink(request.resource.data.get('grupoId', null));
+      allow update: if enderecoSemLink() && grupoSemLink(request.resource.data.get('grupoId', null)) && (podeLimparDesignacaoEndereco(enderecoId) ||
+                       atualizacaoAdminOperacionalEnderecoValida());
+      allow delete: if isAdmin() && enderecoSemLink();
+    }
+
+    match /grupos_enderecos/{grupoId} {
+      allow read: if podeLerGrupoEndereco();
+      allow create: if podeCriarGrupoEndereco() && request.resource.data.get('designacaoTipo', '') != 'link' && request.resource.data.get('designadoContatoId', null) == null;
+      allow update: if resource.data.get('designacaoTipo', '') != 'link' && request.resource.data.get('designacaoTipo', '') != 'link' && request.resource.data.get('designadoContatoId', null) == null && (atualizacaoAdminOperacionalGrupoEnderecoValida() ||
+                       podeAtualizarGrupoEnderecoDesignado());
+      allow delete: if false;
+    }
+
+    match /contadores/{contadorId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() &&
+                            contadorId == 'codigos' &&
+                            request.resource.data.keys().hasOnly([
+                              'proximoEndereco',
+                              'proximoGrupoEndereco',
+                              'atualizadoEm'
+                            ]) &&
+                            (!('proximoEndereco' in request.resource.data) ||
+                              (request.resource.data.proximoEndereco is int &&
+                               request.resource.data.proximoEndereco > 0)) &&
+                            (!('proximoGrupoEndereco' in request.resource.data) ||
+                              (request.resource.data.proximoGrupoEndereco is int &&
+                               request.resource.data.proximoGrupoEndereco > 0)) &&
+                            request.resource.data.atualizadoEm is timestamp;
+      allow delete: if false;
+    }
+
+    match /configuracoes/{docId} {
+      allow read: if (docId == 'designacoes' && isAdmin()) || (docId != 'designacoes' && isAprovado());
+      allow create, update, delete: if docId != 'designacoes' && isAdmin();
+    }
+
+    match /campanhas/{campanhaId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /notificacoes/{notificacao} {
+      allow read: if estaLogado() && (
+        resource.data.para == meuEmail() ||
+        (resource.data.para == 'ADMINS' && isAdmin())
+      );
+
+      allow create: if isAdmin() || (
+        estaLogado() &&
+        notificacaoValida() &&
+        request.resource.data.para == meuEmail()
+      ) || podeCriarNotificacaoAdminSistemaDireta();
+
+      allow update: if atualizaLeituraNotificacao() ||
+                    atualizaLeituraNotificacaoAdmin();
+
+      allow delete: if estaLogado() && (
+        resource.data.para == meuEmail()
+      );
+    }
+  }
+}

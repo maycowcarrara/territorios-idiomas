@@ -1,0 +1,255 @@
+{
+  "dados": {
+    "codigo": "T-12",
+    "nome": "Centro - demonstração",
+    "idioma": "Espanhol",
+    "cidade": "São Bento do Sul",
+    "bairro": "Jardim",
+    "url": "https://territ-es-sbs.web.app/#/c/cartao-ficticio",
+    "enderecos": [
+      {
+        "id": "e0",
+        "codigo": "E-1",
+        "endereco": "Rua São João, 1, Centro, São Bento do Sul - SC",
+        "lat": -26.25,
+        "lng": -49.38
+      },
+      {
+        "id": "e1",
+        "codigo": "E-2",
+        "endereco": "Rua São João, 2, Centro, São Bento do Sul - SC",
+        "lat": -26.249,
+        "lng": -49.379000000000005
+      },
+      {
+        "id": "e2",
+        "codigo": "E-3",
+        "endereco": "Rua São João, 3, Centro, São Bento do Sul - SC",
+        "lat": -26.248,
+        "lng": -49.378
+      },
+      {
+        "id": "e3",
+        "codigo": "E-4",
+        "endereco": "Rua São João, 4, Centro, São Bento do Sul - SC",
+        "lat": -26.247,
+        "lng": -49.377
+      },
+      {
+        "id": "e4",
+        "codigo": "E-5",
+        "endereco": "Rua São João, 5, Centro, São Bento do Sul - SC",
+        "lat": -26.246,
+        "lng": -49.376000000000005
+      },
+      {
+        "id": "e5",
+        "codigo": "E-6",
+        "endereco": "Rua São João, 6, Centro, São Bento do Sul - SC",
+        "lat": -26.245,
+        "lng": -49.375
+      },
+      {
+        "id": "e6",
+        "codigo": "E-7",
+        "endereco": "Rua São João, 7, Centro, São Bento do Sul - SC",
+        "lat": -26.244,
+        "lng": -49.374
+      },
+      {
+        "id": "e7",
+        "codigo": "E-8",
+        "endereco": "Rua São João, 8, Centro, São Bento do Sul - SC",
+        "lat": -26.243,
+        "lng": -49.373000000000005
+      },
+      {
+        "id": "e8",
+        "codigo": "E-9",
+        "endereco": "Rua São João, 9, Centro, São Bento do Sul - SC",
+        "lat": -26.242,
+        "lng": -49.372
+      },
+      {
+        "id": "e9",
+        "codigo": "E-10",
+        "endereco": "Rua da Constituição, 125, Edifício São João, bloco B, fundos, apartamento 204, próximo à Praça das Árvores - Jardim dos Ipês, São Bento do Sul - SC, 89280-000",
+        "lat": -26.241,
+        "lng": -49.371
+      },
+      {
+        "id": "e10",
+        "codigo": "E-11",
+        "endereco": "Rua São João, 11, Centro, São Bento do Sul - SC",
+        "lat": -26.24,
+        "lng": -49.370000000000005
+      },
+      {
+        "id": "e11",
+        "codigo": "E-12",
+        "endereco": "Rua São João, 12, Centro, São Bento do Sul - SC",
+        "lat": -26.239,
+        "lng": -49.369
+      },
+      {
+        "id": "e12",
+        "codigo": "E-13",
+        "endereco": "Rua São João, 13, Centro, São Bento do Sul - SC",
+        "lat": -26.238,
+        "lng": -49.368
+      },
+      {
+        "id": "e13",
+        "codigo": "E-14",
+        "endereco": "Rua São João, 14, Centro, São Bento do Sul - SC",
+        "lat": -26.237,
+        "lng": -49.367000000000004
+      },
+      {
+        "id": "e14",
+        "codigo": "E-15",
+        "endereco": "Rua São João, 15, Centro, São Bento do Sul - SC",
+        "lat": -26.236,
+        "lng": -49.366
+      },
+      {
+        "id": "e15",
+        "codigo": "E-16",
+        "endereco": "Rua São João, 16, Centro, São Bento do Sul - SC",
+        "lat": -26.235,
+        "lng": -49.365
+      },
+      {
+        "id": "e16",
+        "codigo": "E-17",
+        "endereco": "Rua São João, 17, Centro, São Bento do Sul - SC",
+        "lat": -26.234,
+        "lng": -49.364000000000004
+      },
+      {
+        "id": "e17",
+        "codigo": "E-18",
+        "endereco": "Rua São João, 18, Centro, São Bento do Sul - SC",
+        "lat": -26.233,
+        "lng": -49.363
+      },
+      {
+        "id": "e18",
+        "codigo": "E-19",
+        "endereco": "Rua São João, 19, Centro, São Bento do Sul - SC",
+        "lat": -26.232,
+        "lng": -49.362
+      },
+      {
+        "id": "e19",
+        "codigo": "E-20",
+        "endereco": "Rua São João, 20, Centro, São Bento do Sul - SC",
+        "lat": -26.231,
+        "lng": -49.361000000000004
+      },
+      {
+        "id": "e20",
+        "codigo": "E-21",
+        "endereco": "Rua São João, 21, Centro, São Bento do Sul - SC",
+        "lat": -26.23,
+        "lng": -49.36
+      },
+      {
+        "id": "e21",
+        "codigo": "E-22",
+        "endereco": "Rua São João, 22, Centro, São Bento do Sul - SC",
+        "lat": -26.229,
+        "lng": -49.359
+      },
+      {
+        "id": "e22",
+        "codigo": "E-23",
+        "endereco": "Rua São João, 23, Centro, São Bento do Sul - SC",
+        "lat": -26.228,
+        "lng": -49.358000000000004
+      },
+      {
+        "id": "e23",
+        "codigo": "E-24",
+        "endereco": "Rua São João, 24, Centro, São Bento do Sul - SC",
+        "lat": -26.227,
+        "lng": -49.357
+      },
+      {
+        "id": "e24",
+        "codigo": "E-25",
+        "endereco": "Rua São João, 25, Centro, São Bento do Sul - SC",
+        "lat": -26.226,
+        "lng": -49.356
+      },
+      {
+        "id": "e25",
+        "codigo": "E-26",
+        "endereco": "Rua São João, 26, Centro, São Bento do Sul - SC",
+        "lat": -26.225,
+        "lng": -49.355000000000004
+      },
+      {
+        "id": "e26",
+        "codigo": "E-27",
+        "endereco": "Rua São João, 27, Centro, São Bento do Sul - SC",
+        "lat": -26.224,
+        "lng": -49.354
+      },
+      {
+        "id": "e27",
+        "codigo": "E-28",
+        "endereco": "Rua São João, 28, Centro, São Bento do Sul - SC",
+        "lat": -26.223,
+        "lng": -49.353
+      },
+      {
+        "id": "e28",
+        "codigo": "E-29",
+        "endereco": "Rua São João, 29, Centro, São Bento do Sul - SC",
+        "lat": -26.222,
+        "lng": -49.352000000000004
+      },
+      {
+        "id": "e29",
+        "codigo": "E-30",
+        "endereco": "Rua São João, 30, Centro, São Bento do Sul - SC",
+        "lat": -26.221,
+        "lng": -49.351
+      }
+    ]
+  },
+  "enderecosImpressos": [
+    "Rua São João, 1, Centro",
+    "Rua São João, 2, Centro",
+    "Rua São João, 3, Centro",
+    "Rua São João, 4, Centro",
+    "Rua São João, 5, Centro",
+    "Rua São João, 6, Centro",
+    "Rua São João, 7, Centro",
+    "Rua São João, 8, Centro",
+    "Rua São João, 9, Centro",
+    "Rua da Constituição, 125, Edifício São João, bloco B, fundos, apartamento 204, próximo à Praça das Árvores - Jardim dos Ipês",
+    "Rua São João, 11, Centro",
+    "Rua São João, 12, Centro",
+    "Rua São João, 13, Centro",
+    "Rua São João, 14, Centro",
+    "Rua São João, 15, Centro",
+    "Rua São João, 16, Centro",
+    "Rua São João, 17, Centro",
+    "Rua São João, 18, Centro",
+    "Rua São João, 19, Centro",
+    "Rua São João, 20, Centro",
+    "Rua São João, 21, Centro",
+    "Rua São João, 22, Centro",
+    "Rua São João, 23, Centro",
+    "Rua São João, 24, Centro",
+    "Rua São João, 25, Centro",
+    "Rua São João, 26, Centro",
+    "Rua São João, 27, Centro",
+    "Rua São João, 28, Centro",
+    "Rua São João, 29, Centro",
+    "Rua São João, 30, Centro"
+  ],
+  "pages": 1
+}

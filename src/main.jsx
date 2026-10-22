@@ -74,7 +74,7 @@ const limparCachesOfflineLegados = async () => {
 
 const prepararPwa = async () => {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return
-  if (/^#\/t\//.test(window.location.hash)) return
+  if (/^#\/(?:t|c)\//.test(window.location.hash)) return
 
   await limparCachesOfflineLegados()
 
@@ -85,7 +85,7 @@ const prepararPwa = async () => {
     registerSW({
       immediate: true,
       onNeedReload: () => {
-        if (!/^#\/t\//.test(window.location.hash)) window.location.reload()
+        if (!/^#\/(?:t|c)\//.test(window.location.hash)) window.location.reload()
       }
     })
   } catch (error) {

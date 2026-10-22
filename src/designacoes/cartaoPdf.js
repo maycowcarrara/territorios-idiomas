@@ -1,66 +1,94 @@
 import { enderecoParaCartao } from "./enderecoCartao.js";
 import { jsPDF } from "jspdf";
 import QRCode from "qrcode";
+import { carregarFonteCartao, precisaFonteUnicode } from "./cartaoFonte.js";
 
 export const CARTAO_WIDTH = 93;
 export const CARTAO_HEIGHT = 145;
+const MM_PER_PT = 25.4 / 72;
+
+// Measure every wrapped line before drawing. All addresses share the largest
+// font that fits; neither continuation pages nor truncated addresses are used.
+export function ajustarListaCartao(doc, textos, width, height, maxFontSize = 10) {
+  const medir = fontSize => {
+    doc.setFontSize(fontSize);
+    const linhas = textos.map(texto => doc.splitTextToSize(texto, width));
+    const lineHeight = fontSize * MM_PER_PT * 1.18;
+    const gap = fontSize * MM_PER_PT * 0.4;
+    return { fontSize, linhas, lineHeight, gap, height: linhas.reduce((n, ls) => n + ls.length * lineHeight, 0) + Math.max(0, linhas.length - 1) * gap };
+  };
+  let layout = medir(maxFontSize);
+  if (layout.height <= height) return layout;
+  let low = 0, high = maxFontSize;
+  for (let i = 0; i < 32; i++) {
+    const middle = (low + high) / 2;
+    const candidate = medir(middle);
+    if (candidate.height <= height) { low = middle; layout = candidate; }
+    else high = middle;
+  }
+  return layout;
+}
 // Pure layout: no Firestore, remote fetch, assignment or credential renewal.
-export async function criarCartaoPdf(dados, mapa, data = new Date()) {
+export async function criarCartaoPdf(dados, mapa, data = new Date(), { carregarFonte = carregarFonteCartao } = {}) {
   if (!mapa?.dataUrl?.startsWith("data:image/png;base64,") || !mapa.creditos || mapa.width < 900 || mapa.height < 400)
     throw new Error("Mapa estático válido e créditos são obrigatórios.");
   if (!dados.enderecos?.length || !/\/#\/c\/[\w-]+$/.test(dados.url))
     throw new Error("Cartão permanente ou endereços inválidos.");
-  const textos = [dados.codigo,dados.nome,dados.idioma,dados.bairro,mapa.creditos,...dados.enderecos.flatMap(e=>[e.codigo,e.endereco])];
-  if (textos.some(t => /[^\u0020-\u007e\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/u.test(String(t || "").replace(/[\t\r\n]/g, ""))))
-    throw new Error("Há caracteres sem suporte na fonte de impressão. Revise a fonte antes de gerar; nenhum endereço foi omitido.");
+  const textos = [dados.codigo,dados.nome,dados.idioma,dados.cidade,dados.bairro,mapa.creditos,...dados.enderecos.flatMap(e=>[e.codigo,e.endereco])];
   const doc = new jsPDF({ unit: "mm", format: [93, 145], orientation: "portrait", compress: true });
-  const qr = QRCode.create(dados.url, { errorCorrectionLevel: "M" });
-  const margin = 3, width = 87, bottom = 114;
-  let y = 0;
-  const header = first => {
-    doc.setTextColor(25, 51, 75); doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-    const title = doc.splitTextToSize(`${dados.codigo} - ${dados.nome}`, width);
-    doc.text(title, margin, 7);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-    const subtitle = doc.splitTextToSize([dados.idioma,dados.bairro].filter(Boolean).join(" / "), width);
-    let top = 9 + title.length * 4;
-    if (subtitle.length && subtitle[0]) { doc.text(subtitle, margin, top); top += subtitle.length * 3.5; }
-    if (first) {
-      doc.addImage(mapa.dataUrl, "PNG", margin, top, width, 50.75);
-      top += 51.75;
-      doc.setFontSize(6); const credits = doc.splitTextToSize(mapa.creditos, width); doc.text(credits, margin, top + 1); top += credits.length * 2.5 + 3;
+  const unicode = precisaFonteUnicode(textos);
+  if (unicode) {
+    doc.addFileToVFS("unifont.ttf", await carregarFonte());
+    doc.addFont("unifont.ttf", "cartao", "normal");
+    doc.setFont("cartao", "normal");
+    const glyphs = doc.getFont().metadata?.cmap?.unicode?.codeMap;
+    for (const char of textos.map(t => String(t || "")).join("")) {
+      if (!/[\t\r\n]/.test(char) && !glyphs?.[char.codePointAt(0)])
+        throw new Error(`A fonte de impressão não contém o caractere ${char}. Nenhum endereço foi omitido.`);
     }
-    y = top + 2;
-  };
-  header(true);
-  for (const e of dados.enderecos) {
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-    const lines = doc.splitTextToSize(`${e.codigo} - ${enderecoParaCartao(e.endereco)}`, width);
-    // Prefer keeping each address together; split only if longer than a whole page.
-    if (y + lines.length * 4.1 + 2 > bottom && lines.length * 4.1 < 85) {
-      doc.addPage([93,145]); header(false);
-    }
-    for (const line of lines) {
-      if (y + 4.1 > bottom) { doc.addPage([93,145]); header(false); }
-      doc.text(line, margin, y); y += 4.1;
-    }
-    y += 2;
   }
-  const pages = doc.getNumberOfPages();
-  for (let page = 1; page <= pages; page++) {
-    doc.setPage(page);
-    doc.setDrawColor(205); doc.line(3,116,90,116);
-    // Vector QR, with a four-module quiet zone, repeated on every continuation.
-    const module = 23 / (qr.modules.size + 8), x = 3, top = 118;
-    doc.setFillColor(255); doc.rect(x,top,23,23,"F"); doc.setFillColor(0);
-    for (let row=0; row<qr.modules.size; row++) for (let col=0; col<qr.modules.size; col++)
-      if (qr.modules.get(row,col)) doc.rect(x+(col+4)*module,top+(row+4)*module,module,module,"F");
-    doc.setTextColor(30); doc.setFontSize(7);
-    doc.text(doc.splitTextToSize("Código de acesso: ____\nLeia o QR e informe o código atual recebido do dirigente para navegar e consultar observações.",62),28,121);
-    doc.setFontSize(7);
-    doc.text(`Gerado em ${data.toLocaleDateString("pt-BR", {timeZone:"America/Sao_Paulo"})}`,28,134);
-    doc.text(`${page}/${pages} - Imprimir a 100%`,28,138);
-    doc.setFontSize(6); doc.text(doc.splitTextToSize(mapa.creditos,87),3,143);
+  const fonte = bold => doc.setFont(unicode ? "cartao" : "helvetica", !unicode && bold ? "bold" : "normal");
+  const qr = QRCode.create(dados.url, { errorCorrectionLevel: "M" });
+  const margin = 3, width = 87, qrSize = 20;
+  doc.setTextColor(25, 51, 75); fonte(true);
+  const title = ajustarListaCartao(doc, [`${dados.codigo} - ${dados.nome}`], 64, 12);
+  doc.setFontSize(title.fontSize);
+  let y = margin;
+  for (const line of title.linhas[0]) {
+    doc.text(line, margin, y, { baseline: "top" }); y += title.lineHeight;
+  }
+  fonte(false);
+  const subtitle = ajustarListaCartao(doc, [dados.idioma,dados.cidade,dados.bairro ? `Bairro: ${dados.bairro}` : ""].filter(Boolean), 64, 20 - title.height - 1, 8);
+  doc.setFontSize(subtitle.fontSize);
+  y += 1;
+  for (const lines of subtitle.linhas) {
+    for (const line of lines) {
+      doc.text(line, margin, y, { baseline: "top" }); y += subtitle.lineHeight;
+    }
+    y += subtitle.gap;
+  }
+  // Vector QR beside the title, outside the map, with a four-module quiet zone.
+  const module = qrSize / (qr.modules.size + 8), x = CARTAO_WIDTH - margin - qrSize;
+  doc.setFillColor(255); doc.rect(x,margin,qrSize,qrSize,"F"); doc.setFillColor(0);
+  for (let row=0; row<qr.modules.size; row++) for (let col=0; col<qr.modules.size; col++)
+    if (qr.modules.get(row,col)) doc.rect(x+(col+4)*module,margin+(row+4)*module,module,module,"F");
+
+  doc.addImage(mapa.dataUrl, "PNG", margin, 25, width, 50.75);
+  fonte(false); doc.setTextColor(30);
+  const date = `Gerado em ${data.toLocaleDateString("pt-BR", {timeZone:"America/Sao_Paulo"})}`;
+  const footer = ajustarListaCartao(doc, [`${mapa.creditos} | ${date}`], width, 4, 5);
+  const footerTop = CARTAO_HEIGHT - margin - footer.height;
+  doc.setFontSize(footer.fontSize); doc.setTextColor(95);
+  footer.linhas[0].forEach((line, i) => doc.text(line, 90, footerTop + i * footer.lineHeight, { align: "right", baseline: "top" }));
+
+  y = 79;
+  const layout = ajustarListaCartao(doc, dados.enderecos.map(e => `${e.codigo} - ${enderecoParaCartao(e.endereco)}`), width, footerTop - 2 - y);
+  doc.setTextColor(30); doc.setFontSize(layout.fontSize);
+  for (const lines of layout.linhas) {
+    for (const line of lines) {
+      doc.text(line, margin, y, { baseline: "top" }); y += layout.lineHeight;
+    }
+    y += layout.gap;
   }
   return doc;
 }

@@ -4,6 +4,8 @@ Data: 22/10/2026. Estado: implementação e testes locais realizados; fonte OSM 
 
 Prompt de continuidade: [prompt-implementacao-cartao-territorio-pdf.md](./prompt-implementacao-cartao-territorio-pdf.md).
 
+Evolução implementada e validada somente localmente em 22/10/2026, sem publicação e com aceite visual/piloto pendentes: [consulta pelo QR sem código e habilitação de marcações por PIN](./planejamento-consulta-qr-marcacoes-pin.md), com [prompt próprio](./prompt-implementacao-consulta-qr-marcacoes-pin.md). Essa evolução substitui no código local a exigência de PIN para leitura; mantém a escrita protegida. Resultados e limites estão na seção 11 do novo plano. Não reutilizar o prompt antigo para iniciar essa evolução.
+
 ## 1. Objetivo e precedência
 
 Gerar no próprio sistema um cartão físico reutilizável para cada território de idiomas, com mapa estático, lista de endereços e QR permanente. A consulta digital continua na tela existente, autorizada por um código compartilhável da designação vigente. Simplificar também o cadastro de WhatsApp para um único campo, aceitando o telefone completo copiado pelo dirigente.
@@ -17,7 +19,7 @@ Escopo: territórios de idiomas baseados em `grupos_enderecos` e `enderecos`. N�
 ## 2. Decisões funcionais consolidadas
 
 1. PDF vertical de **93 mm de largura por 145 mm de altura**.
-2. Aproximadamente 30% da altura para o mapa; restante para cabeçalho discreto, endereços e rodapé com QR.
+2. Mapa abaixo do cabeçalho, QR discreto ao lado do título e restante da página dedicado aos endereços. Rodapé somente com créditos e data. Uma única página, com redução uniforme da fonte quando necessário (revisão da seção 18).
 3. Mapa com pontos identificados pelos códigos dos endereços, correspondentes à lista. Não colocar observações ou textos completos sobre cada ponto.
 4. Lista impressa com código e endereço completo. Observações ficam na consulta digital, abaixo de cada endereço.
 5. Um QR por cartão/território, permanente entre designações, sem senha ou código corrente embutido.
@@ -50,26 +52,26 @@ Rever os hunks atuais antes da implementação: o checkout contém extensa evolu
 
 ## 4. Experiência do cartão e geração do PDF
 
-### 4.1 Composição inicial proposta
+### 4.1 Composição revisada em 22/10/2026
 
-- Cabeçalho: código/nome do território, idioma e bairro quando existentes, sem dados do responsável atual.
-- Área do mapa: aproximadamente 40–44 mm de altura, ajustando cabeçalho/margens para se aproximar dos 30% solicitados. Ruas legíveis e pontos com os mesmos códigos da lista.
+- Cabeçalho: código/nome do território, idioma, cidade e “Bairro: nome”, nessa ordem, em linhas separadas, sem dados do responsável atual. Cidade identificada nos endereços; quando ausente, usar a cidade padrão configurada no sistema. Cidades distintas identificadas são preservadas na mesma linha, com quebra conforme necessário.
+- Área do mapa: 87 × 50,75 mm, abaixo do cabeçalho. Ruas legíveis e pontos com os mesmos códigos da lista.
 - Lista: código destacado, endereço completo e quebra natural de linha. Não cortar texto, substituir endereço por reticências ou omitir itens para caber.
-- Rodapé: QR fixo, texto “Acesse para navegar e consultar observações”, data de geração/revisão e créditos cartográficos.
-- Margens iniciais de 3 mm; fonte da lista inicialmente de 10 pt, sem redução automática abaixo de 9 pt. Valores de layout são propostas técnicas a confirmar na prévia.
-- QR preto sobre branco, sem logotipo, com zona livre de quatro módulos. Começar com cerca de 24 mm e ajustar ao comprimento real da URL e à leitura impressa; não prometer leitura física antes do teste.
+- Rodapé: somente créditos cartográficos e data de geração, alinhados à direita, em 5 pt ou menos caso necessário. Sem instruções ou campo de código de acesso.
+- Margens de 3 mm; fonte da lista inicialmente de 10 pt. Se o conjunto não couber, reduzir uniformemente a fonte de todos os endereços até caber na página, sem omissões.
+- QR preto sobre branco, sem logotipo, com zona livre de quatro módulos e 20 mm no canto superior direito, ao lado do título e fora do mapa. Leitura impressa permanece pendente de teste físico.
 
 O mapa é imagem estática de alta resolução; lista e QR devem preferencialmente permanecer vetoriais. Como referência de rasterização, 300 ppi para a página inteira equivalem aproximadamente a 1098 × 1713 pixels; o PDF conserva a página física exata independentemente desses pixels.
 
-Para quatro endereços, priorizar uma página. Para listas extensas ou endereços longos, gerar continuação paginada no mesmo tamanho, repetindo território, QR e identificação de página. O mapa fica na primeira página. Não assumir que os até 100 endereços aceitos pelo modelo cabem em um cartão. Impressão frente e verso pode aproveitar as páginas, mas não implementar imposição gráfica/A4 nesta entrega.
+Gerar sempre uma página de 93 × 145 mm. Seis endereços de duas linhas são o cenário de referência em 10 pt. Listas maiores ou textos extensos recebem redução uniforme; em casos extremos, a fonte pode ficar pequena para impressão. Não gerar continuação nem implementar imposição gráfica/A4.
 
 ### 4.2 Fluxo administrativo
 
-1. Abrir território e escolher “Gerar cartão PDF”, disponível ao administrador já autorizado a consultar seus endereços.
+1. Abrir território, abrir os três pontos e escolher “Gerar cartão PDF”, disponível ao administrador já autorizado a consultar seus endereços.
 2. Resolver os endereços ativos do território, com ordem estável e igual entre lista e marcadores; informar itens arquivados excluídos.
 3. Criar/obter o identificador permanente do cartão em operação administrativa idempotente. Gerar cartão não designa, não renova código e não altera marcações.
 4. Enquadrar os pontos para a proporção real de impressão. Avisar sobre localização ausente e impedir mapa incompleto apresentado como válido.
-5. Mostrar prévia com paginação e permitir baixar/compartilhar o PDF no caminho já suportado pela plataforma.
+5. Mostrar prévia de uma página e permitir baixar/compartilhar o PDF no caminho já suportado pela plataforma.
 
 Se o território estiver designado, usar a mesma composição de endereços vigente validada pelo servidor. Se estiver livre, usar a composição atual. Não modificar a composição de uma designação ativa para ajustar o PDF.
 
@@ -395,3 +397,53 @@ Antes de eventual publicação, sob autorização própria: provisionar `PIN_HMA
 Fechamento da rodada local: testes unitários (279), relay (20), Rules/smoke antigo, designações (102 verificações) e cartão/PIN (22 verificações) passaram; lint e build passaram após os ajustes de captura e layout. Não foi repetida a validação de navegador depois da falha. Os servidores que já existiam em 5185/8788/8185/9195 foram preservados; a demonstração criada nesta execução permaneceu separada em 5186/8789/8285/9295 para revisão manual. O helper novo verifica portas livres antes de preparar dados e usa namespace demo novo a cada execução.
 
 Resumo estruturado da rodada: `artifacts/cartao-pdf/validation-summary.json`, com hashes dos dois PDFs finais e separação explícita das evidências pendentes.
+
+## 16. Revisão dos apontamentos de bugs — 22/10/2026
+
+Revisão solicitada pelo usuário antes de retomar a publicação autorizada. O checkout estava limpo no início desta revisão; foram preservados os commits e arquivos existentes, sem commit/push desta rodada.
+
+1. **Comprovante com PIN:** confirmado o problema de experiência. A sessão já emitida pode ler somente seu comprovante após encerramento, até sua expiração original (máximo 12 horas). Não abre endereços/observações nem permite marcações; novo PIN permanece bloqueado. Reatribuição, renovação e revogação continuam invalidando a sessão. Isso ajusta a restrição anterior de encerrar toda consulta, sem restituir acesso operacional. Testes cobrem repetição da conclusão, devolução, expiração e reatribuição.
+2. **Troca de território:** adicionadas chaves por grupo nas duas instâncias de `DesignacaoWhatsApp` e no cartão; o estado de sucesso, contato e PDF anterior não é reaproveitado em outro grupo.
+3. **Secrets Google:** não estavam ausentes em produção: consulta dos nomes confirmou ambos, além de `TOKEN_KEYS_JSON`. Complementado `secrets.required` como prevenção de configuração incompleta. Valores não foram exibidos.
+4. **PWA:** os dois guardas de registro/recarga em `main.jsx` agora reconhecem `/t/` e `/c/`.
+5. **Telefone colado:** removidos somente caracteres Unicode de direção usados por agendas/WhatsApp antes da validação estrita; letras/ramais continuam rejeitados.
+6. **Cartão vencido:** a exportação administrativa ignora somente o prazo da designação; preserva validações de vínculo, composição e endereços. Nenhuma operação pública foi liberada e nenhum prazo é alterado.
+7. **Fonte:** adicionado GNU Unifont 15.0.06 TrueType, original sob SIL OFL 1.1 com licença e origem no repositório. Carregamento da própria origem somente quando necessário; incorporado ao PDF. Amostra confirma №, cirílico, chinês, japonês, coreano e formas árabes. Helvetica permanece nos cartões sem esses caracteres. Não se promete cobertura dos planos suplementares/emoji nem composição de todos os sistemas complexos; glifos ausentes seguem com erro explícito, sem omitir endereços. A fonte tem cerca de 12,5 MB antes da compressão e não entra no precache da PWA.
+8. **Captura em tela pequena:** diálogo passa a reservar espaço flexível para mapa e controles; mapa preserva proporção e se ajusta à largura/altura disponíveis via container queries. Botão acima do mapa, sem sobrepor a área capturada. A proteção contra mapa oculto/incompleto permanece. Verificação visual no navegador ainda pendente devido à falha anterior.
+9. **Subpixels:** cobertura aceita apenas arredondamento menor que um pixel CSS (0,9 px), nas duas direções. Teste com fenda de 0,7 px passa; fendas de 1/2 px e tile ausente continuam recusados.
+10. **WhatsApp dividido:** acesso e código passam para a abertura da primeira parte, que é a parte aberta automaticamente. A lista inteira e exatamente um link de acesso são preservados.
+11. **Editar território:** botão bloqueado com orientação para devolver primeiro, mais guarda de abertura/salvamento. O modelo já tinha guarda de vínculo; a afirmação de que sempre chegava a um erro bruto do Firestore não era exata. Rules não foram relaxadas.
+
+Alertas extras: scripts `designacoes:dev`, `designacoes:worker`, `designacoes:guard` e `designacoes:deploy` já existem; nenhuma duplicação foi adicionada. Respostas HTML/JSON inválido do gateway agora geram orientação legível com status preservado. `CODIGOS_ENABLED=false` era preparação intencional, não falha do gerador; a ativação integra a publicação autorizada.
+
+Validação desta revisão: **285 testes unitários/19 arquivos**, **20 testes de relay**, matriz Rules, smoke legado, **102 verificações de designações** e **22 de cartão/PIN** passaram. Lint, build e empacotamento Worker sem publicação passaram. PDFs: curto (1 página), paginado (3) e Unicode (2), com medidas e textos conferidos, seis páginas renderizadas/inspecionadas e seis QR Codes decodificados. Também corrigido tamanho do texto no início de páginas de continuação, que herdava 9 pt do subtítulo em vez de 10 pt. Não houve nova tentativa de navegador. Evidências em `artifacts/cartao-pdf/bugfix-*.log`, PDFs/PNGs e scripts de verificação.
+
+## 17. Publicação autorizada — 22/10/2026
+
+Autorização do usuário: “ok, pode publicar tudo”, seguida da solicitação de corrigir os apontamentos antes da publicação. Publicados frontend/PWA e pacote OTA **3.8.382** em https://territ-es-sbs.web.app. Rules privadas e índices publicados sem exclusões; snapshot anterior em `artifacts/release/firestore-before-3.8.382.rules`.
+
+Sequência: provisionado `PIN_HMAC_KEY` com 32 bytes aleatórios, valor não exibido nem salvo em arquivo; preservados os três secrets existentes. Publicado backend retrocompatível com novas emissões desativadas (versão `d006b972-c71d-45ce-96b9-3da6f15fa432`); publicado/conferido frontend; ativado `CODIGOS_ENABLED=true` (versão final `164717d5-a718-47d5-ae47-8854a95821c6`). Os vínculos legados permanecem válidos e passam aos códigos ao renovar pelo fluxo previsto. Novas designações passam a emitir PIN. Cron `*/15 * * * *` mantido, sem execução manual.
+
+Conferência remota: versão e manifesto OTA 3.8.382; **32 arquivos** (HTML, SW e assets, inclusive fonte e módulos carregados sob demanda) iguais ao build por SHA-256. ZIP público igual ao local e ao hash do manifesto `14aa5f2f8e9d16312a9397e2e13e98ddc768aaab228a849825a0b35b336cc99a`. Versão do Worker consultada novamente: flag verdadeira e quatro bindings de secrets presentes, sem acesso a seus valores. Requisição com credencial inválida rejeitada com 403, origem CORS esperada e `no-store`; conferência do backend repetida após ativação. Evidências: `artifacts/release/verification-3.8.382.json` e logs de deploy. Script reproduzível: `node scripts/verificar-publicacao-cartao.mjs` após o build da mesma versão.
+
+Não houve migração de dados, mensagem enviada, designação real de teste, commit ou push. A publicação não comprova piloto, impressão/QR físico, WhatsApp, Android/WebView nem a captura real do mapa em navegador. O ajuste de telas pequenas e a atualização da UI permanecem com conferência visual manual pendente, respeitando a instrução de parar na primeira falha do navegador. A fonte Unicode não depende das fontes do destinatário, mas possui as limitações documentadas na seção 16.
+
+## 18. Ajustes do painel e cartão de uma página — 22/10/2026
+
+Solicitação: ampliar o X no canto superior direito, colocar os três pontos abaixo dele e mover a geração de PDF para esse menu. Aplicado somente ao popup de território, preservando as condições administrativas e os demais fluxos.
+
+PDF: QR vetorial reduzido de 23 para 20 mm no cabeçalho; removidos campo de PIN, instruções e paginação. Créditos e data aparecem somente no rodapé discreto. A lista usa a maior fonte uniforme até 10 pt que caiba na área disponível, medindo todas as quebras antes de desenhar; não há novas páginas nem omissão de endereços. Observações digitais e dados persistidos permanecem sob o contrato anterior.
+
+Validação local: 287 testes unitários/19 arquivos, lint, build e diff-check aprovados. Cinco PDFs sintéticos gerados em `output/pdf/cartao-compacto/`, todos com uma página de 93 × 145 mm: curto, seis endereços de duas linhas (10 pt), seis longos (~7,19 pt), 30 endereços (~3,55 pt) e Unicode. Textos, medidas e margens conferidos por extração; cinco páginas renderizadas e inspecionadas; cinco QRs menores decodificados sem PIN. O exemplo extremo evidencia a perda de legibilidade física ao priorizar uma página. Scripts aceitam `CARTAO_OUTPUT_DIR` para manter as evidências anteriores intactas.
+
+Sem publicação, alteração de versão, commit ou push desta rodada. Conferência visual do popup no navegador, captura cartográfica real e leitura do QR impresso continuam pendentes; não houve nova tentativa de navegador após a falha já registrada.
+
+Complemento do cabeçalho: idioma, cidade e bairro em linhas separadas, após o título. Cidade identificada no endereço com município/UF ou campo explícito, com cidade padrão configurada como alternativa quando ausente; sem geocodificação ou escrita de dados. Cabeçalho ajusta a própria fonte para manter o mapa e a lista nas posições anteriores. Exemplo de seis endereços permanece em uma página e 10 pt na lista. Validação atualizada: 288 testes, lint/build, extração dos cinco PDFs, inspeção do exemplo e cinco QRs decodificados. Sem publicação.
+
+## 19. Publicação dos ajustes do painel e PDF — 22/10/2026
+
+Autorização do usuário: “blz, pode publicar”. Executado `npm.cmd run web:deploy`: frontend/PWA e pacote OTA **3.8.383** publicados em https://territ-es-sbs.web.app, projeto `territ-es-sul-sbs`, somente alvo `hosting:app`. Inclui X ampliado, menu abaixo, geração do cartão dentro do menu, PDF de uma página com QR no cabeçalho e linhas de idioma, cidade e bairro.
+
+Conferência remota às 15:20 (America/Sao_Paulo): versão e manifesto OTA 3.8.383; 32 arquivos do HTML/SW/assets iguais ao build por SHA-256, inclusive módulos do PDF e fonte; ZIP OTA igual ao local e ao hash do manifesto `cf80a54690fcc1a65267521dec7a5f5fba26f9fc0f72c2b3386685e5f3ea5a17`. API existente rejeitou credencial inválida com 403, CORS esperado e `no-store`. Evidência em `artifacts/release/verification-3.8.383.json`.
+
+Backend, Rules e índices não foram republicados nesta rodada. Sem escrita de dados operacionais, commit ou push. Sem nova tentativa de navegador; aceite visual do painel e leitura física do QR permanecem pendentes.

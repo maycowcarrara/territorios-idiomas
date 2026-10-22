@@ -1,7 +1,7 @@
 {
   "date": "2026-10-22",
   "localOnly": true,
-  "unitTests": 279,
+  "unitTests": 285,
   "relayTests": 20,
   "rulesMatrix": "passed",
   "legacySmoke": "passed",
@@ -23,7 +23,7 @@
       "heightMm": 145,
       "qrMm": 23,
       "mapHeightMm": 50.75,
-      "sha256": "a6e45c207af4d3b1897cf4ad20dfdfe3b6faf3f05ed684f36131d27e3d3f342d"
+      "sha256": "c244ea73590dd24d4dc1b1d39802dbaf18d12c63b1f1b0b8a1ab9b22054094e0"
     },
     {
       "file": "paginado.pdf",
@@ -32,10 +32,19 @@
       "heightMm": 145,
       "qrMm": 23,
       "mapHeightMm": 50.75,
-      "sha256": "dc1ea6ac06d9cfef7fb67db8096bd01ccae8f50f58399bacaac8f10aa7988827"
+      "sha256": "1732427b42d36c71f71a638e14db07f2102f13bb6c0f62a937a1d498f0b2c3ce"
+    },
+    {
+      "file": "unicode.pdf",
+      "pages": 2,
+      "widthMm": 93,
+      "heightMm": 145,
+      "qrMm": 23,
+      "mapHeightMm": 50.75,
+      "sha256": "4b46a12888e7c0269d0993e82a400fa6481caf9be7f9e603f1c4220466f7cc76"
     }
   ],
-  "qrDecode": "all four final pages; permanent card URL only",
+  "qrDecode": "all six final pages; permanent card URL only",
   "pending": [
     "real browser map capture and web download",
     "full automatic-link/review UI validation",
@@ -43,5 +52,6 @@
     "real WhatsApp",
     "Android/WebView",
     "production pilot"
-  ]
+  ],
+  "unicodeFontEmbedded": true
 }

@@ -70,7 +70,7 @@ export function createHandler({ storeFactory = createStore, clock } = {}) {
           .get("Authorization")
           ?.match(/^Bearer (.+)$/)?.[1];
         const path = new URL(request.url).pathname;
-        const cardEntry = ["/public/cartao", "/public/acessar-cartao"].includes(path);
+        const cardEntry = ["/public/cartao", "/public/acessar-cartao", "/public/consulta-cartao"].includes(path);
         if ((!token && !cardEntry) || token?.length > 8192)
           throw new ServiceError("Acesso inválido.", 401);
         // Fail closed if production abuse protection was not provisioned.
@@ -89,6 +89,7 @@ export function createHandler({ storeFactory = createStore, clock } = {}) {
         )
           throw new ServiceError("Muitas tentativas. Aguarde um minuto.", 429);
         const isReadRoute =
+          path === "/public/consulta-cartao" ||
           path === "/public/territorio" ||
           path === "/admin/contatos/listar" ||
           path === "/admin/designacoes/listar" ||

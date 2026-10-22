@@ -1,0 +1,63 @@
+{
+  "dados": {
+    "codigo": "T-12",
+    "nome": "Centro - demonstração",
+    "idioma": "Espanhol",
+    "cidade": "São Bento do Sul",
+    "bairro": "Jardim",
+    "url": "https://territ-es-sbs.web.app/#/c/cartao-ficticio",
+    "enderecos": [
+      {
+        "id": "e0",
+        "codigo": "E-1",
+        "endereco": "Rua da Constituição, 1, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+        "lat": -26.25,
+        "lng": -49.38
+      },
+      {
+        "id": "e1",
+        "codigo": "E-2",
+        "endereco": "Rua da Constituição, 2, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+        "lat": -26.249,
+        "lng": -49.379000000000005
+      },
+      {
+        "id": "e2",
+        "codigo": "E-3",
+        "endereco": "Rua da Constituição, 3, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+        "lat": -26.248,
+        "lng": -49.378
+      },
+      {
+        "id": "e3",
+        "codigo": "E-4",
+        "endereco": "Rua da Constituição, 4, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+        "lat": -26.247,
+        "lng": -49.377
+      },
+      {
+        "id": "e4",
+        "codigo": "E-5",
+        "endereco": "Rua da Constituição, 5, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+        "lat": -26.246,
+        "lng": -49.376000000000005
+      },
+      {
+        "id": "e5",
+        "codigo": "E-6",
+        "endereco": "Rua da Constituição, 6, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+        "lat": -26.245,
+        "lng": -49.375
+      }
+    ]
+  },
+  "enderecosImpressos": [
+    "Rua da Constituição, 1, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+    "Rua da Constituição, 2, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+    "Rua da Constituição, 3, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+    "Rua da Constituição, 4, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+    "Rua da Constituição, 5, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar",
+    "Rua da Constituição, 6, bloco B, apartamento 204, Centro, entrada pelos fundos, portão azul, próximo à praça central e ao mercado, segundo andar"
+  ],
+  "pages": 1
+}

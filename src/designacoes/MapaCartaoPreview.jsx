@@ -28,5 +28,5 @@ export default function MapaCartaoPreview({dados,capturaRef,onEstado}) {
     capturaRef.current=()=>{if(failed) throw new Error("Mapa incompleto. PDF não gerado.");return capturarMapaVisivel({container:root.current,map,layer,pontos});};
     return ()=>{clearTimeout(timer);observer.disconnect();capturaRef.current=null;map.remove();};
   },[dados,capturaRef,onEstado]);
-  return <div ref={root} role="img" aria-label="Prévia cartográfica do cartão com os códigos dos endereços" style={{width:"100%",maxWidth:420,aspectRatio:"87 / 50.75",margin:"12px auto",border:"1px solid #cbd5e1"}} />;
+  return <div ref={root} role="img" aria-label="Prévia cartográfica do cartão com os códigos dos endereços" style={{width:"min(100cqw, 171.42cqh, 420px)",aspectRatio:"87 / 50.75",border:"1px solid #cbd5e1"}} />;
 }

@@ -1,5 +1,9 @@
 // Public-screen copy only. Stored addresses, API payloads and business dates stay unchanged.
 export const mensagensPublicas = {
+  enableMarks: ["Habilitar marcações", "Enable marking", "Habilitar marcas"],
+  fourDigitCode: ["Código de quatro dígitos", "Four-digit code", "Código de cuatro dígitos"],
+  enable: ["Habilitar", "Enable", "Habilitar"],
+  cancelEnable: ["Cancelar", "Cancel", "Cancelar"],
   accessCode: ["Código de acesso", "Access code", "Código de acceso"],
   openCard: ["Abrir território", "Open territory", "Abrir territorio"],
   askAssignment: ["Peça ao dirigente para designar este território para você.", "Ask the coordinator to assign this territory to you.", "Pida al encargado que le asigne este territorio."],

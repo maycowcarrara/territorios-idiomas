@@ -24,13 +24,17 @@ const resultados = {
   prazo_expirado: "returnedExpired",
 };
 
-export default function TerritorioPublico({ credencial, revisar }) {
+export default function TerritorioPublico({ credencial, revisar, consulta, modoConsulta = false, cabecalho, cartaoId, onPerdaAutorizacao }) {
   const params = useParams();
   const token = credencial || params.token;
   const revisao = revisar || params.revisao;
   const idioma = useIdiomaPublico();
   const { t } = idioma;
-  const [dados, setDados] = useState(null);
+  const [operacionais, setDados] = useState(null);
+  const emConsulta = modoConsulta || Boolean(consulta);
+  const dados = emConsulta ? consulta : operacionais;
+  const [autorizado, setAutorizado] = useState(false);
+  const podeOperar = Boolean(!emConsulta && token && autorizado && dados && !dados.comprovante);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [operacao, setOperacao] = useState(null);
@@ -41,6 +45,7 @@ export default function TerritorioPublico({ credencial, revisar }) {
   const [aviso, setAviso] = useState("");
   const ocupado = useRef(false);
   const reqSeq = useRef(0);
+  const revalidacaoPendente = useRef(false);
   const revisaoAplicada = useRef(false);
   const titulo = useRef(null);
   const confirmarRef = useRef(null);
@@ -48,25 +53,30 @@ export default function TerritorioPublico({ credencial, revisar }) {
   const devolverRef = useRef(null);
   const carregar = useCallback(
     async ({ manterAviso = false } = {}) => {
-      if (ocupado.current) return false;
+      if (emConsulta || !token) return false;
+      if (ocupado.current) { revalidacaoPendente.current = true; return false; }
+      setAutorizado(false);
       const seq = ++reqSeq.current;
       try {
         const result = await designacoesRequest(
           "/public/territorio",
-          {},
+          cartaoId ? { cartaoId } : {},
           token,
         );
         if (ocupado.current || seq !== reqSeq.current) return false;
         setDados(result);
+        setAutorizado(true);
         if (!manterAviso) setErro("");
         return true;
       } catch (e) {
         if (ocupado.current || seq !== reqSeq.current) return false;
         setErro(e);
+        setConfirmacao(false);
+        if ([401, 403, 410, 409].includes(e.code)) onPerdaAutorizacao?.(e);
         return false;
       }
     },
-    [token],
+    [token, emConsulta, cartaoId, onPerdaAutorizacao],
   );
   useEffect(() => {
     const meta = document.createElement("meta");
@@ -81,6 +91,8 @@ export default function TerritorioPublico({ credencial, revisar }) {
     let timer = null;
     const revalidar = () => {
       if (document.visibilityState === "visible") {
+        if (ocupado.current) { revalidacaoPendente.current = true; return; }
+        if (!emConsulta) setAutorizado(false);
         clearTimeout(timer);
         timer = setTimeout(() => void carregar(), 80);
       }
@@ -88,13 +100,16 @@ export default function TerritorioPublico({ credencial, revisar }) {
     window.addEventListener("focus", revalidar);
     document.addEventListener("visibilitychange", revalidar);
     return () => {
+      // Request generation, not a DOM reference.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      reqSeq.current++;
       clearTimeout(timer);
       meta.remove();
       robots.remove();
       window.removeEventListener("focus", revalidar);
       document.removeEventListener("visibilitychange", revalidar);
     };
-  }, [carregar]);
+  }, [carregar, emConsulta]);
   useEffect(() => {
     const anterior = document.documentElement.lang;
     const tituloAnterior = document.title;
@@ -122,7 +137,7 @@ export default function TerritorioPublico({ credencial, revisar }) {
       focoAntesSalvar.current = null;
     }
   }, [salvando, dados, confirmacao]);
-  const carregado = Boolean(dados && !dados.comprovante);
+  const carregado = podeOperar;
   useEffect(() => {
     if (revisao && carregado && !revisaoAplicada.current) {
       revisaoAplicada.current = true;
@@ -135,7 +150,7 @@ export default function TerritorioPublico({ credencial, revisar }) {
     }
   }, [revisao, carregado]);
   async function salvar(acao, body) {
-    if (ocupado.current) return;
+    if (!podeOperar || ocupado.current) return;
     if (acao === "concluir" && outroDia) {
       try {
         validarDataCobertura(
@@ -160,6 +175,7 @@ export default function TerritorioPublico({ credencial, revisar }) {
         `/public/${acao}`,
         {
           ...body,
+          ...(cartaoId ? { cartaoId } : {}),
           composicaoVersao: dados.composicaoVersao,
           progressoVersao: dados.progressoVersao,
         },
@@ -182,6 +198,12 @@ export default function TerritorioPublico({ credencial, revisar }) {
     } catch (e) {
       const mensagemServidor = e;
       setErro(mensagemServidor);
+      if ([401, 403, 410].includes(e.code)) {
+        setAutorizado(false); setConfirmacao(false);
+        onPerdaAutorizacao?.(e);
+      } else if (e.code !== 409) {
+        setAutorizado(false); setConfirmacao(false);
+      }
       if (e.code === 409) {
         setConfirmacao(false);
         setDeclaracao(false);
@@ -197,6 +219,10 @@ export default function TerritorioPublico({ credencial, revisar }) {
       ocupado.current = false;
       setSalvando(false);
       setOperacao(null);
+      if (revalidacaoPendente.current) {
+        revalidacaoPendente.current = false;
+        void carregar({ manterAviso: true });
+      }
     }
   }
   const total = dados?.enderecos?.length || 0;
@@ -211,7 +237,7 @@ export default function TerritorioPublico({ credencial, revisar }) {
     );
   };
 
-  if (dados?.comprovante) {
+  if (!emConsulta && dados?.comprovante) {
     const c = dados.comprovante;
     return (
       <div lang={idioma.locale} className="territorio-publico tp-receipt-page">
@@ -262,12 +288,12 @@ export default function TerritorioPublico({ credencial, revisar }) {
     );
   }
   return (
-    <div lang={idioma.locale} className="territorio-publico">
+    <div lang={idioma.locale} className={`territorio-publico${!podeOperar ? " tp-consulta" : ""}`}>
       <main className="tp-page">
         <header className="tp-header">
           <div className="tp-header-top">
             <span className="tp-eyebrow">{t("yourTerritory")}</span>
-            <div className="tp-header-feedback">
+            {podeOperar && <div className="tp-header-feedback">
               {!salvando && !aviso && (
                 <span className="tp-private-note">{t("followHere")}</span>
               )}
@@ -294,20 +320,22 @@ export default function TerritorioPublico({ credencial, revisar }) {
                   </>
                 )}
               </span>
-            </div>
+            </div>}
           </div>
           <h1 ref={titulo} tabIndex={-1}>
-            {dados ? dados.nome : t("opening")}
+            {dados?.nome || t("opening")}
           </h1>
+          {cabecalho}
           {dados && (
             <>
               <div className="tp-header-meta">
                 <span className="tp-territory-code">{dados.codigo}</span>
-                <span>
+                {podeOperar && <span>
                   {t("returnBy")}{" "}
                   <strong>{idioma.formatarData(dados.expiraEm)}</strong>
-                </span>
+                </span>}
               </div>
+              {podeOperar && <>
               <div className="tp-progress-summary">
                 <p>
                   <strong>{feitos}</strong> {t("of")} {total}{" "}
@@ -327,6 +355,7 @@ export default function TerritorioPublico({ credencial, revisar }) {
                   style={{ width: `${total ? (feitos / total) * 100 : 0}%` }}
                 />
               </div>
+              </>}
             </>
           )}
         </header>
@@ -369,7 +398,8 @@ export default function TerritorioPublico({ credencial, revisar }) {
               >
                 <MapaTerritorioPublico
                   enderecos={dados.enderecos}
-                  feitos={dados.feitos}
+                  podeMarcar={podeOperar}
+                  feitos={podeOperar ? dados.feitos : undefined}
                   salvando={salvando}
                   operacao={operacao}
                   idioma={idioma}
@@ -378,7 +408,7 @@ export default function TerritorioPublico({ credencial, revisar }) {
                   }
                 />
               </Suspense>
-              <div className="tp-map-legend">
+              {podeOperar && <div className="tp-map-legend">
                 <span>
                   <i className="tp-legend-pending" />
                   {t("pending")}
@@ -386,11 +416,10 @@ export default function TerritorioPublico({ credencial, revisar }) {
                 <span>
                   <i className="tp-legend-done" />✓ {t("done")}
                 </span>
-                <span className="tp-map-gesture">{t("zoomHint")}</span>
-              </div>
+              </div>}
             </section>
 
-            {dados.herdados.length > 0 && (
+            {podeOperar && dados.herdados.length > 0 && (
               <p className="tp-inherited">
                 <span aria-hidden="true">↪</span>
                 <span>{t("inherited", { count: dados.herdados.length })}</span>
@@ -409,10 +438,10 @@ export default function TerritorioPublico({ credencial, revisar }) {
                 </div>
               </div>
               <fieldset disabled={salvando} aria-busy={salvando}>
-                <legend className="sr-only">{t("markAddresses")}</legend>
+                {podeOperar && <legend className="sr-only">{t("markAddresses")}</legend>}
                 <ul className="tp-address-list">
                   {dados.enderecos.map((e) => {
-                    const feito = dados.feitos.includes(e.id);
+                    const feito = podeOperar && dados.feitos.includes(e.id);
                     const marcando = salvando && operacao?.enderecoId === e.id;
                     return (
                       <li
@@ -421,21 +450,21 @@ export default function TerritorioPublico({ credencial, revisar }) {
                       >
                         <div className="tp-address-card-top">
                           <span className="tp-address-code">{e.codigo}</span>
-                          <span
+                          {podeOperar && <span
                             className={`tp-state${feito ? " tp-state-done" : ""}`}
                           >
                             {feito ? `✓ ${t("done")}` : t("pending")}
-                          </span>
+                          </span>}
                         </div>
                         <p className="tp-address-text">{e.endereco}</p>
-                        {e.observacao && <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><strong>{t("observations")}</strong><p>{e.observacao}</p></div>}
-                        {dados.herdados.includes(e.id) && (
+                        {e.observacao && <div className="tp-address-observation"><strong>{t("observations")}</strong><p>{e.observacao}</p></div>}
+                        {podeOperar && dados.herdados.includes(e.id) && (
                           <p className="tp-inherited-note">
                             {t("inheritedDone")}
                           </p>
                         )}
                         <div className="tp-address-actions">
-                          <label
+                          {podeOperar && <label
                             className={`tp-mark-action${feito ? " tp-mark-action-done" : ""}${marcando ? " tp-mark-action-saving" : ""}`}
                             aria-busy={marcando}
                           >
@@ -457,7 +486,7 @@ export default function TerritorioPublico({ credencial, revisar }) {
                               />
                             )}
                             <span>{marcando ? t("saving") : t("done")}</span>
-                          </label>
+                          </label>}
                           <a
                             className="tp-button tp-button-secondary"
                             href={getNavegacaoEndereco(e)}
@@ -473,11 +502,11 @@ export default function TerritorioPublico({ credencial, revisar }) {
                 </ul>
               </fieldset>
             </section>
-            <p className="tp-bottom-hint">{t("bottomHint")}</p>
+            {podeOperar && <p className="tp-bottom-hint">{t("bottomHint")}</p>}
           </>
         )}
       </main>
-      {dados && (
+      {podeOperar && (
         <footer className="tp-bottom-bar">
           <div className="tp-bottom-bar-inner">
             <div className="tp-bottom-progress">
@@ -516,7 +545,7 @@ export default function TerritorioPublico({ credencial, revisar }) {
         </footer>
       )}
 
-      {dados && confirmacao && (
+      {podeOperar && confirmacao && (
         <ModalConfirmacaoPublica
           ocupado={salvando}
           idioma={idioma}

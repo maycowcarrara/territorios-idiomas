@@ -1,5 +1,5 @@
 import IconeNavegacao from "./IconeNavegacao";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -47,6 +47,7 @@ function PontoEndereco({
   endereco,
   posicao,
   feito,
+  podeMarcar,
   salvando,
   onMarcar,
   limitesPopup,
@@ -55,6 +56,8 @@ function PontoEndereco({
 }) {
   const map = useMap();
   const { t } = idioma;
+  const markerRef = useRef(null);
+  const tituloMarcador = `${endereco.codigo}: ${endereco.endereco}${podeMarcar ? ` — ${t(feito ? "done" : "pending")}` : ""}`;
   const icon = useMemo(
     () =>
       L.divIcon({
@@ -66,11 +69,20 @@ function PontoEndereco({
       }),
     [endereco.codigo, feito],
   );
+  useEffect(() => {
+    // React-Leaflet updates the icon but does not update Marker title options.
+    // Keep the existing marker/popup and synchronize its actual accessible tooltip.
+    const marker = markerRef.current;
+    if (!marker) return;
+    marker.options.title = tituloMarcador;
+    marker.getElement()?.setAttribute("title", tituloMarcador);
+  }, [icon, tituloMarcador]);
   return (
     <Marker
+      ref={markerRef}
       position={posicao}
       icon={icon}
-      title={`${endereco.codigo}: ${endereco.endereco} — ${t(feito ? "done" : "pending")}`}
+      title={tituloMarcador}
       alt={`${endereco.codigo}: ${endereco.endereco}`}
     >
       <Popup
@@ -93,11 +105,12 @@ function PontoEndereco({
         <div className="tp-map-popup-content">
           <div className="tp-map-popup-header">
             <strong>{endereco.codigo}</strong>
-            <span className={`tp-state ${feito ? "tp-state-done" : ""}`}>
+            {podeMarcar && <span className={`tp-state ${feito ? "tp-state-done" : ""}`}>
               {t(feito ? "done" : "pending")}
-            </span>
+            </span>}
           </div>
           <p>{endereco.endereco}</p>
+          {endereco.observacao && <p className="tp-popup-observation">{endereco.observacao}</p>}
           <div className="tp-map-popup-actions">
             <a
               className="tp-button tp-button-secondary"
@@ -107,17 +120,17 @@ function PontoEndereco({
             >
               <IconeNavegacao /> {t("navigate")}
             </a>
-            <button
+            {podeMarcar && <button
               type="button"
               className={`tp-button ${feito ? "tp-button-secondary" : "tp-button-primary"}`}
               disabled={salvando}
               aria-busy={marcando}
               aria-label={`${t(feito ? "unmark" : "markDone")}: ${endereco.codigo}`}
-              onClick={() => onMarcar(endereco.id, !feito)}
+              onClick={() => podeMarcar && onMarcar?.(endereco.id, !feito)}
             >
               {marcando && <span className="tp-spinner" aria-hidden="true" />}
               {t(marcando ? "saving" : feito ? "unmark" : "done")}
-            </button>
+            </button>}
           </div>
         </div>
       </Popup>
@@ -125,7 +138,7 @@ function PontoEndereco({
   );
 }
 
-function PontosMapa({ pontos, feitos, salvando, operacao, onMarcar, idioma }) {
+function PontosMapa({ pontos, podeMarcar, feitos, salvando, operacao, onMarcar, idioma }) {
   const map = useMap();
   const [tamanho, setTamanho] = useState(() => map.getSize());
   useEffect(() => {
@@ -138,7 +151,7 @@ function PontosMapa({ pontos, feitos, salvando, operacao, onMarcar, idioma }) {
   }, [map]);
   const limitesPopup = {
     largura: Math.max(160, Math.min(260, tamanho.x - 64)),
-    altura: Math.max(80, tamanho.y - 120),
+    altura: Math.max(80, tamanho.y - 80),
   };
   return pontos.map(({ endereco, posicao }) => (
     <PontoEndereco
@@ -146,7 +159,8 @@ function PontosMapa({ pontos, feitos, salvando, operacao, onMarcar, idioma }) {
       endereco={endereco}
       idioma={idioma}
       posicao={posicao}
-      feito={feitos.includes(endereco.id)}
+      podeMarcar={podeMarcar}
+      feito={podeMarcar && feitos.includes(endereco.id)}
       salvando={salvando}
       onMarcar={onMarcar}
       limitesPopup={limitesPopup}
@@ -157,6 +171,7 @@ function PontosMapa({ pontos, feitos, salvando, operacao, onMarcar, idioma }) {
 
 export default function MapaTerritorioPublico({
   enderecos,
+  podeMarcar = false,
   feitos,
   salvando,
   operacao,
@@ -217,6 +232,7 @@ export default function MapaTerritorioPublico({
         <EnquadrarEnderecos pontos={posicoesEstaveis} />
         <PontosMapa
           pontos={pontos}
+          podeMarcar={podeMarcar}
           feitos={feitos}
           salvando={salvando}
           operacao={operacao}

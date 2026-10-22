@@ -1,0 +1,17 @@
+{
+  "version": "3.8.382",
+  "filesChecked": 32,
+  "allFilesMatch": true,
+  "fontAssetChecked": true,
+  "bundleSha256": "14aa5f2f8e9d16312a9397e2e13e98ddc768aaab228a849825a0b35b336cc99a",
+  "bundleMatches": true,
+  "apiInvalidTokenStatus": 403,
+  "corsMatches": true,
+  "noStore": true,
+  "productionDataWritten": false,
+  "checkedAt": "2026-10-22T15:45:27.355Z",
+  "workerVersion": "164717d5-a718-47d5-ae47-8854a95821c6",
+  "pinEnabled": true,
+  "requiredSecretBindingsPresent": true,
+  "backendCheckedAt": "2026-10-22T15:47:33.220Z"
+}
