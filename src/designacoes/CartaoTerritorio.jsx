@@ -1,9 +1,10 @@
-import React,{lazy,Suspense,useEffect,useLayoutEffect,useRef,useState} from "react";
+import React,{lazy,Suspense,useLayoutEffect,useRef,useState} from "react";
 import { createPortal } from "react-dom";
 import { adminDesignacoesRequest } from "../designacoesAdminApi";
 import { exportarPdfParaDispositivo } from "../pdfExport";
 import { cidadeParaCartao } from "./enderecoCartao";
 const MapaCartaoPreview=lazy(()=>import("./MapaCartaoPreview"));
+const CartaoPdfPreview=lazy(()=>import("./CartaoPdfPreview"));
 
 export default function CartaoTerritorio({grupo,menu=false,disabled=false,cidadePadrao=""}) {
   const [busy,setBusy]=useState(false),[erro,setErro]=useState(""),[dados,setDados]=useState(null),[preview,setPreview]=useState(null);
@@ -11,7 +12,6 @@ export default function CartaoTerritorio({grupo,menu=false,disabled=false,cidade
   const wasOpen=useRef(false);
   const dialog=useRef(null),capture=useRef(null),trigger=useRef(null),lock=useRef(false);
   const aberto=Boolean(dados||preview);
-  useEffect(()=>()=>{if(preview)URL.revokeObjectURL(preview.url);},[preview]);
   useLayoutEffect(()=>{
     if(aberto && !dialog.current?.open) dialog.current?.showModal();
     if(!aberto && wasOpen.current) trigger.current?.focus();
@@ -35,7 +35,7 @@ export default function CartaoTerritorio({grupo,menu=false,disabled=false,cidade
   async function compor(current,mapa) {
     const {criarCartaoPdf}=await import("./cartaoPdf");
     const doc=await criarCartaoPdf(current,mapa);
-    setPreview({doc,dados:current,url:URL.createObjectURL(doc.output("blob"))});
+    setPreview({doc,dados:current,bytes:doc.output("arraybuffer")});
     setDados(null);
   }
   function fechar() {if(busy)return;setDados(null);setPreview(null);setErro("");}
@@ -57,9 +57,9 @@ export default function CartaoTerritorio({grupo,menu=false,disabled=false,cidade
         {mapState.erro?<p role="alert">{mapState.erro}</p>:!mapState.pronto&&<p role="status">Carregando mapa…</p>}
       </>}
       {preview&&<>
-        <p>{preview.doc.getNumberOfPages()} página(s), 93 × 145 mm. {preview.dados.arquivados} endereço(s) arquivado(s) excluído(s).</p>
+        <p>{preview.doc.getNumberOfPages()} página(s), 93 × 145 mm. {preview.dados.arquivados} endereço(s) arquivado(s) e {preview.dados.cancelados || 0} cancelado(s) omitido(s).</p>
         <p>Confira se as ruas e os códigos estão legíveis antes de imprimir. QR permanente. Informe o código recebido do dirigente. Este PDF não designa nem renova o acesso.</p>
-        <object data={preview.url} type="application/pdf" width="100%" height="450" aria-label="PDF do cartão"><a href={preview.url}>Ver prévia</a></object>
+        <Suspense fallback={<p role="status">Abrindo PDF…</p>}><CartaoPdfPreview bytes={preview.bytes}/></Suspense>
         <button type="button" className="rounded bg-blue-700 p-3 text-white" disabled={busy} onClick={()=>void acao(()=>exportarPdfParaDispositivo(preview.doc,`territorio-${preview.dados.codigo}-cartao-${new Date().toISOString().slice(0,10)}.pdf`,{pasta:"cartoes",texto:"Cartão de território em PDF"}))}>Baixar / compartilhar PDF</button>
       </>}
       <button type="button" className="ml-3 rounded border p-3" style={{flexShrink:0}} disabled={busy} onClick={fechar}>Fechar prévia</button>

@@ -11,6 +11,12 @@ for name in ['curto','seis','longo','paginado']:
  clean=lambda s: re.sub(r'\s+','',s)
  for endereco in d['enderecosImpressos']:
   assert clean(endereco) in clean(text), endereco
+ for endereco in d['dados']['enderecos']:
+  if endereco.get('observacao'):
+   assert clean(endereco['observacao']) in clean(text), endereco['observacao']
+ assert 'Obs.:' in text
+ for label in ['Confirmado', 'Verificar', 'Estudo']:
+  assert label in text
  assert text.count('São Bento do Sul')==1
  assert 'Bairro: Jardim' in text
  assert 'Leia o QR' not in text and 'Código de acesso:' not in text
@@ -24,6 +30,8 @@ for name in ['curto','seis','longo','paginado']:
   addresses=[c for c in p.chars if c['top']>78*72/25.4 and c['top']<138*72/25.4]
   assert addresses and all(2.9*72/25.4<=c['x0'] and c['x1']<=90.1*72/25.4 for c in addresses)
   assert max(c['bottom'] for c in addresses)<139*72/25.4
+  obs=p.search('Obs.:')[0]['chars']
+  assert abs(obs[0]['size']/addresses[0]['size']-0.8)<0.001
   print(name, 'fonte da lista:',round(addresses[0]['size'],2),'pt; sem corte lateral ou no rodape')
 
 with pdfplumber.open(output/'unicode.pdf') as pdf:

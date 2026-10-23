@@ -1,4 +1,4 @@
-import { criarCartaoPdf, ajustarListaCartao } from "../../src/designacoes/cartaoPdf.js";
+import { criarCartaoPdf, ajustarListaCartao, ajustarEnderecosCartao } from "../../src/designacoes/cartaoPdf.js";
 import { jsPDF } from "jspdf";
 import { cidadeParaCartao } from "../../src/designacoes/enderecoCartao.js";
 import { readFileSync } from "node:fs";
@@ -43,6 +43,30 @@ describe("mapa estático e busca",()=>{
 });
 
 describe("limites do PDF",()=>{
+ it("mede observações com fonte 20% menor e inclui a classe antes do endereço",()=>{
+   const doc=new jsPDF({unit:"mm"});
+   const enderecos=["confirmado","verificar","estudo"].map(classe=>({codigo:"E-1",classe,endereco:"Rua Um, 12",observacao:"Portão azul\nEntrada lateral"}));
+   for (const height of [59,15]) {
+     const layout=ajustarEnderecosCartao(doc,enderecos,87,height);
+     expect(layout.height).toBeLessThanOrEqual(height);
+     expect(layout.itens.map(item=>item.linhas.join(" "))).toEqual(["Confirmado","Verificar","Estudo"].map(label=>`E-1 - ${label} - Rua Um, 12`));
+     for (const item of layout.itens) {
+       expect(item.obsFontSize).toBeCloseTo(layout.fontSize*0.8);
+       expect(item.obsLineHeight).toBeLessThan(item.lineHeight);
+       expect(item.observacoes.join(" ")).toContain("Entrada lateral");
+     }
+   }
+ });
+ it("imprime observação abaixo do endereço, preservando as quebras de linha",async()=>{
+   const validMap={dataUrl:await QRCode.toDataURL("fixture"),creditos:"Fixture",width:1100,height:530};
+   const doc=await criarCartaoPdf({codigo:"T-1",nome:"Centro",url:"https://local/#/c/c1",enderecos:[{codigo:"E-1",endereco:"Rua Um, 12",observacao:"Portao azul\nEntrada lateral"},{codigo:"E-2",endereco:"Rua Dois, 20",observacao:"   "}]},validMap);
+   const content=doc.internal.pages[1].join("\n");
+   expect(content).toContain("Obs.: Portao azul");
+   expect(content).toContain("Entrada lateral");
+   expect(content.match(/Obs\.:/g)).toHaveLength(1);
+   expect(content.indexOf("Rua Um")).toBeLessThan(content.indexOf("Obs.:"));
+   expect(content.indexOf("Entrada lateral")).toBeLessThan(content.indexOf("Rua Dois"));
+ });
  it("usa a cidade dos endereços e recorre ao padrão apenas na ausência dela",()=>{
    expect(cidadeParaCartao({enderecos:[{endereco:"Rua Um, 12, Joinville - SC, 89200-000 — Centro"}]},"São Bento do Sul")).toBe("Joinville");
    expect(cidadeParaCartao({enderecos:[{endereco:"Rua Um, 12, São Bento do Sul - SC"},{endereco:"Rua Dois, 20, Joinville - SC"}]})).toBe("São Bento do Sul / Joinville");
@@ -77,7 +101,7 @@ describe("limites do PDF",()=>{
  it("incorpora glifos para os idiomas e №, sem depender das fontes do aparelho",async()=>{
    const carregarFonte=async()=>readFileSync(new URL("../../src/designacoes/fonts/unifont.ttf",import.meta.url)).toString("base64");
    const validMap={...mapa,dataUrl:await QRCode.toDataURL("fixture")};
-   const source={codigo:"T-1",nome:"Русский Українська",url:"https://local/#/c/c1",enderecos:[{codigo:"E-1",endereco:"Rua № 1 — 中文 日本語 한국어 العربية"}]};
+   const source={codigo:"T-1",nome:"Русский Українська",url:"https://local/#/c/c1",enderecos:[{codigo:"E-1",endereco:"Rua № 1 — 中文 日本語 한국어 العربية",observacao:"中文 日本語"}]};
    const doc=await criarCartaoPdf(source,validMap,new Date(),{carregarFonte});
    expect(doc.getFontList()).toHaveProperty("cartao");
    expect(doc.getNumberOfPages()).toBe(1);

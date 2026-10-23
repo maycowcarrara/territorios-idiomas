@@ -125,7 +125,7 @@ export const MarcadorUsuario = ({ posicao, direcao, canCreate = false, onCreate 
                         Compartilhar Local
                     </button>
                     {canCreate && (
-                        <button onClick={cadastrarEnderecoAqui} className="popup-btn-action bg-teal-700 text-white hover:bg-teal-800 text-xs py-1 px-3 shadow-md">
+                        <button onClick={cadastrarEnderecoAqui} className="popup-btn-action bg-blue-600 text-white hover:bg-blue-700 text-xs py-1 px-3 shadow-md">
                             Cadastrar endereço
                         </button>
                     )}

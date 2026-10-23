@@ -1562,7 +1562,8 @@ export async function adicionarEnderecosAoGrupo(db, { enderecoIds, grupoId, user
     });
 }
 
-export async function setGrupoEnderecoArquivado(db, grupoId, arquivar, user) {
+export async function setGrupoEnderecoArquivado(db, grupoId, arquivar, user, { somenteSeVazio = false } = {}) {
+    if (!isAdminActor(user)) throw new Error('Apenas administradores podem arquivar ou reativar territórios.');
     const agora = new Date();
     const actorEmail = buildActorEmail(user);
 
@@ -1576,6 +1577,9 @@ export async function setGrupoEnderecoArquivado(db, grupoId, arquivar, user) {
 
         const grupo = grupoSnapshot.data();
         assertOperacaoSemLink(grupo);
+        if (somenteSeVazio && (ensureArray(grupo.enderecoIds).length || Number(grupo.totalEnderecos) > 0)) {
+            throw new Error('O território recebeu endereços enquanto você confirmava. Revise o cadastro antes de arquivar.');
+        }
         ensureArray(grupo.enderecoIds).forEach((enderecoId) => {
             transaction.set(getEnderecoRef(db, enderecoId), {
                 grupoDesignadoPara: arquivar ? null : (grupo.designadoPara || null),
@@ -1947,6 +1951,7 @@ export async function removerEnderecoDoGrupo(db, { enderecoId, grupoId, user }) 
             atualizadoEm: agora,
             atualizadoPor: actorEmail
         }, { merge: true });
+        return { grupoId, codigo: grupo.codigo, grupoFicouVazio: proximosEnderecoIds.length === 0 };
     });
 }
 

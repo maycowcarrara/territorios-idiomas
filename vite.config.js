@@ -90,7 +90,7 @@ export default defineConfig(({ mode }) => {
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg}'],
         globIgnores: [
           '**/play-feature-graphic.png',
           '**/icon-general-*.png',

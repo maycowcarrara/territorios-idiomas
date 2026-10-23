@@ -1,0 +1,13 @@
+{
+  "version": "3.9.388",
+  "filesChecked": 34,
+  "allFilesMatch": true,
+  "fontAssetChecked": true,
+  "bundleSha256": "5145698c96d7934be1bea1094497495f7fe2d951de245a81ca5cb8085a947a9b",
+  "bundleMatches": true,
+  "apiInvalidTokenStatus": 403,
+  "corsMatches": true,
+  "noStore": true,
+  "productionDataWritten": false,
+  "checkedAt": "2026-10-23T14:13:28.838Z"
+}

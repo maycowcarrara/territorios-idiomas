@@ -49,7 +49,7 @@ export const SeletorCamadas = ({
                         <button
                             type="button"
                             onClick={() => onChangeModoVisualizacao(MAPA_VISUALIZACAO.TERRITORIOS)}
-                            className={`flex h-8 sm:h-9 items-center justify-center text-xs font-black transition-all ${modoVisualizacao === MAPA_VISUALIZACAO.TERRITORIOS ? 'bg-indigo-700 text-white' : 'bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`}
+                            className={`flex h-8 sm:h-9 items-center justify-center text-xs font-black transition-all ${modoVisualizacao === MAPA_VISUALIZACAO.TERRITORIOS ? 'bg-blue-600 text-white' : 'bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`}
                             title="Ver territórios (T)"
                             aria-label="Ver territórios"
                         >
@@ -58,7 +58,7 @@ export const SeletorCamadas = ({
                         <button
                             type="button"
                             onClick={() => onChangeModoVisualizacao(MAPA_VISUALIZACAO.ENDERECOS)}
-                            className={`flex h-8 sm:h-9 items-center justify-center border-t border-slate-200/70 text-xs font-black transition-all ${modoVisualizacao === MAPA_VISUALIZACAO.ENDERECOS ? 'bg-teal-700 text-white' : 'bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`}
+                            className={`flex h-8 sm:h-9 items-center justify-center border-t border-slate-200/70 text-xs font-black transition-all ${modoVisualizacao === MAPA_VISUALIZACAO.ENDERECOS ? 'bg-blue-600 text-white' : 'bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`}
                             title="Ver endereços (E)"
                             aria-label="Ver endereços"
                         >
@@ -73,7 +73,7 @@ export const SeletorCamadas = ({
                     <button
                         type="button"
                         onClick={() => setShowRefs(!showRefs)}
-                        className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center border shadow-md shadow-slate-900/10 backdrop-blur-md transition-all active:scale-95 ${showRefs ? 'border-blue-500 bg-blue-50/95 text-blue-600 ring-2 ring-blue-500/20' : 'border-slate-200/90 bg-white/95 text-slate-400 hover:text-slate-600'}`}
+                        className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center border shadow-md shadow-slate-900/10 backdrop-blur-md transition-all active:scale-95 ${showRefs ? 'border-blue-300 bg-blue-50/95 text-blue-700' : 'border-slate-200/90 bg-white/95 text-slate-400 hover:text-slate-600'}`}
                         title="Mostrar/Ocultar Pontos de Referência"
                         aria-pressed={showRefs}
                     >
@@ -90,7 +90,7 @@ export const SeletorCamadas = ({
                     <button
                         type="button"
                         onClick={() => setShowCondos(!showCondos)}
-                        className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center border shadow-md shadow-slate-900/10 backdrop-blur-md transition-all active:scale-95 ${showCondos ? 'border-orange-500 bg-orange-50/95 text-orange-600 ring-2 ring-orange-500/20' : 'border-slate-200/90 bg-white/95 text-slate-400 hover:text-slate-600'}`}
+                        className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center border shadow-md shadow-slate-900/10 backdrop-blur-md transition-all active:scale-95 ${showCondos ? 'border-blue-300 bg-blue-50/95 text-blue-700' : 'border-slate-200/90 bg-white/95 text-slate-400 hover:text-slate-600'}`}
                         title="Mostrar/Ocultar Condomínios"
                         aria-pressed={showCondos}
                     >
@@ -106,7 +106,7 @@ export const SeletorCamadas = ({
                     <button
                         type="button"
                         onClick={() => setShowBairros(!showBairros)}
-                        className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center border shadow-md shadow-slate-900/10 backdrop-blur-md transition-all active:scale-95 ${showBairros ? 'border-teal-600 bg-teal-50/95 text-teal-700 ring-2 ring-teal-500/20' : 'border-slate-200/90 bg-white/95 text-slate-400 hover:text-slate-600'}`}
+                        className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center border shadow-md shadow-slate-900/10 backdrop-blur-md transition-all active:scale-95 ${showBairros ? 'border-blue-300 bg-blue-50/95 text-blue-700' : 'border-slate-200/90 bg-white/95 text-slate-400 hover:text-slate-600'}`}
                         title="Mostrar/Ocultar bairros urbanos"
                         aria-pressed={showBairros}
                     >

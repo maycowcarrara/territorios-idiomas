@@ -21,7 +21,7 @@ Escopo: territórios de idiomas baseados em `grupos_enderecos` e `enderecos`. N�
 1. PDF vertical de **93 mm de largura por 145 mm de altura**.
 2. Mapa abaixo do cabeçalho, QR discreto ao lado do título e restante da página dedicado aos endereços. Rodapé somente com créditos e data. Uma única página, com redução uniforme da fonte quando necessário (revisão da seção 18).
 3. Mapa com pontos identificados pelos códigos dos endereços, correspondentes à lista. Não colocar observações ou textos completos sobre cada ponto.
-4. Lista impressa com código e endereço completo. Observações ficam na consulta digital, abaixo de cada endereço.
+4. Lista impressa com código e endereço completo. Conforme ajuste solicitado em 23/10/2026 (seção 20), incluir também a observação atual abaixo de cada endereço no PDF e manter sua exibição na consulta digital.
 5. Um QR por cartão/território, permanente entre designações, sem senha ou código corrente embutido.
 6. Um código numérico de **quatro dígitos** por acesso vigente, preservando zeros à esquerda. Exemplo fictício: `0482`.
 7. QR físico pede somente o código. Não pede telefone, país, senha de conta, SMS ou confirmação de posse do número.
@@ -447,3 +447,39 @@ Autorização do usuário: “blz, pode publicar”. Executado `npm.cmd run web:
 Conferência remota às 15:20 (America/Sao_Paulo): versão e manifesto OTA 3.8.383; 32 arquivos do HTML/SW/assets iguais ao build por SHA-256, inclusive módulos do PDF e fonte; ZIP OTA igual ao local e ao hash do manifesto `cf80a54690fcc1a65267521dec7a5f5fba26f9fc0f72c2b3386685e5f3ea5a17`. API existente rejeitou credencial inválida com 403, CORS esperado e `no-store`. Evidência em `artifacts/release/verification-3.8.383.json`.
 
 Backend, Rules e índices não foram republicados nesta rodada. Sem escrita de dados operacionais, commit ou push. Sem nova tentativa de navegador; aceite visual do painel e leitura física do QR permanecem pendentes.
+
+## 20. Observação impressa e prévia compatível com celular — 23/10/2026
+
+Pedido do usuário: conferir a observação ausente no cartão PDF e a prévia que abre no computador, mas não no celular. A regra anterior excluía as observações da projeção administrativa e do desenho do PDF. Este pedido substitui essa regra: `/admin/cartao` passa a devolver a observação textual atual (`informacao`, fallback `observacao`, limite existente de 20 mil caracteres), após validar o vínculo de cada endereço. O PDF imprime `Obs.:` abaixo do respectivo endereço, preserva quebras de linha e inclui esse texto na seleção/verificação da fonte Unicode. Não altera snapshots nem envia observações ao fornecedor do mapa.
+
+A prévia anterior usava `<object type="application/pdf">`, dependente de suporte embutido do navegador/WebView. A nova prévia usa PDF.js carregado sob demanda para renderizar os bytes do próprio PDF em Canvas local, com largura adaptada à tela. Inclui estado de carregamento, mensagem de falha com orientação para baixar/compartilhar, cancelamento e liberação dos recursos ao fechar. Worker PDF.js empacotado localmente e incluído no precache PWA (`mjs`); nenhuma URL pública do documento ou CDN. Download/compartilhamento mantém o caminho existente.
+
+Validação local: 344 testes em 23 arquivos, lint e build aprovados. Regressões verificam a projeção da observação atual e legada, sua ordem abaixo do endereço, quebras de linha, renderização sequencial das páginas, cópia dos bytes, limpeza e mensagem de falha. Cinco PDFs sintéticos conferidos por extração (uma página de 93 × 145 mm, endereços e observações completos, margens e rodapé); exemplos de seis endereços e Unicode renderizados e inspecionados via Poppler e PDF.js. Mantida a decisão anterior de uma página: fontes medidas de 10 pt (curto), 9,02 pt (seis), 5,51 pt (seis longos com observações) e 3,38 pt (30 endereços); listas extremas continuam com limitação de legibilidade física. A correção não muda essa política automaticamente.
+
+Diagnóstico do mecanismo de prévia confirmado no código; não houve reprodução no celular nem validação física Android/WebView. Nenhuma tentativa de navegador nesta rodada. A confirmação no dispositivo continua pendente. Alterações somente locais, sem deploy, mudança de versão, dados reais, commit ou push. Para publicação futura, serão necessários Worker de designações e frontend/PWA/OTA.
+
+Complemento solicitado em 23/10/2026: observações usam 80% da fonte do endereço, com entrelinha de 1,1 e medição conjunta para caber na mesma página. Cada item imprime `código - classe - endereço`; usa as classes canônicas do cadastro: Confirmado, Verificar e Estudo. A projeção administrativa lê a classe atual, inclusive quando o endereço vem de snapshot, e omite classes `excluido`/`cancelado` antes de fornecer a lista à captura do mapa e ao PDF. Arquivados continuam omitidos. Cancelados são contabilizados separadamente na prévia; nenhum cadastro ou snapshot é alterado. Sem classe legada válida, mantém o padrão Confirmado do cadastro. Sem itens elegíveis, a geração é recusada. Esse filtro se aplica ao cartão, sem modificar o acesso ou progresso digital das designações.
+
+Validação do complemento: 347 testes/23 arquivos, lint e build. Cinco PDFs conferidos por extração, incluindo presença das três classes e proporção exata de 80% na fonte da observação; exemplos seis/longos/Unicode renderizados e inspecionados. Medidas de 93 × 145 mm, textos e margens preservados. A lista mantém a política de uma página e redução uniforme da fonte principal; exemplos com fonte principal 10/9,32/6,53/3,43 pt para curto/seis/longos/30 itens. Reservado 1 mm de folga na quebra do texto para diferenças entre métricas e glifos renderizados. Sem publicação ou validação física no celular.
+
+## 21. Publicação autorizada dos ajustes PDF — 23/10/2026
+
+Autorização nesta conversa: “pode publicar tudo”. Publicados Worker de designações `territorios-designacoes-idiomas` e frontend/PWA/OTA **3.9.387**, em https://territ-es-sbs.web.app (projeto `territ-es-sul-sbs`, alvo `hosting:app`). Inclui observações atuais com fonte 20% menor e entrelinha compacta, classe antes do endereço, omissão de excluídos/cancelados na composição do cartão/mapa e prévia local por PDF.js. Nenhuma alteração de Rules/índices era necessária nesta rodada.
+
+Comandos: `npm.cmd run designacoes:deploy`, `npm.cmd run web:deploy`, `node scripts/verificar-publicacao-cartao.mjs` e `npx.cmd wrangler deployments list --config workers/designacoes/wrangler.idiomas.jsonc`. Guards de conta/projeto aprovados. Worker ativo a 100% na versão `42c12436-740c-4b81-a00d-ed1a8c05e901`, mantendo cron e bindings. Build final aprovado; pacote/lockfile alinhados em 3.9.387.
+
+Conferência remota às 11:06 (America/Sao_Paulo): versão pública e manifesto OTA 3.9.387; 34 arquivos HTML/SW/assets correspondem ao build por SHA-256, incluindo fonte Unicode, módulo de prévia e worker PDF.js. ZIP OTA igual ao local e ao hash do manifesto `278e108e5d12244bde92611f602dc46d913f2fbb34fd41514d4bda950e25eff4`. API rejeitou credencial inválida com 403, CORS esperado e `no-store`. Worker PDF.js servido com HTTP 200 e `text/javascript; charset=utf-8`. Evidência reproduzível em `artifacts/release/verification-3.9.387.json`.
+
+Sem migração, criação de designações ou alteração de dados operacionais para validar, mensagens, commit ou push. Publicação e conferência de arquivos não comprovam abertura/uso no celular nem impressão física; aguardam confirmação no dispositivo. Não houve tentativa de navegador nesta rodada.
+
+## 22. Guia de recorte no cartão — 23/10/2026
+
+A pedido do usuário, o PDF passa a ter um contorno vetorial preto de 0,2 mm, com recuo de 1 mm em relação às quatro bordas. O traço fica integralmente dentro da página, fora da área de conteúdo que começa a 3 mm, e serve de guia para recortar cartões impressos juntos. Mantidas as medidas da página de 93 × 145 mm; o guia fica a 1 mm da borda, sem marcas externas. Cinco PDFs sintéticos conferidos por extração; exemplo de seis endereços renderizado e inspecionado com a borda. 347 testes, lint e build aprovados. Ajuste local, ainda não publicado; impressão física não validada.
+
+## 23. Publicação da borda de recorte — 23/10/2026
+
+Autorização: “então publique”. Executado `npm.cmd run web:deploy`, publicando frontend/PWA e pacote OTA **3.9.388** no alvo `hosting:app` de `territ-es-sul-sbs`, https://territ-es-sbs.web.app. Inclui contorno preto vetorial de 0,2 mm com recuo de 1 mm em cada lado do cartão. Guard de projeto e build aprovados; lockfile alinhado à versão.
+
+Conferência remota às 11:13 (America/Sao_Paulo), por `node scripts/verificar-publicacao-cartao.mjs`: versão pública e manifesto OTA 3.9.388; 34 arquivos HTML/SW/assets idênticos ao build por SHA-256; ZIP OTA igual ao local e ao hash `5145698c96d7934be1bea1094497495f7fe2d951de245a81ca5cb8085a947a9b`. API existente rejeitou token inválido com 403, CORS esperado e `no-store`. Evidência em `artifacts/release/verification-3.9.388.json`.
+
+Worker, Rules e índices não precisaram de nova publicação. Sem dados operacionais de teste, migração, mensagens, commit ou push. Impressão física e conferência no celular continuam pendentes; nenhuma tentativa de navegador nesta rodada.

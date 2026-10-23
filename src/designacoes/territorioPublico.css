@@ -225,11 +225,11 @@
   width: 100%;
   height: 100%;
   padding: 4px 7px;
-  border: 2px solid #fff;
+  border: 1.5px solid #fff;
   border-radius: 18px;
-  background: #2563eb;
+  background: #64748b;
   color: #fff;
-  box-shadow: 0 2px 7px #0f172a40;
+  box-shadow: 0 1px 4px #0f172a33;
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
@@ -243,15 +243,15 @@
   width: 8px;
   height: 8px;
   background: inherit;
-  border-right: 2px solid #fff;
-  border-bottom: 2px solid #fff;
+  border-right: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
   transform: rotate(45deg);
 }
 .tp-map-marker-done .tp-map-pin {
   background: #15803d;
 }
 .tp-map-marker:focus-visible {
-  outline: 3px solid #f59e0b;
+  outline: 2px solid #1e293b;
   outline-offset: 4px;
   border-radius: 18px;
 }
@@ -347,7 +347,7 @@
   border-radius: 3px;
 }
 .tp-legend-pending {
-  background: #2563eb;
+  background: #64748b;
 }
 .tp-legend-done {
   background: #15803d;
@@ -387,8 +387,8 @@
   margin-left: 4px;
   padding: 1px 7px;
   border-radius: 6px;
-  background: #dbeafe;
-  color: #1e40af;
+  background: #f1f5f9;
+  color: #475569;
   font-size: 12px;
   vertical-align: middle;
 }
@@ -421,14 +421,14 @@
   scroll-margin-bottom: 100px;
 }
 .tp-address-card-done {
-  border-color: #86efac;
+  border-color: #e2e8f0;
   border-left-color: #15803d;
   background: #f0fdf4;
 }
 .tp-address-code {
   font-size: 13px;
   font-weight: 700;
-  color: #1d4ed8;
+  color: #334155;
 }
 .tp-address-card-done .tp-address-code {
   color: #166534;
@@ -438,8 +438,8 @@
   align-items: center;
   border-radius: 20px;
   padding: 2px 8px;
-  background: #dbeafe;
-  color: #1e40af;
+  background: #f1f5f9;
+  color: #475569;
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;

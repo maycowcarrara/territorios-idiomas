@@ -681,6 +681,23 @@ describe("cartão e PIN", () => {
     expect(t.docs.get(`designacoes_links/${share.id}`).tokenVersao).toBe(before);
     expect(share.mensagem).toContain(`Código de acesso: ${share.codigoAcesso}`);
   });
+  it.each([false,true])("usa classe atual e omite cancelados no cartão, com snapshot=%s", async snapshot => {
+    const t=setup();
+    if(snapshot) await t.criar();
+    for (const classe of ["confirmado","verificar","estudo"]) {
+      t.docs.get("enderecos/e1").classe=classe;
+      expect((await t.admin("cartao",{grupoId:"g1"})).enderecos[0].classe).toBe(classe);
+    }
+    for (const classe of ["excluido","cancelado"]) {
+      Object.assign(t.docs.get("enderecos/e1"),{classe,lat:null,lng:null});
+      const card=await t.admin("cartao",{grupoId:"g1"});
+      expect(card.enderecos.map(e=>e.id)).toEqual(["e2"]);
+      expect(card.cancelados).toBe(1);
+      expect(card.enderecos[0].classe).toBe("confirmado");
+    }
+    t.docs.get("enderecos/e2").classe="excluido";
+    await expect(t.admin("cartao",{grupoId:"g1"})).rejects.toThrow("Revise a lista");
+  });
   it("aceita 0000, preserva cifra e troca por sessão aleatória escopada", async () => {
     const original=crypto.getRandomValues.bind(crypto);
     const spy=vi.spyOn(crypto,"getRandomValues").mockImplementation(a=>a instanceof Uint16Array ? (a.fill(0),a) : original(a));
@@ -730,7 +747,11 @@ describe("cartão e PIN", () => {
     expect(p.enderecos[1].observacao).toBe("Informação legada");
     expect(t.docs.get(`designacoes_links/${s.id}`).enderecos[0].observacao).toBeUndefined();
     expect(JSON.stringify(await t.service.cardAction("cartao",{cartaoId:s.cartaoId}))).not.toContain("Portão");
-    expect(JSON.stringify(await t.admin("cartao",{grupoId:"g1"}))).not.toContain("Portão");
+    const impresso = await t.admin("cartao",{grupoId:"g1"});
+    expect(impresso.enderecos[0].observacao).toBe("Portão azul\n<script>texto</script>");
+    expect(impresso.enderecos[1].observacao).toBe("Informação legada");
+    t.docs.get("enderecos/e1").informacao = "Observação corrigida";
+    expect((await t.admin("cartao",{grupoId:"g1"})).enderecos[0].observacao).toBe("Observação corrigida");
     t.docs.get("enderecos/e1").grupoId="outro";
     await expect(t.publico("territorio",s)).rejects.toMatchObject({code:409});
   });

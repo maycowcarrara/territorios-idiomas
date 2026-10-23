@@ -20,6 +20,9 @@ for (const [name,count] of [["curto",4],["seis",6],["longo",6],["paginado",30],[
     const textos=["Rua № 1, Centro","Русский — улица Пушкина, 2","Українська — вулиця Київська, 3","中文 — 中山路 4","日本語 — 桜通り 5","한국어 — 서울로 6","العربية — شارع النور 7"];
     dados.enderecos.forEach((e,i)=>{e.endereco=textos[i];});
   }
+  dados.enderecos.forEach((e,i) => { e.classe = ["confirmado", "verificar", "estudo"][i % 3]; });
+  dados.enderecos[0].observacao = name === "unicode" ? "中文 日本語 - Entrada lateral" : "Portão azul\nEntrada pela lateral; tocar a campainha.";
+  if(name === "longo") dados.enderecos.forEach(e => {e.observacao = "Entrada pela lateral. Visitar no período da tarde. Confirmar o bloco e o apartamento antes de entrar.";});
   const mapa=await carregarMapaCartao(dados,mapaFixture);
   const doc=await criarCartaoPdf(dados,mapa,new Date("2026-10-22T15:00Z"),{carregarFonte:async()=>readFileSync("src/designacoes/fonts/unifont.ttf").toString("base64")});
   if(doc.getNumberOfPages()!==1) throw new Error(`${name}: cartão deve ter uma página`);

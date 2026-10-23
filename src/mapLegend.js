@@ -1,38 +1,54 @@
+// A cor representa a situação; bairro, vínculo e seleção usam texto ou símbolos.
+const disponivel = { fill: '#64748b', border: '#64748b', marker: '#64748b' };
+const andamento = { fill: '#2563eb', border: '#2563eb', marker: '#2563eb' };
+const concluido = { fill: '#15803d', border: '#15803d', marker: '#15803d' };
+const aguardando = { fill: '#b45309', border: '#b45309', marker: '#b45309' };
+const arquivado = { fill: '#94a3b8', border: '#64748b', marker: '#64748b' };
+
 export const MAP_COLORS = {
   territorio: {
-    disponivelNunca: { fill: '#fed7aa', border: '#c2410c' },
-    disponivelRecente: { fill: '#ffedd5', border: '#c2410c' },
-    disponivel60a120: { fill: '#fb923c', border: '#c2410c' },
-    disponivel120a180: { fill: '#ea580c', border: '#c2410c' },
-    disponivel180Mais: { fill: '#c2410c', border: '#c2410c' },
-    meu: { fill: '#3b82f6', border: '#1e40af' },
-    meuAdmin: { fill: '#a855f7', border: '#6b21a8' },
-    aguardandoFinalizacao: { fill: '#facc15', border: '#ca8a04' },
-    finalizado: { fill: '#22c55e', border: '#15803d' },
-    ocupado: { fill: '#9ca3af', border: '#4b5563' }
+    disponivelNunca: disponivel,
+    disponivelRecente: disponivel,
+    disponivel60a120: disponivel,
+    disponivel120a180: disponivel,
+    disponivel180Mais: disponivel,
+    meu: andamento,
+    meuAdmin: andamento,
+    aguardandoFinalizacao: aguardando,
+    finalizado: concluido,
+    ocupado: andamento
   },
   grupoEndereco: {
-    ativo: { fill: '#818cf8', border: '#4f46e5', marker: '#4338ca' },
-    designado: { fill: '#bfdbfe', border: '#2563eb', marker: '#2563eb' },
-    finalizado: { fill: '#22c55e', border: '#15803d', marker: '#15803d' },
-    arquivado: { fill: '#94a3b8', border: '#64748b', marker: '#475569' }
+    ativo: disponivel,
+    designado: andamento,
+    aguardandoFinalizacao: aguardando,
+    finalizado: concluido,
+    arquivado
   },
   endereco: {
-    ativo: '#0f766e',
-    agrupado: '#7c3aed',
-    selecionado: '#f59e0b',
+    ativo: '#64748b',
+    agrupado: '#64748b',
+    selecionado: '#1e293b',
     arquivado: '#64748b',
-    visitado: '#16a34a',
-    pendente: '#ef4444'
+    visitado: '#15803d',
+    pendente: '#64748b'
   },
   apoio: {
-    referencia: '#f43f5e',
-    condominio: '#2563eb',
+    referencia: '#64748b',
+    condominio: '#64748b',
     clique: '#2563eb',
     trilha: '#94a3b8',
     barraProgressoBase: '#374151'
   }
 };
+
+export function getGrupoMapaAppearance({ arquivado, finalizado, designado, completo }) {
+  if (arquivado) return { colors: MAP_COLORS.grupoEndereco.arquivado, className: 'archived', label: 'Arquivado', symbol: '▤' };
+  if (finalizado) return { colors: MAP_COLORS.grupoEndereco.finalizado, className: 'finished', label: 'Finalizado', symbol: '✓' };
+  if (designado && completo) return { colors: MAP_COLORS.grupoEndereco.aguardandoFinalizacao, className: 'waiting', label: 'Aguardando finalização', symbol: '◷' };
+  if (designado) return { colors: MAP_COLORS.grupoEndereco.designado, className: 'assigned', label: 'Designado', symbol: '' };
+  return { colors: MAP_COLORS.grupoEndereco.ativo, className: '', label: 'Disponível', symbol: '' };
+}
 
 export const TERRITORIO_RECENCY_STEPS = [
   {

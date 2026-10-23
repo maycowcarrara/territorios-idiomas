@@ -13,6 +13,7 @@ import {
 } from '../../enderecoModel';
 import { stopMapDomEvent, useLeafletDomEventIsolation } from '../utils/mapDomEvents';
 import { formatAuditDateTime } from '../utils/enderecoModalUtils';
+import { grupoSemEnderecos } from '../utils/grupoSemEnderecos';
 
 function resolveGrupoCodigoPartes(codigo, defaultPrefix) {
     const raw = String(codigo || '').trim();
@@ -45,7 +46,8 @@ export const GrupoEnderecoEditModal = ({
     enderecoConfig,
     loading,
     onClose,
-    onSubmit
+    onSubmit,
+    onToggleArchive
 }) => {
     const modalRef = useLeafletDomEventIsolation();
     const config = useMemo(() => normalizeEnderecoConfig(enderecoConfig), [enderecoConfig]);
@@ -235,6 +237,7 @@ export const GrupoEnderecoEditModal = ({
                                 </span>
                             </div>
 
+                            {grupoSemEnderecos(grupo) && <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600"><strong>Sem endereços.</strong> Oculto do mapa por padrão; use o filtro para mostrá-lo. O número permanece reservado; você pode reutilizar este território adicionando novos endereços{grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO ? ' após reativá-lo' : ''}.</p>}
                             <label className="block">
                                 <span className="mb-1 block text-xs font-bold uppercase text-slate-500">
                                     Código do território <span className="text-rose-500">*</span>
@@ -346,6 +349,7 @@ export const GrupoEnderecoEditModal = ({
                 </div>
 
                 <div className="flex flex-col-reverse gap-2 border-t border-slate-200 px-4 py-3 sm:flex-row sm:justify-end">
+                    {onToggleArchive && <button type="button" onClick={() => onToggleArchive(grupo)} disabled={loading || grupo.designacaoTipo === 'link'} className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-bold text-amber-800 disabled:opacity-50">{grupo.status === GRUPO_ENDERECO_STATUS.ARQUIVADO ? 'Reativar território' : 'Arquivar território'}</button>}
                     <button
                         type="button"
                         onClick={onClose}

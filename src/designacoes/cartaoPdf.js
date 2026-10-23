@@ -6,6 +6,36 @@ import { carregarFonteCartao, precisaFonteUnicode } from "./cartaoFonte.js";
 export const CARTAO_WIDTH = 93;
 export const CARTAO_HEIGHT = 145;
 const MM_PER_PT = 25.4 / 72;
+const CLASSES = { confirmado: "Confirmado", verificar: "Verificar", estudo: "Estudo" };
+
+// Measure addresses and their smaller notes together before choosing a size.
+export function ajustarEnderecosCartao(doc, enderecos, width, height) {
+  // Leave 1 mm for differences between PDF font metrics and rendered glyphs.
+  const textWidth = width - 1;
+  const medir = fontSize => {
+    const gap = fontSize * MM_PER_PT * 0.4;
+    const itens = enderecos.map(e => {
+      doc.setFontSize(fontSize);
+      const classe = CLASSES[e.classe] || CLASSES.confirmado;
+      const linhas = doc.splitTextToSize(`${e.codigo} - ${classe} - ${enderecoParaCartao(e.endereco)}`, textWidth);
+      const obsFontSize = fontSize * 0.8;
+      doc.setFontSize(obsFontSize);
+      const observacoes = e.observacao?.trim() ? doc.splitTextToSize(`Obs.: ${e.observacao.trim()}`, textWidth) : [];
+      return { linhas, observacoes, obsFontSize, lineHeight: fontSize * MM_PER_PT * 1.18, obsLineHeight: obsFontSize * MM_PER_PT * 1.1 };
+    });
+    return { fontSize, gap, itens, height: itens.reduce((n, item) => n + item.linhas.length * item.lineHeight + item.observacoes.length * item.obsLineHeight, 0) + Math.max(0, itens.length - 1) * gap };
+  };
+  let layout = medir(10);
+  if (layout.height <= height) return layout;
+  let low = 0, high = 10;
+  for (let i = 0; i < 32; i++) {
+    const middle = (low + high) / 2;
+    const candidate = medir(middle);
+    if (candidate.height <= height) { low = middle; layout = candidate; }
+    else high = middle;
+  }
+  return layout;
+}
 
 // Measure every wrapped line before drawing. All addresses share the largest
 // font that fits; neither continuation pages nor truncated addresses are used.
@@ -34,7 +64,7 @@ export async function criarCartaoPdf(dados, mapa, data = new Date(), { carregarF
     throw new Error("Mapa estático válido e créditos são obrigatórios.");
   if (!dados.enderecos?.length || !/\/#\/c\/[\w-]+$/.test(dados.url))
     throw new Error("Cartão permanente ou endereços inválidos.");
-  const textos = [dados.codigo,dados.nome,dados.idioma,dados.cidade,dados.bairro,mapa.creditos,...dados.enderecos.flatMap(e=>[e.codigo,e.endereco])];
+  const textos = [dados.codigo,dados.nome,dados.idioma,dados.cidade,dados.bairro,mapa.creditos,...dados.enderecos.flatMap(e=>[e.codigo,e.endereco,e.observacao])];
   const doc = new jsPDF({ unit: "mm", format: [93, 145], orientation: "portrait", compress: true });
   const unicode = precisaFonteUnicode(textos);
   if (unicode) {
@@ -82,13 +112,22 @@ export async function criarCartaoPdf(dados, mapa, data = new Date(), { carregarF
   footer.linhas[0].forEach((line, i) => doc.text(line, 90, footerTop + i * footer.lineHeight, { align: "right", baseline: "top" }));
 
   y = 79;
-  const layout = ajustarListaCartao(doc, dados.enderecos.map(e => `${e.codigo} - ${enderecoParaCartao(e.endereco)}`), width, footerTop - 2 - y);
-  doc.setTextColor(30); doc.setFontSize(layout.fontSize);
-  for (const lines of layout.linhas) {
-    for (const line of lines) {
-      doc.text(line, margin, y, { baseline: "top" }); y += layout.lineHeight;
+  const layout = ajustarEnderecosCartao(doc, dados.enderecos, width, footerTop - 2 - y);
+  doc.setTextColor(30);
+  for (const item of layout.itens) {
+    doc.setFontSize(layout.fontSize);
+    for (const line of item.linhas) {
+      doc.text(line, margin, y, { baseline: "top" }); y += item.lineHeight;
+    }
+    doc.setFontSize(item.obsFontSize);
+    for (const line of item.observacoes) {
+      doc.text(line, margin, y, { baseline: "top" }); y += item.obsLineHeight;
     }
     y += layout.gap;
   }
+  // Inset cutting guide: a visible print stroke, fully inside the PDF page.
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.2);
+  doc.rect(1, 1, CARTAO_WIDTH - 2, CARTAO_HEIGHT - 2, "S");
   return doc;
 }

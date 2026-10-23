@@ -118,7 +118,7 @@ export const EnderecoClusterMarker = ({
                         <div className="border-b border-slate-200 pb-2">
                             <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-1.5">
-                                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-xs font-black text-white">
+                                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-500 text-xs font-black text-white">
                                         {cluster.count}
                                     </span>
                                     <h4 className="text-sm font-black text-slate-800">
@@ -158,7 +158,7 @@ export const EnderecoClusterMarker = ({
                                                             className={`rounded px-1.5 py-0.5 text-[10px] font-black uppercase ${
                                                                 isVisited
                                                                     ? 'bg-emerald-200 text-emerald-800'
-                                                                    : 'bg-teal-100 text-teal-800'
+                                                                    : 'bg-slate-100 text-slate-600'
                                                             }`}
                                                         >
                                                             {isVisited ? 'Pregado' : 'Pendente'}

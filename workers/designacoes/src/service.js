@@ -651,17 +651,21 @@ export function createService(store, env, clock = () => new Date()) {
           await validarVinculo(tx, g.designacaoId, snapshot, agora, true, true);
         }
         const enderecos = [];
+        let cancelados = 0;
         let arquivados = snapshot ? (g.enderecoIds || []).filter(id => !snapshot.enderecos.some(e => e.id === id)).length : 0;
         for (const enderecoId of (snapshot ? snapshot.enderecos.map(e => e.id) : g.enderecoIds || [])) {
           const e = await tx.get(`enderecos/${enderecoId}`);
           exigir(e && e.grupoId === body.grupoId, "Revise os endereços vinculados.", 409);
           if (e.status === "arquivado") { arquivados++; continue; }
+          const classe = String(e.classe || "").trim().toLowerCase();
+          if (["excluido", "cancelado"].includes(classe)) { cancelados++; continue; }
           const frozen = snapshot?.enderecos.find(e => e.id === enderecoId);
-          enderecos.push({ id: enderecoId, codigo: frozen?.codigo || curto(e.codigo), endereco: frozen?.endereco || [e.endereco,e.bairro].filter(Boolean).join(" — "), lat: e.lat ?? null, lng: e.lng ?? null, mapsUrl: frozen?.mapsUrl || null });
+          const texto = typeof e.informacao === "string" && e.informacao.trim() ? e.informacao : e.observacao;
+          enderecos.push({ id: enderecoId, codigo: frozen?.codigo || curto(e.codigo), endereco: frozen?.endereco || [e.endereco,e.bairro].filter(Boolean).join(" — "), lat: e.lat ?? null, lng: e.lng ?? null, mapsUrl: frozen?.mapsUrl || null, classe: ["confirmado", "verificar", "estudo"].includes(classe) ? classe : "confirmado", observacao: typeof texto === "string" ? texto.slice(0, 20000) : "" });
         }
         exigir(enderecos.length > 0 && enderecos.length <= MAX_ENDERECOS_DESIGNACAO, "Revise a lista de endereços.");
         const cartaoId = await obterCartao(tx, body.grupoId, agora);
-        return { cartaoId, codigo: curto(g.codigo), nome: g.nome || curto(g.codigo), idioma: g.idioma || "", bairro: g.bairro || "", enderecos, arquivados, url: `${env.PUBLIC_APP_URL.replace(/\/$/, "")}/#/c/${cartaoId}` };
+        return { cartaoId, codigo: curto(g.codigo), nome: g.nome || curto(g.codigo), idioma: g.idioma || "", bairro: g.bairro || "", enderecos, arquivados, cancelados, url: `${env.PUBLIC_APP_URL.replace(/\/$/, "")}/#/c/${cartaoId}` };
       }
       if (action === "criar") return criar(tx, body, autor, agora);
       exigir(idValido(id), "Designação inválida.");

@@ -18,34 +18,23 @@ export const BairroSbsLayer = ({
 
     return (
         <>
-            {features.map((feature, index) => {
+            {features.map((feature) => {
                 const bairroId = feature.properties.bairroId;
                 const nome = feature.properties.bairroNome;
                 const resumo = resumoPorBairro.get(bairroId) || createEmptyBairroResumo();
                 const positions = getBairroLeafletPositions(feature);
-                const colors = getBairroSbsColor(index);
-                const completo = resumo.total > 0 && resumo.faltando === 0;
-                const temAndamento = resumo.emAndamento > 0;
+                const colors = getBairroSbsColor();
                 const percentual = resumo.total > 0
                     ? Math.round((resumo.cobertos / resumo.total) * 100)
                     : 0;
-                const pathOptions = mostrarCobertura
-                    ? {
-                        color: colors.border,
-                        fillColor: colors.fill,
-                        weight: completo ? 2.6 : temAndamento ? 2.2 : 1.6,
-                        opacity: resumo.total > 0 ? 0.88 : 0.62,
-                        fillOpacity: resumo.total > 0 ? 0.24 : 0.11,
-                        dashArray: resumo.total > 0 ? undefined : '7 8'
-                    }
-                    : {
-                        color: colors.border,
-                        fillColor: colors.fill,
-                        weight: 1.6,
-                        opacity: 0.72,
-                        fillOpacity: 0.14,
-                        dashArray: undefined
-                    };
+                const pathOptions = {
+                    color: colors.border,
+                    weight: 1,
+                    opacity: 0.6,
+                    fillColor: colors.fill,
+                    fillOpacity: 0,
+                    dashArray: undefined
+                };
 
                 return (
                     <Polygon
@@ -109,12 +98,12 @@ export const BairroSbsLayer = ({
                                                     <div className="mt-1 text-base font-black leading-none text-slate-800">{resumo.total}</div>
                                                 </div>
                                                 <div className="border-x border-slate-100 bg-white px-2 py-1.5">
-                                                    <div className="text-[9px] font-black uppercase leading-none text-emerald-600">Cobertos</div>
-                                                    <div className="mt-1 text-base font-black leading-none text-emerald-700">{resumo.cobertos}</div>
+                                                    <div className="text-[9px] font-black uppercase leading-none text-slate-500">Cobertos</div>
+                                                    <div className="mt-1 text-base font-black leading-none text-slate-700">{resumo.cobertos}</div>
                                                 </div>
                                                 <div className="bg-white px-2 py-1.5">
-                                                    <div className="text-[9px] font-black uppercase leading-none text-amber-600">Faltam</div>
-                                                    <div className="mt-1 text-base font-black leading-none text-amber-700">{resumo.faltando}</div>
+                                                    <div className="text-[9px] font-black uppercase leading-none text-slate-500">Faltam</div>
+                                                    <div className="mt-1 text-base font-black leading-none text-slate-700">{resumo.faltando}</div>
                                                 </div>
                                             </div>
 
